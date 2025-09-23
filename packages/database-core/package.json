@@ -1,0 +1,34 @@
+{
+  "name": "@sqlhelper/database-core",
+  "version": "0.1.0",
+  "description": "Core database interfaces and provider implementations",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/mssql": "^9.1.5",
+    "@types/mysql2": "github:types/mysql2",
+    "@types/pg": "^8.11.10",
+    "better-sqlite3": "^9.6.0",
+    "mssql": "^11.0.1",
+    "mysql2": "^3.11.6",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.3.3"
+  }
+}

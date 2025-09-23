@@ -1,0 +1,165 @@
+BUILD A CROSS-PLATFORM AI-ASSISTED SQL DATABASE DESKTOP APP
+
+You are an expert product+tech team (software architect, UX lead, senior frontend, senior backend, DevOps, QA) tasked with delivering a production-grade, commercial desktop application from scratch. Produce code, configuration, tests, build pipelines, packaging, and documentation.
+
+0) OVERVIEW
+
+Create a cross-platform desktop app (macOS, Windows, Linux) for managing SQL databases. Core goal: users can ask in natural language for actions or questions; an AI engine turns those requests into SQL that appears in the central editor and can be executed safely with strong guardrails.
+	•	Initial DB engine: Microsoft SQL Server (must be first-class).
+	•	Architecture must be open to future engines (e.g., PostgreSQL).
+	•	The UI layout mirrors Azure Data Studio / VS Code:
+	•	Left: collapsible Tree (servers → databases → schemas → tables/views/procs → columns, indexes, keys, constraints).
+	•	Center: Work Area with flexible tiling (split panes, tabs, drag-to-dock bottom/right/side-by-side). Top sub-toolbar with Run/Explain/Format/Cancel, DB/connection pickers, and row limit.
+	•	Bottom of the Center: resizable Results Panel (grid, messages, execution time, row count, warnings). User can drag splitter to show more editor or more results.
+	•	Right: resizable Chat Panel (AI assistant like Copilot/Cursor) that generates SQL or actions; requests materialize as editable SQL in the current editor tab.
+	•	Top: native menu (File, Edit, View, Database, AI, Help) with standard shortcuts.
+	•	Dialogs for adding/editing DB connections, preferences, telemetry, updates.
+	•	Local persistent store for settings, connections, history, chat logs.
+
+1) PLATFORM & STACK (choose defaults and implement)
+	•	Shell: Electron (latest stable) with React + TypeScript UI, Vite bundler.
+	•	State: React Query + Zustand (or Redux Toolkit) with clear layering.
+	•	Styling: Tailwind CSS + headless UI components. Provide both Light/Dark themes.
+	•	Icons: Lucide; monospaced editor font with ligatures; respect OS high-DPI and accessibility.
+	•	Code Editor: Monaco Editor configured for SQL (T-SQL, later others). Include formatting, lint hints, bracket matching, intellisense hooks.
+	•	Backend (app process): Node.js (TypeScript) for portability and easy MCP embedding.
+	•	DB Drivers:
+	•	SQL Server: mssql (tedious). Provide pooled connections, parameterized queries, cancel tokens.
+	•	Abstraction layer that can support future engines (define IDatabaseProvider).
+	•	Local DB: SQLite via better-sqlite3 for settings, connections, chat history, query history, saved snippets. Use a small ORM like Drizzle (SQL schema first). Encrypt sensitive fields (see Security).
+	•	AI Providers (configurable): pluggable provider interface supporting Azure OpenAI, OpenAI, Anthropic, local Ollama. Users supply API key + endpoint per provider. Store provider profiles in local DB (encrypted secrets).
+	•	MCP (Model Context Protocol): prepare to embed MCP tools in the Node backend (stdio transport). Include examples of at least:
+	•	db.execute (safe execution wrapper)
+	•	db.describe (schema/introspection)
+	•	file.read/write (workspace snippets)
+	•	Design clear JSON schemas for tool inputs/outputs.
+
+2) SECURITY, PRIVACY & GUARDRAILS (mandatory)
+
+Implement a full guardrail system around AI-generated SQL:
+	•	Read-only mode default for AI actions. Separate “Allow Writes” toggle per connection and per session.
+	•	Before executing any DDL/DML, show a Review & Confirm modal with:
+	•	Parsed statement list, targeted objects, estimated row counts (dry-run), transaction preview.
+	•	Option to wrap in BEGIN TRAN … ROLLBACK/COMMIT with configurable timeout.
+	•	Schema allowlist per connection (databases/schemas/tables the AI can touch).
+	•	Blocklist for dangerous operations: DROP DATABASE, TRUNCATE, cross-db writes, ALTER LOGIN, etc. Require manual override.
+	•	Static SQL lint (SQLFluff ruleset) and parameterization by default. Never interpolate user strings unsafely.
+	•	Execution limits: max rows, max time, cancel button wired to driver.
+	•	Audit log (local DB): who/when/connection, SQL text (hash), result summary.
+	•	Secret storage: encrypt credentials in local store using OS keychain where possible (Keytar: Keychain on macOS, DPAPI on Windows, libsecret on Linux). Never log secrets.
+
+3) CORE FEATURES
+	•	Connections Manager: add/edit/delete; fields for server, auth (SQL auth, Windows/Integrated when possible; Azure AD/Entra ID optional later), database, port, SSL; test button; save to vault.
+	•	Explorer Tree: lazy-load nodes; context menus (New Query, Top 100, Script as SELECT/INSERT/UPDATE/DELETE, Properties).
+	•	Query Editor: tabs, connection binding, keyword casing, format, inline results toggle, execution plan (if feasible via SET SHOWPLAN_XML), messages/errors.
+	•	Results Grid: paging, copy, save as CSV (MVP), export column selection, row count, duration. (Design to extend later to JSON/Parquet/Excel.)
+	•	AI Chat Panel:
+	•	Modes: “Ask”, “Refactor”, “Explain Plan”, “Generate Migration Script”.
+	•	Tools exposed to the model: describe_schema, propose_sql, explain_sql, execute_sql (read-only), simulate_write, format_sql.
+	•	Workflow: prompt → model drafts SQL → appears in center editor → user can edit → Run/Explain/Simulate.
+	•	Context: automatic schema snapshots (names, columns, PK/FK, row samples up to N) to ground generation via MCP tools; RAG index kept locally.
+	•	Safety: model cannot execute write queries directly; only user click can.
+	•	Migrations Module (lightweight):
+	•	Folder in app workspace for migration scripts with sequential timestamps.
+	•	Apply/rollback with transaction; track history table per DB.
+	•	History & Snippets: left sidebar sections for recent queries, saved snippets, and chat threads; fuzzy search.
+	•	Theming & Keybindings: VS Code-like shortcuts; configurable in Settings.
+	•	Internationalization: UI strings in English; i18n ready (Spanish planned). All user-visible strings externalized.
+
+4) PACKAGING, UPDATES, WEBSITE
+	•	Installers: Windows (NSIS or MSI), macOS (signed notarized DMG), Linux (AppImage + .deb). Use electron-builder.
+	•	Auto-update: electron-updater with delta updates; channel support (stable/beta). Offline mode supported.
+	•	Code signing: document required certs; add CI tasks to sign.
+	•	Download website: minimal marketing/docs site (VitePress or Next.js static) with versions page, changelog, checksums, and telemetry policy.
+
+5) TELEMETRY & PRIVACY
+	•	Opt-in analytics (post-install dialog + Settings toggle). Collect anonymized usage (feature hits, perf, errors). Crash reports with user consent only. No SQL text unless user enables diagnostics; when enabled, hash contents and strip literals.
+
+6) TESTING & QUALITY
+	•	Unit: Vitest for renderer and Node services.
+	•	E2E: Playwright for UI flows (open app, create connection, run query, export CSV, AI generate read-only SELECT).
+	•	Security tests: ensure DDL/DML are blocked in read-only; blocklist works; secrets never logged.
+	•	Load/perf: basic benchmarks for large result sets (100k rows virtualized).
+	•	Lint/Format: ESLint, Prettier, commit hooks with lint-staged + Husky.
+	•	Conventional Commits + auto-changelog.
+
+7) CI/CD WITH AZURE DEVOPS
+	•	Repo: monorepo with pnpm + Turbo.
+	•	Pipelines:
+	•	Build & test on push/PR (all OS matrix).
+	•	Package artifacts for each OS with signing steps.
+	•	Publish releases to website update feed + GitHub Releases (optional).
+	•	Secrets: Azure Key Vault for signing keys and CI tokens.
+	•	Artifacts: attach installers, checksums, release notes.
+
+8) PROJECT STRUCTURE (monorepo)
+/apps
+  /desktop        # Electron main & preload (TS)
+  /renderer       # React UI (Vite)
+/packages
+  /db-core        # IDatabaseProvider, drivers (mssql), schema introspection
+  /ai-core        # provider abstraction (OpenAI/Azure/Anthropic/Ollama) + MCP tools
+  /guardrails     # SQL lint, allow/block lists, simulators, reviewers
+  /local-store    # SQLite schemas, encryption helpers, migrations
+  /ui-kit         # shared components, themes, icons
+  /common         # types, utils, logging
+/tools            # scripts for codegen, release, schema snapshot
+/website          # docs & downloads site
+
+9) KEY IMPLEMENTATION DETAILS
+	•	IDatabaseProvider interface:
+	•	connect(config), disconnect(), listDatabases(), listSchemas(db), listTables(db, schema), getTableInfo(db, schema, table), execute(sql, params, options), explain(sql), estimateImpact(sql).
+	•	First implementation: SqlServerProvider using mssql with pooled connections and cancel.
+	•	AI Provider interface: generate(messages, tools, model, apiKey, endpoint). Support function calling / tool use. Configurable models per provider.
+	•	MCP embedding: start MCP server inside Node process; expose tools: describe_schema, search_schema, propose_sql, explain_sql, format_sql, simulate_write, execute_readonly. Transport: stdio. Provide JSON Schema for each tool.
+	•	Schema Context: maintain per-connection snapshot (names only; optional samples). Build a small local vector index for table/column descriptions to ground prompts.
+	•	CSV Export: stream to file, UTF-8 with BOM option, configurable delimiter and date format.
+	•	Accessibility: keyboard nav for tree/editor/results/chat; screen reader labels; high contrast theme.
+
+10) MENUS & COMMANDS (MVP)
+	•	File: New Query, Open Workspace, Save Query, Save Results as CSV, Preferences, Exit.
+	•	Edit: Undo/Redo, Find/Replace, Format SQL, Toggle Comment, Duplicate Line.
+	•	View: Toggle Panels (Explorer/Chat/Terminal/Results), Split Editor, Theme.
+	•	Database: New Connection, Disconnect, Refresh, Run, Explain, Cancel, Row Limit.
+	•	AI: Select Provider/Model, Manage Keys, Read-only Mode toggle, Safety Settings, Clear Chat.
+	•	Help: Docs, Keyboard Shortcuts, Check for Updates, About.
+
+11) SETTINGS & DIALOGS
+	•	New Connection dialog with validation + “Test Connection”.
+	•	Preferences: General (theme, telemetry), Editor, Results, Exports, Security (read-only default, blocklist), AI Providers (keys/endpoints/models), Network (proxy).
+	•	First-run onboarding: pick theme, telemetry opt-in, add first connection, AI provider optional.
+
+12) DOCUMENTATION TO DELIVER
+	•	README with quickstart.
+	•	/docs with:
+	•	Architecture diagram, module boundaries, sequence for AI request → SQL → guardrails → execution.
+	•	Security & privacy policy.
+	•	How to add a new DB engine provider (PostgreSQL example stub).
+	•	How to add a new AI provider.
+	•	MCP tools spec.
+	•	Release/Signing/Notarization guides.
+	•	Troubleshooting.
+
+13) ROADMAP PHASES
+	•	Phase 1 (MVP): SQL Server read-only flows, AI → SELECT generation, CSV export, guardrails, installers, website, auto-update, telemetry opt-in, E2E tests.
+	•	Phase 2: Controlled writes with Review & Confirm, migrations module, execution plans, snippets/history, SSH/bastion, Entra ID auth (if feasible).
+	•	Phase 3: PostgreSQL provider, Excel/Parquet export, ERD generation, team settings sync, plugin marketplace for MCP tools.
+
+14) ACCEPTANCE CRITERIA (MVP)
+	•	App installs and runs on macOS, Windows, Linux; signs/updates successfully.
+	•	Connect to SQL Server; browse tree; open editor; run SELECT; cancel long queries.
+	•	Chat can generate a SELECT against discovered schema; SQL appears in editor; does not execute without user action.
+	•	DDL/DML blocked in read-only; Review & Confirm required when write-mode enabled (with simulation).
+	•	Results grid exports to CSV; large results virtualized smoothly.
+	•	Secrets stored via OS keychain; nothing sensitive in logs.
+	•	CI builds and publishes installers + website page; Playwright E2E suite passes.
+
+15) DELIVERABLES
+	•	Complete monorepo with code, configs, tests.
+	•	Azure DevOps pipeline YAMLs for build/test/package/release.
+	•	Website with downloads and changelog.
+	•	Sample MCP tool implementations and unit tests.
+	•	Seed data and mock providers for offline demo.
+	•	Screenshots/GIFs in README showing the three-pane layout (Explorer / Editor+Results / Chat).
+
+Follow these instructions precisely. Prefer industry-standard libraries and patterns with long-term support. Write clean, well-documented TypeScript. Ensure everything runs with pnpm install && pnpm dev and builds with pnpm build on all main OSes.

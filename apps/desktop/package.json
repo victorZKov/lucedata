@@ -1,0 +1,37 @@
+{
+  "name": "@sqlhelper/desktop",
+  "productName": "SQL Helper",
+  "version": "0.1.0",
+  "description": "SQLHelper main process",
+  "main": "dist/apps/desktop/src/main.js",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently \"npm run build:watch\" \"npm run start:dev\"",
+    "build": "tsc",
+    "build:watch": "tsc --watch",
+    "start": "electron dist/apps/desktop/src/main.js",
+    "start:dev": "wait-on dist/apps/desktop/src/main.js && electron dist/apps/desktop/src/main.js --dev",
+    "clean": "rimraf dist",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@sqlhelper/database-core": "workspace:*",
+    "@sqlhelper/storage": "workspace:*",
+    "electron": "^28.1.0",
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.7",
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.5",
+    "concurrently": "^8.2.2",
+    "electron-builder": "^24.9.1",
+    "electron-rebuild": "^3.2.9",
+    "electron-reload": "^2.0.0-alpha.1",
+    "rimraf": "^5.0.5",
+    "typescript": "^5.3.3",
+    "wait-on": "^7.2.0"
+  },
+  "author": "SQLHelper Team",
+  "license": "MIT"
+}

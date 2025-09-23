@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
 import Layout from "./components/Layout";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
@@ -17,63 +18,63 @@ function App() {
   useEffect(() => {
     // Set up menu action handlers
     const handleMenuAction = (action: string, ...args: any[]) => {
-      console.log('Menu action:', action, args);
-      
+      console.log("Menu action:", action, args);
+
       switch (action) {
-        case 'new-connection':
+        case "new-connection":
           // Handle new connection
-          console.log('Opening new connection dialog');
+          console.log("Opening new connection dialog");
           break;
-        case 'select-ai-provider':
+        case "select-ai-provider":
           // Handle AI provider selection
-          console.log('Opening AI provider selection');
+          console.log("Opening AI provider selection");
           break;
-        case 'manage-api-keys':
+        case "manage-api-keys":
           // Handle API key management
-          console.log('Opening API key management');
+          console.log("Opening API key management");
           break;
-        case 'safety-settings':
+        case "safety-settings":
           // Handle safety settings
-          console.log('Opening safety settings');
+          console.log("Opening safety settings");
           break;
-        case 'new-query':
+        case "new-query":
           // Handle new query
-          console.log('Creating new query');
+          console.log("Creating new query");
           break;
-        case 'toggle-explorer':
+        case "toggle-explorer":
           // This will be handled by the Layout component
-          document.dispatchEvent(new CustomEvent('toggle-explorer'));
+          document.dispatchEvent(new CustomEvent("toggle-explorer"));
           break;
-        case 'toggle-chat':
+        case "toggle-chat":
           // This will be handled by the Layout component
-          document.dispatchEvent(new CustomEvent('toggle-chat'));
+          document.dispatchEvent(new CustomEvent("toggle-chat"));
           break;
-        case 'toggle-results':
+        case "toggle-results":
           // This will be handled by the WorkArea component
-          document.dispatchEvent(new CustomEvent('toggle-results'));
+          document.dispatchEvent(new CustomEvent("toggle-results"));
           break;
-        case 'preferences':
+        case "preferences":
           // Handle preferences
-          console.log('Opening preferences');
+          console.log("Opening preferences");
           break;
-        case 'find':
+        case "find":
           // Handle find
-          console.log('Opening find dialog');
+          console.log("Opening find dialog");
           break;
-        case 'replace':
+        case "replace":
           // Handle find and replace
-          console.log('Opening find and replace dialog');
+          console.log("Opening find and replace dialog");
           break;
-        case 'format-sql':
+        case "format-sql":
           // Handle SQL formatting
-          console.log('Formatting SQL');
+          console.log("Formatting SQL");
           break;
-        case 'toggle-comment':
+        case "toggle-comment":
           // Handle comment toggle
-          console.log('Toggling comment');
+          console.log("Toggling comment");
           break;
         default:
-          console.log('Unhandled menu action:', action);
+          console.log("Unhandled menu action:", action);
       }
     };
 
@@ -85,7 +86,7 @@ function App() {
     // Cleanup
     return () => {
       if (window.electronAPI) {
-        window.electronAPI.removeAllListeners('menu-action');
+        window.electronAPI.removeAllListeners("menu-action");
       }
     };
   }, []);
@@ -93,7 +94,7 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <div className="h-screen overflow-hidden bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors">
+        <div className="h-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors">
           <Layout />
         </div>
       </ThemeProvider>

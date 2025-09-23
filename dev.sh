@@ -14,6 +14,17 @@ if [ ! -f "package.json" ]; then
     exit 1
 fi
 
+# If called with 'prod' or '--prod', build and start desktop app instead of dev servers
+if [ "$1" = "prod" ] || [ "$1" = "--prod" ] || [ "$1" = "start" ] || [ "$1" = "--start" ]; then
+    echo "🏗️  Building renderer..."
+    pnpm -w --filter @sqlhelper/renderer build
+    echo "🏗️  Building desktop..."
+    pnpm -w --filter @sqlhelper/desktop build
+    echo "🚀 Starting desktop (production)..."
+    pnpm -w --filter @sqlhelper/desktop start
+    exit $?
+fi
+
 # Function to cleanup background processes
 cleanup() {
     echo ""
@@ -43,11 +54,24 @@ echo ""
 echo "💡 Press Ctrl+C to stop the development server"
 echo ""
 
-# Start renderer dev server in the background
-(pnpm --filter @sqlhelper/renderer dev) &
+# Choose a dev port (prefer 5173, fallback 5174)
+RENDERER_PORT=5173
+if lsof -nP -iTCP:5173 -sTCP:LISTEN >/dev/null 2>&1; then
+    echo "⚠️  Port 5173 is busy; using 5174 for Vite"
+    RENDERER_PORT=5174
+fi
 
-# Start desktop app
-pnpm --filter @sqlhelper/desktop dev
+export RENDERER_URL="http://localhost:${RENDERER_PORT}"
+echo "🔗 Using RENDERER_URL=$RENDERER_URL"
+
+# Start renderer dev server in the background on selected port
+(PORT=$RENDERER_PORT pnpm --filter @sqlhelper/renderer dev) &
+
+# Wait for Vite to be ready
+pnpm --filter @sqlhelper/desktop wait-on "$RENDERER_URL" || true
+
+# Start desktop app (dev)
+NODE_ENV=development RENDERER_URL=$RENDERER_URL pnpm --filter @sqlhelper/desktop dev
 
 # This line should not be reached due to the trap, but just in case
 cleanup

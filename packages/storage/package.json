@@ -18,16 +18,16 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "better-sqlite3": "^9.6.0",
-    "@types/better-sqlite3": "^7.6.11",
-    "drizzle-orm": "^0.29.3",
-    "drizzle-kit": "^0.20.9",
+    "better-sqlite3": "^12.4.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "drizzle-orm": "^0.44.5",
+    "drizzle-kit": "^0.31.4",
     "keytar": "^7.9.0",
     "@types/keytar": "^4.4.2",
-    "electron-store": "^10.0.0"
+    "electron-store": "^10.1.0"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
-    "tsup": "^8.3.5"
+    "tsup": "^8.5.0"
   }
 }

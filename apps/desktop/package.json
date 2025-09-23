@@ -17,20 +17,21 @@
   "dependencies": {
     "@sqlhelper/database-core": "workspace:*",
     "@sqlhelper/storage": "workspace:*",
-    "electron": "^28.1.0",
-    "electron-store": "^8.1.0",
-    "electron-updater": "^6.1.7",
+    "electron": "^38.1.2",
+    "electron-store": "^10.1.0",
+    "electron-updater": "^6.6.2",
     "keytar": "^7.9.0"
   },
   "devDependencies": {
-    "@types/node": "^20.10.5",
-    "concurrently": "^8.2.2",
-    "electron-builder": "^24.9.1",
+    "@types/node": "^24.5.2",
+    "concurrently": "^9.2.1",
+    "electron-builder": "^26.0.12",
     "electron-rebuild": "^3.2.9",
     "electron-reload": "^2.0.0-alpha.1",
-    "rimraf": "^5.0.5",
+    "rimraf": "^6.0.1",
     "typescript": "^5.3.3",
-    "wait-on": "^7.2.0"
+    "wait-on": "^9.0.1",
+    "@tailwindcss/postcss": "^4.1.13"
   },
   "author": "SQLHelper Team",
   "license": "MIT"

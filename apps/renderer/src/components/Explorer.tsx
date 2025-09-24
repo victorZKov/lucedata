@@ -243,10 +243,15 @@ export default function Explorer() {
   const loadConnections = async () => {
     try {
       setIsLoading(true);
+      console.log("🔧 [Explorer] Loading connections...");
       if (!window.electronAPI || !window.electronAPI.connections) {
         throw new Error("ElectronAPI not available");
       }
       const loadedConnections = await window.electronAPI.connections.list();
+      console.log(
+        `🔧 [Explorer] Loaded ${loadedConnections.length} connections:`,
+        loadedConnections
+      );
       setConnections(loadedConnections);
 
       // Initialize connection states
@@ -260,8 +265,13 @@ export default function Explorer() {
         });
       });
       setConnectionStates(newConnectionStates);
+      console.log(
+        "🔧 [Explorer] Connection states initialized for",
+        newConnectionStates.size,
+        "connections"
+      );
     } catch (error) {
-      console.error("Failed to load connections:", error);
+      console.error("🔧 [Explorer] Failed to load connections:", error);
     } finally {
       setIsLoading(false);
     }

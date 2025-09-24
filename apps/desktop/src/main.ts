@@ -62,6 +62,7 @@ const store = new Store<StoreSchema>({
 
 // Initialize local database
 const dbPath = path.join(app.getPath("userData"), "sqlhelper.db");
+console.log(`🔧 Database path: ${dbPath}`);
 const database = new LocalDatabase(dbPath);
 
 // Define interfaces for AI engines components
@@ -83,22 +84,59 @@ let aiEnginesRepository: IAIEnginesRepository | null = null;
 const databaseManager = new DatabaseManager();
 
 // Initialize database tables
-database.initialize().then(async () => {
-  console.log("Database initialized successfully");
-  // Initialize AI engines components after database is ready
-  try {
-    const StorageModule = await import("@sqlhelper/storage");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    credentialManager = new (StorageModule as any).CredentialManager();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    aiEnginesRepository = new (StorageModule as any).AIEnginesRepository(database, credentialManager);
-    console.log("AI engines components initialized");
-  } catch (_error) {
-    console.error("Failed to initialize AI engines components:", _error);
-  }
-}).catch(error => {
-  console.error("Failed to initialize database:", error);
-});
+database
+  .initialize()
+  .then(async () => {
+    console.log("Database initialized successfully");
+
+    // Test database persistence
+    try {
+      const existingConnections = await database.listConnections();
+      console.log(
+        `🔧 Found ${existingConnections.length} existing connections on startup`
+      );
+
+      // If no connections exist, create a test one
+      if (existingConnections.length === 0) {
+        console.log("🔧 No connections found, creating test connection...");
+        const testConnection = {
+          id: "test-connection-1",
+          name: "Test Connection",
+          type: "sqlite",
+          host: "localhost",
+          port: 5432,
+          database: "test",
+          username: "test",
+        };
+        await database.saveConnection(testConnection);
+        console.log("🔧 Test connection created");
+
+        // Verify it was saved
+        const afterSave = await database.listConnections();
+        console.log(`🔧 After saving: ${afterSave.length} connections found`);
+      }
+    } catch (error) {
+      console.error("🔧 Error testing database:", error);
+    }
+
+    // Initialize AI engines components after database is ready
+    try {
+      const StorageModule = await import("@sqlhelper/storage");
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      credentialManager = new (StorageModule as any).CredentialManager();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      aiEnginesRepository = new (StorageModule as any).AIEnginesRepository(
+        database,
+        credentialManager
+      );
+      console.log("AI engines components initialized");
+    } catch (_error) {
+      console.error("Failed to initialize AI engines components:", _error);
+    }
+  })
+  .catch(error => {
+    console.error("Failed to initialize database:", error);
+  });
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -360,10 +398,15 @@ function createMenu(): void {
           {
             label: "Theme",
             submenu: (() => {
-              const current = ((store as any).get("theme") as string) || "system";
+              const current =
+                ((store as any).get("theme") as string) || "system";
               const setTheme = (mode: "system" | "light" | "dark") => {
                 (store as any).set("theme", mode);
-                mainWindow?.webContents.send("menu-action", "set-theme-mode", mode);
+                mainWindow?.webContents.send(
+                  "menu-action",
+                  "set-theme-mode",
+                  mode
+                );
               };
               return [
                 {
@@ -557,9 +600,14 @@ ipcMain.handle(
 
 ipcMain.handle("connection-list", async () => {
   try {
-    return await database.listConnections();
+    console.log("🔧 [IPC] Frontend requested connection list...");
+    const connections = await database.listConnections();
+    console.log(
+      `🔧 [IPC] Returning ${connections.length} connections to frontend`
+    );
+    return connections;
   } catch (error) {
-    console.error("Error listing connections:", error);
+    console.error("🔧 [IPC] Error listing connections:", error);
     throw error;
   }
 });
@@ -985,42 +1033,51 @@ ipcMain.handle("ai-engines-get", async (_: IpcMainInvokeEvent, id: string) => {
   }
 });
 
-ipcMain.handle("ai-engines-create", async (_: IpcMainInvokeEvent, engine: any) => {
-  try {
-    if (!aiEnginesRepository) {
-      throw new Error("AI engines repository not initialized");
+ipcMain.handle(
+  "ai-engines-create",
+  async (_: IpcMainInvokeEvent, engine: any) => {
+    try {
+      if (!aiEnginesRepository) {
+        throw new Error("AI engines repository not initialized");
+      }
+      return await aiEnginesRepository.create(engine);
+    } catch (error) {
+      console.error("Error creating AI engine:", error);
+      throw error;
     }
-    return await aiEnginesRepository.create(engine);
-  } catch (error) {
-    console.error("Error creating AI engine:", error);
-    throw error;
   }
-});
+);
 
-ipcMain.handle("ai-engines-update", async (_: IpcMainInvokeEvent, id: string, updates: any) => {
-  try {
-    if (!aiEnginesRepository) {
-      throw new Error("AI engines repository not initialized");
+ipcMain.handle(
+  "ai-engines-update",
+  async (_: IpcMainInvokeEvent, id: string, updates: any) => {
+    try {
+      if (!aiEnginesRepository) {
+        throw new Error("AI engines repository not initialized");
+      }
+      return await aiEnginesRepository.update(id, updates);
+    } catch (error) {
+      console.error("Error updating AI engine:", error);
+      throw error;
     }
-    return await aiEnginesRepository.update(id, updates);
-  } catch (error) {
-    console.error("Error updating AI engine:", error);
-    throw error;
   }
-});
+);
 
-ipcMain.handle("ai-engines-delete", async (_: IpcMainInvokeEvent, id: string) => {
-  try {
-    if (!aiEnginesRepository) {
-      throw new Error("AI engines repository not initialized");
+ipcMain.handle(
+  "ai-engines-delete",
+  async (_: IpcMainInvokeEvent, id: string) => {
+    try {
+      if (!aiEnginesRepository) {
+        throw new Error("AI engines repository not initialized");
+      }
+      await aiEnginesRepository.delete(id);
+      return { success: true };
+    } catch (error) {
+      console.error("Error deleting AI engine:", error);
+      throw error;
     }
-    await aiEnginesRepository.delete(id);
-    return { success: true };
-  } catch (error) {
-    console.error("Error deleting AI engine:", error);
-    throw error;
   }
-});
+);
 
 ipcMain.handle("ai-engines-test", async (_: IpcMainInvokeEvent, id: string) => {
   try {
@@ -1034,17 +1091,20 @@ ipcMain.handle("ai-engines-test", async (_: IpcMainInvokeEvent, id: string) => {
   }
 });
 
-ipcMain.handle("ai-engines-validate", async (_: IpcMainInvokeEvent, engine: any) => {
-  try {
-    if (!aiEnginesRepository) {
-      throw new Error("AI engines repository not initialized");
+ipcMain.handle(
+  "ai-engines-validate",
+  async (_: IpcMainInvokeEvent, engine: any) => {
+    try {
+      if (!aiEnginesRepository) {
+        throw new Error("AI engines repository not initialized");
+      }
+      return await aiEnginesRepository.validateEngine(engine);
+    } catch (error) {
+      console.error("Error validating AI engine:", error);
+      throw error;
     }
-    return await aiEnginesRepository.validateEngine(engine);
-  } catch (error) {
-    console.error("Error validating AI engine:", error);
-    throw error;
   }
-});
+);
 
 // Auto-updater events
 autoUpdater.on("checking-for-update", () => {

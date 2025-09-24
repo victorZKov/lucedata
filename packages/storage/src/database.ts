@@ -1,26 +1,25 @@
-import Database from 'better-sqlite3';
-import { drizzle } from 'drizzle-orm/better-sqlite3';
-import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { eq, desc } from 'drizzle-orm';
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import { eq, desc } from "drizzle-orm";
 
-import type { 
-  Connection, 
-  NewConnection, 
-  QueryHistoryEntry, 
+import type {
+  Connection,
+  NewConnection,
+  QueryHistoryEntry,
   NewQueryHistoryEntry,
   SavedQuery,
   NewSavedQuery,
   AuditLogEntry,
-  NewAuditLogEntry
-} from './schema';
-import * as schema from './schema';
-import { CredentialManager } from './credentials';
+  NewAuditLogEntry,
+} from "./schema";
+import * as schema from "./schema";
+import { CredentialManager } from "./credentials";
 
 // Simple UUID v4 generator that doesn't depend on crypto module
 function generateUUID(): string {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
@@ -34,12 +33,12 @@ export class LocalDatabase {
     this.sqlite = new Database(dbPath);
     this.drizzle = drizzle(this.sqlite, { schema });
     this.credentialManager = new CredentialManager();
-    
+
     // Enable WAL mode for better concurrency
-    this.sqlite.exec('PRAGMA journal_mode = WAL;');
-    this.sqlite.exec('PRAGMA synchronous = NORMAL;');
-    this.sqlite.exec('PRAGMA cache_size = 1000;');
-    this.sqlite.exec('PRAGMA foreign_keys = ON;');
+    this.sqlite.exec("PRAGMA journal_mode = WAL;");
+    this.sqlite.exec("PRAGMA synchronous = NORMAL;");
+    this.sqlite.exec("PRAGMA cache_size = 1000;");
+    this.sqlite.exec("PRAGMA foreign_keys = ON;");
   }
 
   get db() {
@@ -47,30 +46,57 @@ export class LocalDatabase {
   }
 
   async initialize(): Promise<void> {
-    // Run migrations
-    try {
-      await migrate(this.drizzle, { migrationsFolder: './migrations' });
-    } catch (_error) {
-      // If no migrations folder exists, create tables manually
+    console.log("🔧 Database initialization starting...");
+
+    // Check if tables already exist before running migrations
+    const tablesExist = this.checkTablesExist();
+    console.log(`🔧 Tables exist: ${tablesExist}`);
+
+    if (!tablesExist) {
+      console.log("🔧 Creating tables for the first time...");
       this.createTables();
+    } else {
+      console.log("🔧 Tables already exist, skipping creation...");
     }
-    
+
     // Handle schema migrations for existing databases
     this.handleSchemaMigrations();
+
+    console.log("🔧 Database initialization completed");
+  }
+
+  private checkTablesExist(): boolean {
+    try {
+      const result = this.sqlite
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type='table' AND name='connections'"
+        )
+        .get();
+      return !!result;
+    } catch (error) {
+      console.warn("Error checking if tables exist:", error);
+      return false;
+    }
   }
 
   private handleSchemaMigrations(): void {
     // Check if connection_string column exists and add it if not
     try {
-      const tableInfo = this.sqlite.prepare("PRAGMA table_info(connections)").all() as Array<{ name: string }>;
-      const hasConnectionString = tableInfo.some((col) => col.name === 'connection_string');
-      
+      const tableInfo = this.sqlite
+        .prepare("PRAGMA table_info(connections)")
+        .all() as Array<{ name: string }>;
+      const hasConnectionString = tableInfo.some(
+        col => col.name === "connection_string"
+      );
+
       if (!hasConnectionString) {
-        console.log('Adding connection_string column to connections table...');
-        this.sqlite.exec('ALTER TABLE connections ADD COLUMN connection_string TEXT');
+        console.log("Adding connection_string column to connections table...");
+        this.sqlite.exec(
+          "ALTER TABLE connections ADD COLUMN connection_string TEXT"
+        );
       }
     } catch (error) {
-      console.warn('Schema migration warning:', error);
+      console.warn("Schema migration warning:", error);
     }
   }
 
@@ -214,9 +240,12 @@ export class LocalDatabase {
   }
 
   // Connection management
-  async saveConnection(connection: NewConnection, password?: string): Promise<Connection> {
+  async saveConnection(
+    connection: NewConnection,
+    password?: string
+  ): Promise<Connection> {
     const id = connection.id || generateUUID();
-    
+
     // Save password securely if provided
     if (password) {
       await this.credentialManager.savePassword(id, password);
@@ -225,7 +254,7 @@ export class LocalDatabase {
     const newConnection = {
       ...connection,
       id,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     const result = await this.drizzle
@@ -246,7 +275,9 @@ export class LocalDatabase {
     return result[0] || null;
   }
 
-  async getConnectionWithCredentials(id: string): Promise<(Connection & { password?: string }) | null> {
+  async getConnectionWithCredentials(
+    id: string
+  ): Promise<(Connection & { password?: string }) | null> {
     const connection = await this.getConnection(id);
     if (!connection) return null;
 
@@ -255,13 +286,20 @@ export class LocalDatabase {
   }
 
   async listConnections(): Promise<Connection[]> {
-    return await this.drizzle
+    console.log("🔧 Listing connections from database...");
+    const result = await this.drizzle
       .select()
       .from(schema.connections)
       .orderBy(desc(schema.connections.lastUsed), schema.connections.name);
+    console.log(`🔧 Found ${result.length} connections in database`);
+    return result;
   }
 
-  async updateConnection(id: string, updates: Partial<NewConnection>, password?: string): Promise<Connection | null> {
+  async updateConnection(
+    id: string,
+    updates: Partial<NewConnection>,
+    password?: string
+  ): Promise<Connection | null> {
     // Update password if provided
     if (password !== undefined) {
       if (password) {
@@ -299,12 +337,14 @@ export class LocalDatabase {
   }
 
   // Query history management
-  async addQueryHistory(entry: NewQueryHistoryEntry): Promise<QueryHistoryEntry> {
+  async addQueryHistory(
+    entry: NewQueryHistoryEntry
+  ): Promise<QueryHistoryEntry> {
     const id = generateUUID();
     const newEntry = {
       ...entry,
       id,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
     const result = await this.drizzle
@@ -315,7 +355,10 @@ export class LocalDatabase {
     return result[0];
   }
 
-  async getQueryHistory(connectionId?: string, limit = 100): Promise<QueryHistoryEntry[]> {
+  async getQueryHistory(
+    connectionId?: string,
+    limit = 100
+  ): Promise<QueryHistoryEntry[]> {
     const baseQuery = this.drizzle
       .select()
       .from(schema.queryHistory)
@@ -323,7 +366,9 @@ export class LocalDatabase {
       .limit(limit);
 
     if (connectionId) {
-      return await baseQuery.where(eq(schema.queryHistory.connectionId, connectionId));
+      return await baseQuery.where(
+        eq(schema.queryHistory.connectionId, connectionId)
+      );
     }
 
     return await baseQuery;
@@ -348,7 +393,7 @@ export class LocalDatabase {
       ...query,
       id,
       createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date().toISOString(),
     };
 
     const result = await this.drizzle
@@ -363,10 +408,16 @@ export class LocalDatabase {
     return await this.drizzle
       .select()
       .from(schema.savedQueries)
-      .orderBy(desc(schema.savedQueries.favorite), desc(schema.savedQueries.updatedAt));
+      .orderBy(
+        desc(schema.savedQueries.favorite),
+        desc(schema.savedQueries.updatedAt)
+      );
   }
 
-  async updateSavedQuery(id: string, updates: Partial<NewSavedQuery>): Promise<SavedQuery | null> {
+  async updateSavedQuery(
+    id: string,
+    updates: Partial<NewSavedQuery>
+  ): Promise<SavedQuery | null> {
     const result = await this.drizzle
       .update(schema.savedQueries)
       .set({ ...updates, updatedAt: new Date().toISOString() })
@@ -387,7 +438,8 @@ export class LocalDatabase {
   // Settings management
   async setSetting<T>(key: string, value: T): Promise<void> {
     const type = typeof value;
-    const serializedValue = type === 'object' ? JSON.stringify(value) : String(value);
+    const serializedValue =
+      type === "object" ? JSON.stringify(value) : String(value);
 
     await this.drizzle
       .insert(schema.settings)
@@ -395,15 +447,15 @@ export class LocalDatabase {
         key,
         value: serializedValue,
         type,
-        updatedAt: new Date().toISOString()
+        updatedAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
         target: schema.settings.key,
         set: {
           value: serializedValue,
           type,
-          updatedAt: new Date().toISOString()
-        }
+          updatedAt: new Date().toISOString(),
+        },
       });
   }
 
@@ -417,13 +469,13 @@ export class LocalDatabase {
     if (!result[0]) return defaultValue;
 
     const setting = result[0];
-    
+
     switch (setting.type) {
-      case 'boolean':
-        return (setting.value === 'true') as T;
-      case 'number':
+      case "boolean":
+        return (setting.value === "true") as T;
+      case "number":
         return Number(setting.value) as T;
-      case 'object':
+      case "object":
         return JSON.parse(setting.value) as T;
       default:
         return setting.value as T;
@@ -444,7 +496,7 @@ export class LocalDatabase {
     const newEntry = {
       ...entry,
       id,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
     };
 
     const result = await this.drizzle
@@ -455,7 +507,10 @@ export class LocalDatabase {
     return result[0];
   }
 
-  async getAuditLog(connectionId?: string, limit = 100): Promise<AuditLogEntry[]> {
+  async getAuditLog(
+    connectionId?: string,
+    limit = 100
+  ): Promise<AuditLogEntry[]> {
     const baseQuery = this.drizzle
       .select()
       .from(schema.auditLog)
@@ -463,7 +518,9 @@ export class LocalDatabase {
       .limit(limit);
 
     if (connectionId) {
-      return await baseQuery.where(eq(schema.auditLog.connectionId, connectionId));
+      return await baseQuery.where(
+        eq(schema.auditLog.connectionId, connectionId)
+      );
     }
 
     return await baseQuery;
@@ -478,12 +535,12 @@ export class LocalDatabase {
     // This would require more complex aggregation queries
     // For now, return basic stats
     const logs = await this.getAuditLog(connectionId, 1000);
-    
+
     return {
       totalQueries: logs.length,
       successfulQueries: logs.filter(l => l.success).length,
       failedQueries: logs.filter(l => !l.success).length,
-      riskyQueries: logs.filter(l => l.riskLevel === 'high').length
+      riskyQueries: logs.filter(l => l.riskLevel === "high").length,
     };
   }
 }

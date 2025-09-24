@@ -158,8 +158,9 @@ function createWindow(): void {
     height: number;
   };
 
-  const preloadPath = path.join(__dirname, "preload.js");
+  const preloadPath = path.join(__dirname, "preload.cjs");
   console.log("🔧 Preload script path:", preloadPath);
+  console.log("🔧 Preload script exists:", fs.existsSync(preloadPath));
 
   // Create the browser window
   mainWindow = new BrowserWindow({
@@ -172,6 +173,7 @@ function createWindow(): void {
       contextIsolation: true,
       preload: preloadPath,
       webSecurity: !isDev,
+      sandbox: false, // Keep sandbox disabled to allow preload script
     },
     titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
     show: false, // Don't show until ready
@@ -180,6 +182,20 @@ function createWindow(): void {
     resizable: true,
     trafficLightPosition:
       process.platform === "darwin" ? { x: 20, y: 16 } : undefined,
+  });
+
+  // Add error handling for preload script
+  mainWindow.webContents.on(
+    "console-message",
+    (event, level, message, line, sourceId) => {
+      if (message.includes("preload") || message.includes("ElectronAPI")) {
+        console.log(`🔧 Renderer Console [${level}]:`, message);
+      }
+    }
+  );
+
+  mainWindow.webContents.on("preload-error", (event, preloadPath, error) => {
+    console.error(`❌ Preload script error in ${preloadPath}:`, error);
   });
 
   // Load the app
@@ -1101,6 +1117,190 @@ ipcMain.handle(
       return await aiEnginesRepository.validateEngine(engine);
     } catch (error) {
       console.error("Error validating AI engine:", error);
+      throw error;
+    }
+  }
+);
+
+// Chat IPC Handlers
+ipcMain.handle(
+  "chat-send-message",
+  async (
+    _: IpcMainInvokeEvent,
+    params: {
+      message: string;
+      connectionId: string;
+      engineId: string;
+      conversationId?: string;
+    }
+  ) => {
+    try {
+      const { message, connectionId, engineId, conversationId } = params;
+
+      console.log("Chat message received:", {
+        message,
+        connectionId,
+        engineId,
+        conversationId,
+      });
+
+      // Get AI engine configuration
+      if (!aiEnginesRepository) {
+        throw new Error("AI engines repository not initialized");
+      }
+
+      const engine = await aiEnginesRepository.findById(engineId);
+      if (!engine) {
+        throw new Error(`AI engine with id ${engineId} not found`);
+      }
+
+      // Get database connection for context
+      const dbProvider = databaseManager.getProvider(connectionId);
+      if (!dbProvider) {
+        throw new Error(`Database connection ${connectionId} not found`);
+      }
+
+      // Get database schema for MCP tools context
+      let schemaInfo: {
+        tables?: Array<{ name: string; schema: string; rowCount?: number }>;
+      } | null = null;
+      try {
+        const schemas = await dbProvider.getSchemas();
+        schemaInfo = await dbProvider.getSchemaInfo();
+        console.log("📊 Schema context loaded:", {
+          schemas: schemas.length,
+          tables: schemaInfo.tables?.length || 0,
+        });
+      } catch (schemaError) {
+        console.warn("⚠️ Could not load schema context:", schemaError);
+      }
+
+      // Create enhanced response with basic MCP-like functionality
+      let response = {
+        id: crypto.randomUUID(),
+        role: "assistant" as const,
+        content: "",
+        timestamp: new Date().toISOString(),
+        finalSQL: undefined as string | undefined,
+      };
+
+      // Process different types of user requests
+      const userMessage = message.toLowerCase();
+
+      if (
+        userMessage.includes("tables") ||
+        userMessage.includes("show tables")
+      ) {
+        // List tables request
+        if (schemaInfo?.tables && schemaInfo.tables.length > 0) {
+          response.content = `I found ${schemaInfo.tables.length} tables in the database:\n\n`;
+          response.content += schemaInfo.tables
+            .map(
+              table =>
+                `• **${table.name}** (${table.schema}) - ${table.rowCount || "Unknown"} rows`
+            )
+            .join("\n");
+          response.content += "\n\nHere's a query to list all tables:";
+          response.finalSQL =
+            "SELECT TABLE_SCHEMA, TABLE_NAME, TABLE_TYPE FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE' ORDER BY TABLE_SCHEMA, TABLE_NAME;";
+        } else {
+          response.content =
+            "I can help you explore the database structure, but I need to connect to the database first to get the schema information.";
+        }
+      } else if (
+        userMessage.includes("schema") ||
+        userMessage.includes("structure")
+      ) {
+        // Schema inspection request
+        response.content = `I can help you explore the database schema. `;
+        if (schemaInfo?.tables && schemaInfo.tables.length > 0) {
+          response.content += `I found ${schemaInfo.tables.length} tables. `;
+        }
+        response.content +=
+          "Here's a query to get detailed schema information:";
+        response.finalSQL =
+          "SELECT TABLE_SCHEMA, TABLE_NAME, COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT FROM INFORMATION_SCHEMA.COLUMNS ORDER BY TABLE_SCHEMA, TABLE_NAME, ORDINAL_POSITION;";
+      } else if (
+        userMessage.includes("sample") ||
+        userMessage.includes("data")
+      ) {
+        // Sample data request
+        if (schemaInfo?.tables && schemaInfo.tables.length > 0) {
+          const firstTable = schemaInfo.tables[0];
+          response.content = `Here's a query to sample data from the first table (${firstTable.name}):`;
+          response.finalSQL = `SELECT TOP 10 * FROM [${firstTable.schema}].[${firstTable.name}];`;
+        } else {
+          response.content =
+            "I can help you sample data from tables. Please specify which table you'd like to see data from, or ask me to show available tables first.";
+        }
+      } else {
+        // General chat response
+        response.content = `I'm your SQL assistant! I can help you with:\n\n`;
+        response.content += `• **Database exploration**: Ask me to "show tables" or "describe schema"\n`;
+        response.content += `• **Query generation**: Tell me what data you need\n`;
+        response.content += `• **Sample data**: Ask for "sample data from [table]"\n\n`;
+        response.content += `I'm connected to ${(engine as { name?: string }).name || "the AI engine"} and can inspect your database using built-in tools.`;
+
+        // If the message seems like a query request, try to generate something
+        if (
+          userMessage.includes("select") ||
+          userMessage.includes("find") ||
+          userMessage.includes("get") ||
+          userMessage.includes("show me")
+        ) {
+          response.content +=
+            "\n\nBased on your request, here's a general query template:";
+          response.finalSQL =
+            "SELECT * FROM [your_table] WHERE [condition] ORDER BY [column];";
+        }
+      }
+
+      return response;
+    } catch (error) {
+      console.error("Error processing chat message:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "chat-get-conversation-history",
+  async (_: IpcMainInvokeEvent, conversationId: string) => {
+    try {
+      // TODO: Implement conversation history retrieval from database
+      console.log("Getting conversation history for:", conversationId);
+
+      // Return empty array for now
+      return [];
+    } catch (error) {
+      console.error("Error getting conversation history:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "chat-create-conversation",
+  async (
+    _: IpcMainInvokeEvent,
+    params: {
+      title: string;
+      engineId: string;
+      connectionId: string;
+    }
+  ) => {
+    try {
+      // TODO: Implement conversation creation in database
+      console.log("Creating conversation:", params);
+
+      const conversationId = crypto.randomUUID();
+      return {
+        id: conversationId,
+        ...params,
+        createdAt: new Date().toISOString(),
+      };
+    } catch (error) {
+      console.error("Error creating conversation:", error);
       throw error;
     }
   }

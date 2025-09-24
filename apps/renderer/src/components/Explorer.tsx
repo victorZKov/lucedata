@@ -432,20 +432,54 @@ export default function Explorer() {
   const handleSaveConnection = async (connectionData: any) => {
     try {
       console.log("🔄 handleSaveConnection: Starting save operation");
+      console.log("🔍 window:", typeof window);
       console.log("🔍 window.electronAPI:", window.electronAPI);
+      console.log(
+        "🔍 Object.keys(window.electronAPI || {}):",
+        Object.keys(window.electronAPI || {})
+      );
       console.log(
         "🔍 window.electronAPI.connections:",
         window.electronAPI?.connections
       );
 
+      // Wait a bit for the API to be available in case of timing issues
+      if (!window.electronAPI) {
+        console.log("⏳ ElectronAPI not available, waiting 100ms...");
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
       if (!window.electronAPI || !window.electronAPI.connections) {
-        console.error("❌ ElectronAPI check failed");
+        console.error("❌ ElectronAPI check failed after wait");
         console.error("   - window.electronAPI:", !!window.electronAPI);
+        console.error(
+          "   - Available keys:",
+          Object.keys(window.electronAPI || {})
+        );
         console.error(
           "   - window.electronAPI.connections:",
           !!window.electronAPI?.connections
         );
-        throw new Error("ElectronAPI not available");
+        console.error("   - User Agent:", navigator.userAgent);
+        console.error("   - Location:", window.location.href);
+
+        // Provide helpful error messages based on the environment
+        if (
+          window.location.hostname === "localhost" &&
+          !navigator.userAgent.includes("Electron")
+        ) {
+          throw new Error(
+            "You're trying to use this in a web browser. Please open this in the Electron desktop application instead. The Electron app should be running as a separate desktop window."
+          );
+        } else if (window.location.hostname === "localhost") {
+          throw new Error(
+            "ElectronAPI not available. Please restart the Electron application and try again."
+          );
+        }
+
+        throw new Error(
+          "ElectronAPI not available. Please make sure you're running this within the Electron application."
+        );
       }
 
       const isEditing = editConnection && connectionData.id;

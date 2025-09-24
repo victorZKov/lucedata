@@ -15,28 +15,37 @@ declare global {
         list: () => Promise<any[]>;
         get: (id: string) => Promise<any>;
         delete: (id: string) => Promise<boolean>;
-        test: (connection: any) => Promise<{ success: boolean; message: string }>;
+        test: (
+          connection: any
+        ) => Promise<{ success: boolean; message: string }>;
       };
       database: {
-        connect: (connectionId: string) => Promise<{ success: boolean; message: string }>;
-        disconnect: (connectionId: string) => Promise<{ success: boolean; message: string }>;
+        connect: (
+          connectionId: string
+        ) => Promise<{ success: boolean; message: string }>;
+        disconnect: (
+          connectionId: string
+        ) => Promise<{ success: boolean; message: string }>;
         getSchema: (connectionId: string) => Promise<{
           databases: Array<{
             name: string;
-            type: 'database';
+            type: "database";
             children?: Array<{
               name: string;
-              type: 'schema';
+              type: "schema";
               children?: Array<{
                 name: string;
-                type: 'table' | 'view' | 'procedure' | 'function';
+                type: "table" | "view" | "procedure" | "function";
                 schema: string;
                 rowCount?: number;
               }>;
             }>;
           }>;
         }>;
-        executeQuery: (connectionId: string, query: string) => Promise<{
+        executeQuery: (
+          connectionId: string,
+          query: string
+        ) => Promise<{
           columns: Array<{
             name: string;
             dataType: string;
@@ -53,7 +62,11 @@ declare global {
           executionTime: number;
           messages?: string[];
         }>;
-        getTableData: (connectionId: string, tableName: string, schema?: string) => Promise<{
+        getTableData: (
+          connectionId: string,
+          tableName: string,
+          schema?: string
+        ) => Promise<{
           columns: Array<{
             name: string;
             dataType: string;
@@ -72,14 +85,29 @@ declare global {
         }>;
       };
       export: {
-        save: (options: { defaultPath?: string; filters?: { name: string; extensions: string[] }[]; content: string }) => Promise<{ canceled?: boolean; filePath?: string }>;
+        save: (options: {
+          defaultPath?: string;
+          filters?: { name: string; extensions: string[] }[];
+          content: string;
+        }) => Promise<{ canceled?: boolean; filePath?: string }>;
       };
       files: {
-        open: () => Promise<{ canceled?: boolean; filePath?: string; content?: string }>;
-        saveDialog: (opts?: { defaultPath?: string }) => Promise<{ canceled?: boolean; filePath?: string }>;
-        write: (filePath: string, content: string) => Promise<{ success: boolean }>;
+        open: () => Promise<{
+          canceled?: boolean;
+          filePath?: string;
+          content?: string;
+        }>;
+        saveDialog: (opts?: {
+          defaultPath?: string;
+        }) => Promise<{ canceled?: boolean; filePath?: string }>;
+        write: (
+          filePath: string,
+          content: string
+        ) => Promise<{ success: boolean }>;
       };
-      onMenuAction: (callback: (action: string, ...args: any[]) => void) => void;
+      onMenuAction: (
+        callback: (action: string, ...args: any[]) => void
+      ) => void;
       removeAllListeners: (channel: string) => void;
       aiEngines: {
         list: () => Promise<any[]>;
@@ -87,8 +115,38 @@ declare global {
         create: (engine: any) => Promise<any>;
         update: (id: string, updates: any) => Promise<any>;
         delete: (id: string) => Promise<{ success: boolean }>;
-        test: (id: string) => Promise<{ success: boolean; latency?: number; error?: string }>;
-        validate: (engine: any) => Promise<{ valid: boolean; errors: string[] }>;
+        test: (
+          id: string
+        ) => Promise<{ success: boolean; latency?: number; error?: string }>;
+        validate: (
+          engine: any
+        ) => Promise<{ valid: boolean; errors: string[] }>;
+      };
+      chat: {
+        sendMessage: (params: {
+          message: string;
+          connectionId: string;
+          engineId: string;
+          conversationId?: string;
+        }) => Promise<{
+          id: string;
+          role: "assistant";
+          content: string;
+          timestamp: string;
+          finalSQL?: string;
+        }>;
+        getConversationHistory: (conversationId: string) => Promise<any[]>;
+        createConversation: (params: {
+          title: string;
+          engineId: string;
+          connectionId: string;
+        }) => Promise<{
+          id: string;
+          title: string;
+          engineId: string;
+          connectionId: string;
+          createdAt: string;
+        }>;
       };
     };
   }

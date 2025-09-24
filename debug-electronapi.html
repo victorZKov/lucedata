@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>ElectronAPI Debug</title>
+</head>
+<body>
+    <h1>ElectronAPI Debug Test</h1>
+    <div id="results"></div>
+    
+    <script>
+        const results = document.getElementById('results');
+        
+        function log(message) {
+            console.log(message);
+            results.innerHTML += `<p>${message}</p>`;
+        }
+        
+        log('🔧 Starting ElectronAPI debug...');
+        
+        // Check if electronAPI exists
+        if (typeof window.electronAPI !== 'undefined') {
+            log('✅ window.electronAPI is available!');
+            log(`✅ electronAPI has these properties: ${Object.keys(window.electronAPI).join(', ')}`);
+            
+            // Test connections object
+            if (window.electronAPI.connections) {
+                log('✅ connections object exists');
+                log(`✅ connections has methods: ${Object.keys(window.electronAPI.connections).join(', ')}`);
+            } else {
+                log('❌ connections object missing');
+            }
+        } else {
+            log('❌ window.electronAPI is NOT available');
+            log(`Available globals: ${Object.keys(window).filter(k => !k.startsWith('webkit')).join(', ')}`);
+        }
+    </script>
+</body>
+</html>

@@ -1,7 +1,20 @@
+// Type definitions for keytar
+interface KeytarCredential {
+  account: string;
+  password: string;
+}
+
+interface KeytarModule {
+  setPassword(service: string, account: string, password: string): Promise<void>;
+  getPassword(service: string, account: string): Promise<string | null>;
+  deletePassword(service: string, account: string): Promise<boolean>;
+  findCredentials(service: string): Promise<KeytarCredential[]>;
+}
+
 export class CredentialManager {
   private readonly serviceName = 'SQLHelper';
   private isKeytarAvailable = false;
-  private keytar: any = null;
+  private keytar: KeytarModule | null = null;
   private loadPromise: Promise<void> | null = null;
 
   constructor() {
@@ -12,7 +25,7 @@ export class CredentialManager {
   private async loadKeytar(): Promise<void> {
     try {
       // Dynamic import works in ESM and CommonJS builds
-      const mod: any = await import('keytar');
+      const mod = await import('keytar') as { default?: KeytarModule } & KeytarModule;
       this.keytar = mod?.default ?? mod;
       this.isKeytarAvailable = typeof this.keytar?.setPassword === 'function';
     } catch (error) {
@@ -28,7 +41,7 @@ export class CredentialManager {
 
   async savePassword(connectionId: string, password: string): Promise<void> {
     await this.ensureLoaded();
-    if (!this.isKeytarAvailable) {
+    if (!this.isKeytarAvailable || !this.keytar) {
       console.warn('Keytar not available, skipping password save for connection:', connectionId);
       return;
     }
@@ -43,7 +56,7 @@ export class CredentialManager {
 
   async getPassword(connectionId: string): Promise<string | null> {
     await this.ensureLoaded();
-    if (!this.isKeytarAvailable) {
+    if (!this.isKeytarAvailable || !this.keytar) {
       return null;
     }
 
@@ -57,7 +70,7 @@ export class CredentialManager {
 
   async deletePassword(connectionId: string): Promise<boolean> {
     await this.ensureLoaded();
-    if (!this.isKeytarAvailable) {
+    if (!this.isKeytarAvailable || !this.keytar) {
       return true; // Return true as if successful since there's nothing to delete
     }
 
@@ -71,13 +84,13 @@ export class CredentialManager {
 
   async listStoredConnections(): Promise<string[]> {
     await this.ensureLoaded();
-    if (!this.isKeytarAvailable) {
+    if (!this.isKeytarAvailable || !this.keytar) {
       return [];
     }
 
     try {
       const credentials = await this.keytar.findCredentials(this.serviceName);
-      return credentials.map((cred: any) => cred.account);
+      return credentials.map((cred: KeytarCredential) => cred.account);
     } catch (error) {
       console.warn('Failed to list stored connections:', error);
       return [];
@@ -92,17 +105,70 @@ export class CredentialManager {
 
   async clearAllPasswords(): Promise<void> {
     await this.ensureLoaded();
-    if (!this.isKeytarAvailable) {
+    if (!this.isKeytarAvailable || !this.keytar) {
       return;
     }
 
     try {
       const credentials = await this.keytar.findCredentials(this.serviceName);
       await Promise.all(
-        credentials.map((cred: any) => this.keytar.deletePassword(this.serviceName, cred.account))
+        credentials.map((cred: KeytarCredential) => this.keytar!.deletePassword(this.serviceName, cred.account))
       );
     } catch (error) {
       console.warn('Failed to clear all passwords:', error);
     }
+  }
+
+  // AI Engine API Key Management
+  async saveApiKey(engineId: string, apiKey: string): Promise<string> {
+    await this.ensureLoaded();
+    const keyRef = `ai_engine_${engineId}`;
+    
+    if (!this.isKeytarAvailable || !this.keytar) {
+      console.warn('Keytar not available, API key will not be stored securely for engine:', engineId);
+      return keyRef;
+    }
+
+    try {
+      await this.keytar.setPassword(this.serviceName, keyRef, apiKey);
+      return keyRef;
+    } catch (error) {
+      console.warn(`Failed to save API key for engine ${engineId}:`, error);
+      throw new Error('Failed to securely store API key');
+    }
+  }
+
+  async getApiKey(keyRef: string): Promise<string | null> {
+    await this.ensureLoaded();
+    if (!this.isKeytarAvailable || !this.keytar) {
+      return null;
+    }
+
+    try {
+      return await this.keytar.getPassword(this.serviceName, keyRef);
+    } catch (error) {
+      console.warn(`Failed to retrieve API key for ref ${keyRef}:`, error);
+      return null;
+    }
+  }
+
+  async deleteApiKey(keyRef: string): Promise<boolean> {
+    await this.ensureLoaded();
+    if (!this.isKeytarAvailable || !this.keytar) {
+      return true;
+    }
+
+    try {
+      return await this.keytar.deletePassword(this.serviceName, keyRef);
+    } catch (error) {
+      console.warn(`Failed to delete API key for ref ${keyRef}:`, error);
+      return false;
+    }
+  }
+
+  async hasApiKey(keyRef: string): Promise<boolean> {
+    await this.ensureLoaded();
+    const apiKey = await this.getApiKey(keyRef);
+    return apiKey !== null;
   }
 }

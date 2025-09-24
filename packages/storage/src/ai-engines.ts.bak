@@ -1,0 +1,378 @@
+import { eq } from 'drizzle-orm';
+
+import { LocalDatabase } from './database.js';
+import { aiEngines, type AiEngine, type NewAiEngine } from './schema.js';
+import { CredentialManager } from './credentials.js';
+
+export type AIProvider = 
+  | 'openai' 
+  | 'azure-openai' 
+  | 'anthropic' 
+  | 'google' 
+  | 'ollama' 
+  | 'custom';
+
+export interface AIEngineConfig {
+  id?: string;
+  name: string;
+  provider: AIProvider;
+  endpoint?: string;
+  apiKey?: string; // Will be stored securely via keytar
+  defaultModel?: string;
+  temperature?: number;
+  maxTokens?: number;
+  timeoutMs?: number;
+  retryPolicy?: 'exponential' | 'linear' | 'none';
+  jsonMode?: boolean;
+  rateLimit?: number;
+  notes?: string;
+  isDefault?: boolean;
+}
+
+export interface AIEngineValidationResult {
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export class AIEnginesRepository {
+  constructor(
+    private db: LocalDatabase,
+    private credentials: CredentialManager
+  ) {}
+
+  async createEngine(config: AIEngineConfig): Promise<AiEngine> {
+    // Validate configuration
+    const validation = await this.validateConfig(config);
+    if (!validation.isValid) {
+      throw new Error(`Invalid AI Engine configuration: ${validation.errors.join(', ')}`);
+    }
+
+    // Generate ID if not provided
+    const id = config.id || this.generateId();
+
+    // Store API key securely if provided
+    let apiKeyRef: string | undefined;
+    if (config.apiKey) {
+      apiKeyRef = await this.credentials.saveApiKey(id, config.apiKey);
+    }
+
+    // If this is marked as default, unset other defaults
+    if (config.isDefault) {
+      await this.unsetAllDefaults();
+    }
+
+    // Create engine record
+    const newEngine: NewAiEngine = {
+      id,
+      name: config.name,
+      provider: config.provider,
+      endpoint: config.endpoint || null,
+      apiKeyRef: apiKeyRef || null,
+      defaultModel: config.defaultModel || null,
+      temperature: config.temperature ?? 0.7,
+      maxTokens: config.maxTokens ?? 2048,
+      timeoutMs: config.timeoutMs ?? 30000,
+      retryPolicy: config.retryPolicy ?? 'exponential',
+      jsonMode: config.jsonMode ?? false,
+      rateLimit: config.rateLimit ?? 60,
+      notes: config.notes || null,
+      isDefault: config.isDefault ?? false,
+    };
+
+    const result = await this.db.db.insert(aiEngines).values(newEngine).returning();
+    return result[0];
+  }
+
+  async updateEngine(id: string, updates: Partial<AIEngineConfig>): Promise<AiEngine> {
+    // Get existing engine
+    const existing = await this.getEngine(id);
+    if (!existing) {
+      throw new Error(`AI Engine with id ${id} not found`);
+    }
+
+    // Validate updated configuration
+    const mergedConfig: AIEngineConfig = { 
+      ...existing, 
+      ...updates,
+      provider: existing.provider as AIProvider,
+      endpoint: existing.endpoint || undefined,
+      defaultModel: existing.defaultModel || undefined,
+      temperature: existing.temperature ?? undefined,
+      maxTokens: existing.maxTokens ?? undefined,
+      timeoutMs: existing.timeoutMs ?? undefined,
+      retryPolicy: (existing.retryPolicy as AIEngineConfig['retryPolicy']) || undefined,
+      jsonMode: existing.jsonMode ?? undefined,
+      rateLimit: existing.rateLimit ?? undefined,
+      notes: existing.notes || undefined,
+      isDefault: existing.isDefault ?? undefined,
+    };
+    const validation = await this.validateConfig(mergedConfig);
+    if (!validation.isValid) {
+      throw new Error(`Invalid AI Engine configuration: ${validation.errors.join(', ')}`);
+    }
+
+    // Handle API key update
+    let apiKeyRef = existing.apiKeyRef;
+    if (updates.apiKey !== undefined) {
+      if (updates.apiKey) {
+        // Update or create API key
+        apiKeyRef = await this.credentials.saveApiKey(id, updates.apiKey);
+      } else {
+        // Remove API key
+        if (apiKeyRef) {
+          await this.credentials.deleteApiKey(apiKeyRef);
+          apiKeyRef = null;
+        }
+      }
+    }
+
+    // If setting as default, unset other defaults
+    if (updates.isDefault) {
+      await this.unsetAllDefaults();
+    }
+
+    // Update engine record
+    const updateData: Partial<NewAiEngine> = {
+      ...updates,
+      apiKeyRef,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const result = await this.db.db
+      .update(aiEngines)
+      .set(updateData)
+      .where(eq(aiEngines.id, id))
+      .returning();
+
+    return result[0];
+  }
+
+  async deleteEngine(id: string): Promise<void> {
+    // Get engine to check for API key
+    const engine = await this.getEngine(id);
+    if (!engine) {
+      throw new Error(`AI Engine with id ${id} not found`);
+    }
+
+    // Delete API key if exists
+    if (engine.apiKeyRef) {
+      await this.credentials.deleteApiKey(engine.apiKeyRef);
+    }
+
+    // Delete engine record
+    await this.db.db.delete(aiEngines).where(eq(aiEngines.id, id));
+  }
+
+  async getEngine(id: string): Promise<AiEngine | null> {
+    const result = await this.db.db
+      .select()
+      .from(aiEngines)
+      .where(eq(aiEngines.id, id))
+      .limit(1);
+
+    return result[0] || null;
+  }
+
+  async getEngineWithApiKey(id: string): Promise<(AiEngine & { apiKey?: string }) | null> {
+    const engine = await this.getEngine(id);
+    if (!engine) return null;
+
+    let apiKey: string | undefined;
+    if (engine.apiKeyRef) {
+      const key = await this.credentials.getApiKey(engine.apiKeyRef);
+      apiKey = key || undefined;
+    }
+
+    return { ...engine, apiKey };
+  }
+
+  async listEngines(): Promise<AiEngine[]> {
+    return await this.db.db.select().from(aiEngines).orderBy(aiEngines.name);
+  }
+
+  async getDefaultEngine(): Promise<AiEngine | null> {
+    const result = await this.db.db
+      .select()
+      .from(aiEngines)
+      .where(eq(aiEngines.isDefault, true))
+      .limit(1);
+
+    return result[0] || null;
+  }
+
+  async setDefaultEngine(id: string): Promise<void> {
+    // Unset all defaults first
+    await this.unsetAllDefaults();
+
+    // Set new default
+    await this.db.db
+      .update(aiEngines)
+      .set({ isDefault: true, updatedAt: new Date().toISOString() })
+      .where(eq(aiEngines.id, id));
+  }
+
+  async duplicateEngine(id: string, newName: string): Promise<AiEngine> {
+    const original = await this.getEngineWithApiKey(id);
+    if (!original) {
+      throw new Error(`AI Engine with id ${id} not found`);
+    }
+
+    const config: AIEngineConfig = {
+      name: newName,
+      provider: original.provider as AIProvider,
+      endpoint: original.endpoint || undefined,
+      apiKey: original.apiKey,
+      defaultModel: original.defaultModel || undefined,
+      temperature: original.temperature ?? undefined,
+      maxTokens: original.maxTokens ?? undefined,
+      timeoutMs: original.timeoutMs ?? undefined,
+      retryPolicy: (original.retryPolicy as AIEngineConfig['retryPolicy']) || undefined,
+      jsonMode: original.jsonMode ?? undefined,
+      rateLimit: original.rateLimit ?? undefined,
+      notes: original.notes || undefined,
+      isDefault: false, // Never duplicate as default
+    };
+
+    return await this.createEngine(config);
+  }
+
+  async validateConfig(config: AIEngineConfig): Promise<AIEngineValidationResult> {
+    const errors: string[] = [];
+    const warnings: string[] = [];
+
+    // Required fields
+    if (!config.name?.trim()) {
+      errors.push('Name is required');
+    }
+
+    if (!config.provider) {
+      errors.push('Provider is required');
+    }
+
+    // Provider-specific validation
+    if (config.provider) {
+      switch (config.provider) {
+        case 'openai':
+          if (!config.apiKey?.trim()) {
+            errors.push('API key is required for OpenAI');
+          }
+          if (!config.defaultModel?.trim()) {
+            warnings.push('Default model is recommended for OpenAI');
+          }
+          break;
+
+        case 'azure-openai':
+          if (!config.apiKey?.trim()) {
+            errors.push('API key is required for Azure OpenAI');
+          }
+          if (!config.endpoint?.trim()) {
+            errors.push('Endpoint is required for Azure OpenAI');
+          }
+          if (!config.defaultModel?.trim()) {
+            warnings.push('Default model is recommended for Azure OpenAI');
+          }
+          break;
+
+        case 'anthropic':
+          if (!config.apiKey?.trim()) {
+            errors.push('API key is required for Anthropic');
+          }
+          break;
+
+        case 'google':
+          if (!config.apiKey?.trim()) {
+            errors.push('API key is required for Google');
+          }
+          break;
+
+        case 'ollama':
+          if (!config.endpoint?.trim()) {
+            errors.push('Endpoint is required for Ollama');
+          }
+          if (!config.defaultModel?.trim()) {
+            warnings.push('Default model is recommended for Ollama');
+          }
+          break;
+
+        case 'custom':
+          if (!config.endpoint?.trim()) {
+            errors.push('Endpoint is required for custom provider');
+          }
+          break;
+      }
+    }
+
+    // Validate numeric ranges
+    if (config.temperature !== undefined) {
+      if (config.temperature < 0 || config.temperature > 2) {
+        errors.push('Temperature must be between 0 and 2');
+      }
+    }
+
+    if (config.maxTokens !== undefined) {
+      if (config.maxTokens < 1 || config.maxTokens > 100000) {
+        errors.push('Max tokens must be between 1 and 100,000');
+      }
+    }
+
+    if (config.timeoutMs !== undefined) {
+      if (config.timeoutMs < 1000) {
+        errors.push('Timeout must be at least 1000ms');
+      }
+    }
+
+    if (config.rateLimit !== undefined) {
+      if (config.rateLimit < 1) {
+        errors.push('Rate limit must be at least 1 request per minute');
+      }
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      warnings,
+    };
+  }
+
+  async testConnection(config: AIEngineConfig): Promise<{ success: boolean; error?: string; latency?: number }> {
+    const startTime = Date.now();
+    
+    try {
+      // Basic validation first
+      const validation = await this.validateConfig(config);
+      if (!validation.isValid) {
+        return {
+          success: false,
+          error: `Configuration invalid: ${validation.errors.join(', ')}`,
+        };
+      }
+
+      // TODO: Implement actual provider connection testing
+      // For now, just do basic validation
+      const latency = Date.now() - startTime;
+      
+      return {
+        success: true,
+        latency,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        latency: Date.now() - startTime,
+      };
+    }
+  }
+
+  private async unsetAllDefaults(): Promise<void> {
+    await this.db.db
+      .update(aiEngines)
+      .set({ isDefault: false, updatedAt: new Date().toISOString() })
+      .where(eq(aiEngines.isDefault, true));
+  }
+
+  private generateId(): string {
+    return `ai_engine_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+  }
+}

@@ -1,8 +1,20 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
-import { eq, desc, and, or } from 'drizzle-orm';
+import { eq, desc } from 'drizzle-orm';
+
+import type { 
+  Connection, 
+  NewConnection, 
+  QueryHistoryEntry, 
+  NewQueryHistoryEntry,
+  SavedQuery,
+  NewSavedQuery,
+  AuditLogEntry,
+  NewAuditLogEntry
+} from './schema';
 import * as schema from './schema';
+import { CredentialManager } from './credentials';
 
 // Simple UUID v4 generator that doesn't depend on crypto module
 function generateUUID(): string {
@@ -12,42 +24,33 @@ function generateUUID(): string {
     return v.toString(16);
   });
 }
-import type { 
-  Connection, 
-  NewConnection, 
-  QueryHistoryEntry, 
-  NewQueryHistoryEntry,
-  SavedQuery,
-  NewSavedQuery,
-  Setting,
-  NewSetting,
-  AuditLogEntry,
-  NewAuditLogEntry
-} from './schema';
-import { CredentialManager } from './credentials';
 
 export class LocalDatabase {
-  private db: Database.Database;
+  private sqlite: Database.Database;
   private drizzle: ReturnType<typeof drizzle>;
   private credentialManager: CredentialManager;
 
   constructor(dbPath: string) {
-    this.db = new Database(dbPath);
-    this.drizzle = drizzle(this.db, { schema });
+    this.sqlite = new Database(dbPath);
+    this.drizzle = drizzle(this.sqlite, { schema });
     this.credentialManager = new CredentialManager();
     
     // Enable WAL mode for better concurrency
-    this.db.exec('PRAGMA journal_mode = WAL;');
-    this.db.exec('PRAGMA synchronous = NORMAL;');
-    this.db.exec('PRAGMA cache_size = 1000;');
-    this.db.exec('PRAGMA foreign_keys = ON;');
+    this.sqlite.exec('PRAGMA journal_mode = WAL;');
+    this.sqlite.exec('PRAGMA synchronous = NORMAL;');
+    this.sqlite.exec('PRAGMA cache_size = 1000;');
+    this.sqlite.exec('PRAGMA foreign_keys = ON;');
+  }
+
+  get db() {
+    return this.drizzle;
   }
 
   async initialize(): Promise<void> {
     // Run migrations
     try {
       await migrate(this.drizzle, { migrationsFolder: './migrations' });
-    } catch (error) {
+    } catch (_error) {
       // If no migrations folder exists, create tables manually
       this.createTables();
     }
@@ -59,12 +62,12 @@ export class LocalDatabase {
   private handleSchemaMigrations(): void {
     // Check if connection_string column exists and add it if not
     try {
-      const tableInfo = this.db.prepare("PRAGMA table_info(connections)").all() as any[];
-      const hasConnectionString = tableInfo.some((col: any) => col.name === 'connection_string');
+      const tableInfo = this.sqlite.prepare("PRAGMA table_info(connections)").all() as Array<{ name: string }>;
+      const hasConnectionString = tableInfo.some((col) => col.name === 'connection_string');
       
       if (!hasConnectionString) {
         console.log('Adding connection_string column to connections table...');
-        this.db.exec('ALTER TABLE connections ADD COLUMN connection_string TEXT');
+        this.sqlite.exec('ALTER TABLE connections ADD COLUMN connection_string TEXT');
       }
     } catch (error) {
       console.warn('Schema migration warning:', error);
@@ -73,7 +76,7 @@ export class LocalDatabase {
 
   private createTables(): void {
     // Create tables if they don't exist
-    this.db.exec(`
+    this.sqlite.exec(`
       CREATE TABLE IF NOT EXISTS connections (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -91,7 +94,7 @@ export class LocalDatabase {
       )
     `);
 
-    this.db.exec(`
+    this.sqlite.exec(`
       CREATE TABLE IF NOT EXISTS query_history (
         id TEXT PRIMARY KEY,
         connection_id TEXT REFERENCES connections(id) ON DELETE CASCADE,
@@ -104,7 +107,7 @@ export class LocalDatabase {
       )
     `);
 
-    this.db.exec(`
+    this.sqlite.exec(`
       CREATE TABLE IF NOT EXISTS saved_queries (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -117,7 +120,7 @@ export class LocalDatabase {
       )
     `);
 
-    this.db.exec(`
+    this.sqlite.exec(`
       CREATE TABLE IF NOT EXISTS settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -126,7 +129,7 @@ export class LocalDatabase {
       )
     `);
 
-    this.db.exec(`
+    this.sqlite.exec(`
       CREATE TABLE IF NOT EXISTS audit_log (
         id TEXT PRIMARY KEY,
         connection_id TEXT REFERENCES connections(id) ON DELETE CASCADE,
@@ -141,18 +144,73 @@ export class LocalDatabase {
       )
     `);
 
+    // AI Engines table
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS ai_engines (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        endpoint TEXT,
+        api_key_ref TEXT,
+        default_model TEXT,
+        temperature REAL DEFAULT 0.7,
+        max_tokens INTEGER DEFAULT 2048,
+        timeout_ms INTEGER DEFAULT 30000,
+        retry_policy TEXT DEFAULT 'exponential',
+        json_mode INTEGER DEFAULT 0,
+        rate_limit INTEGER DEFAULT 60,
+        notes TEXT,
+        is_default INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Chat conversations table
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS chat_conversations (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        ai_engine_id TEXT REFERENCES ai_engines(id) ON DELETE SET NULL,
+        connection_id TEXT REFERENCES connections(id) ON DELETE SET NULL,
+        is_deleted INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Chat messages table
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id TEXT PRIMARY KEY,
+        conversation_id TEXT REFERENCES chat_conversations(id) ON DELETE CASCADE,
+        role TEXT NOT NULL,
+        content TEXT NOT NULL,
+        tool_calls TEXT,
+        tool_results TEXT,
+        tokens INTEGER,
+        cost REAL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Create indexes
-    this.db.exec(`
+    this.sqlite.exec(`
       CREATE INDEX IF NOT EXISTS idx_query_history_connection_id ON query_history(connection_id);
       CREATE INDEX IF NOT EXISTS idx_query_history_created_at ON query_history(created_at);
       CREATE INDEX IF NOT EXISTS idx_audit_log_connection_id ON audit_log(connection_id);
       CREATE INDEX IF NOT EXISTS idx_audit_log_created_at ON audit_log(created_at);
       CREATE INDEX IF NOT EXISTS idx_saved_queries_favorite ON saved_queries(favorite);
+      CREATE INDEX IF NOT EXISTS idx_ai_engines_is_default ON ai_engines(is_default);
+      CREATE INDEX IF NOT EXISTS idx_chat_conversations_ai_engine_id ON chat_conversations(ai_engine_id);
+      CREATE INDEX IF NOT EXISTS idx_chat_conversations_connection_id ON chat_conversations(connection_id);
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_id ON chat_messages(conversation_id);
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at);
     `);
   }
 
   async close(): Promise<void> {
-    this.db.close();
+    this.sqlite.close();
   }
 
   // Connection management

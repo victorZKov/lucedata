@@ -336,6 +336,7 @@ export default function WorkArea() {
         },
       });
       updateActiveTab({ status: "idle" });
+      setShowResults(true);
     } catch (err: any) {
       updateActiveTab({
         result: {
@@ -382,6 +383,7 @@ export default function WorkArea() {
         },
       });
       updateActiveTab({ status: "idle" });
+      setShowResults(true);
     } catch (err: any) {
       updateActiveTab({
         result: {
@@ -448,6 +450,7 @@ export default function WorkArea() {
         },
         status: "idle",
       });
+      setShowResults(true);
     } catch (err: any) {
       updateActiveTab({
         result: {
@@ -903,7 +906,7 @@ export default function WorkArea() {
           )}
 
           {showResults && !!activeTab.result && (
-            <div className="flex-1 min-h-0 bg-muted p-2 overflow-hidden">
+            <div className="flex-1 min-h-[160px] bg-muted p-2 overflow-hidden">
               <div className="h-full border border-border rounded bg-card flex flex-col min-w-0">
                 <div className="flex items-center justify-between border-b border-border px-2 py-1 text-xs">
                   <div className="flex items-center gap-2">
@@ -1039,7 +1042,7 @@ export default function WorkArea() {
                 {/* Context Menus */}
                 {resultMenu.show && (
                   <div
-                    className="fixed z-50 bg-popover border border-border rounded shadow-lg text-xs"
+                    className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
                     style={{ left: resultMenu.x, top: resultMenu.y }}
                     onMouseLeave={() =>
                       setResultMenu(prev => ({ ...prev, show: false }))
@@ -1073,7 +1076,7 @@ export default function WorkArea() {
                 )}
                 {columnMenu.show && (
                   <div
-                    className="fixed z-50 bg-popover border border-border rounded shadow-lg text-xs"
+                    className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
                     style={{ left: columnMenu.x, top: columnMenu.y }}
                     onMouseLeave={() =>
                       setColumnMenu(prev => ({ ...prev, show: false }))
@@ -1150,6 +1153,14 @@ export default function WorkArea() {
                 }}
               >
                 Open SQL File…
+              </button>
+              <button
+                className="px-4 py-2 rounded bg-muted text-foreground text-sm hover:bg-accent"
+                onClick={() =>
+                  document.dispatchEvent(new CustomEvent("open-ai-engines-settings"))
+                }
+              >
+                Setup AI Engines
               </button>
             </div>
             <div className="text-xs text-muted-foreground">

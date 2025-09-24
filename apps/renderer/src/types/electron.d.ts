@@ -81,6 +81,15 @@ declare global {
       };
       onMenuAction: (callback: (action: string, ...args: any[]) => void) => void;
       removeAllListeners: (channel: string) => void;
+      aiEngines: {
+        list: () => Promise<any[]>;
+        get: (id: string) => Promise<any>;
+        create: (engine: any) => Promise<any>;
+        update: (id: string, updates: any) => Promise<any>;
+        delete: (id: string) => Promise<{ success: boolean }>;
+        test: (id: string) => Promise<{ success: boolean; latency?: number; error?: string }>;
+        validate: (engine: any) => Promise<{ valid: boolean; errors: string[] }>;
+      };
     };
   }
 }

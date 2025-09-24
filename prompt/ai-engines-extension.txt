@@ -1,0 +1,168 @@
+# PROMPT — ADD “AI ENGINES” FUNCTIONALITY TO EXISTING DESKTOP APP
+
+You are a senior cross-functional team (architecture, frontend, backend, UX, QA, DevOps). 
+Enhance the existing Electron + React + TypeScript SQL management desktop application by adding the **AI Engines** feature set 
+and integrating it with the Chat panel.
+
+## CONTEXT
+- The application already exists and includes: 
+  - Electron shell with React/TypeScript frontend
+  - SQLite local DB for settings/history
+  - SQL Server provider via `mssql/tedious`
+  - Postgresql provider
+  - Guardrails for SQL execution (read-only by default, review/confirm for DML/DDL)
+  - MCP (TypeScript, stdio) implementation that can inspect DB schema and run safe read-only queries. If this does not exist, you need to create it.
+
+## GOAL
+Extend the current app with **AI Engines** so users can:
+1. Register multiple AI providers/models (OpenAI, Azure OpenAI, Anthropic, Google Gemini, Ollama, Custom).
+2. Manage AI Engines in **Settings**: Add/Edit/Delete/Duplicate/Set Default with validation and “Test connection”.
+3. If no AI Engine exists, pressing **Send** in Chat opens the “New AI Engine” dialog.
+4. In the Chat footer, show selectors for **Open Database connection** and **AI Engine**. Persist selection per conversation.
+5. Chat flow: 
+   - Support conversation (messages + streaming).
+   - Model may use MCP tools to inspect schema/sample rows.
+   - Final assistant message must be a **single SQL query** in a fenced block.
+   - Provide button **“Insert SQL to New Tab”** that pastes only that SQL into a new query editor tab bound to the selected DB.
+6. Add a **History button** in Chat: expands panel width and shows a left sub-pane with recent conversations (title, engine, db).
+
+## DATA STRUCTURES
+- **AiEngines** table (SQLite + Keytar for secrets). Fields: id, name, provider, endpoint, apiKeyRef, defaultModel, temperature, maxTokens, timeoutMs, retryPolicy, jsonMode, rateLimit, notes, isDefault, createdAt, updatedAt.
+- **ChatConversations** and **ChatMessages** tables for storing conversation history with links to engine and DB connection.
+
+## PROVIDERS
+Implement adapters for OpenAI, Azure OpenAI, Anthropic, Google, Ollama, and Custom HTTP. Each supports: config validation, optional model listing, generate with tool calls, retries, streaming.
+
+## CHAT SYSTEM PROMPT
+> You are an SQL assistant for a desktop database tool.  
+> Use tools to inspect schema and sample data.  
+> Never execute writes.  
+> When asked for a query, output exactly one SQL statement (T-SQL for SQL Server) in a fenced code block.  
+> If ambiguous, ask clarifying questions.  
+> Final output must be SQL only.
+
+## GUARDRAILS
+
+- Final SQL must pass validation: single statement, lint with SQLFluff, blocklist of dangerous commands, enforce LIMIT/ROWCOUNT. 
+- Secrets encrypted in Keytar, not in logs. 
+
+## UI REQUIREMENTS
+- **Settings → AI Engines**: table + dialogs with add/edit/delete/duplicate, set default, fetch models if supported.
+- **Chat Footer**: dropdowns for DB + AI Engine.
+- **Chat Panel**: conversation, streaming, MCP integration, Insert SQL button.
+- **Chat History**: expandable panel showing recent conversations. 
+
+## TESTS
+- Unit: provider adapters, agent output enforcement, tool integration. 
+- E2E (Playwright): 
+  1. No engines → Send opens New Engine dialog. 
+  2. Ask a question → AI generates single SQL → Insert SQL opens new query tab. 
+  3. History panel expands and loads previous conversations. 
+- Security: no writes executed in chat, no secrets leaked.
+
+## ACCEPTANCE CRITERIA
+- Users can fully manage AI Engines in Settings. 
+- Chat footer shows DB + Engine selectors. 
+- Chat supports conversations, uses MCP, and produces single SQL queries. 
+- Insert SQL pastes into a new editor tab. 
+- History expands with recent conversations. 
+- All guardrails active, secrets secure, tests pass in CI.
+
+Deliver: code changes, migrations, updated pipeline, and documentation in `/docs/ai-engines.md`.
+
+
+
+## ROADMAP (PHASED IMPLEMENTATION)
+
+### Phase 1 — Foundations & Settings
+**Scope**
+- DB schema migrations: `AiEngines`, `ChatConversations`, `ChatMessages`.
+- Secrets via Keytar; config repository + validation.
+- Provider adapters: OpenAI, Azure OpenAI, Anthropic, Google, Ollama (minimal `generate`, optional `listModels`).
+- Settings → AI Engines list (Add/Edit/Delete/Set Default) and **Test connection**.
+- Feature flags + telemetry fields (opt‑in).
+
+**Exit Criteria**
+- CRUD works; invalid configs blocked; keys never persisted in plaintext.
+- Unit tests for adapters and validation.
+
+---
+### Phase 2 — Chat Footer & Basic Flow
+**Scope**
+- Chat footer selectors: **DB connection** + **AI Engine** (persist per conversation).
+- Empty‑state: if no engines exist, **Send** opens New Engine dialog.
+- Agent service: enforce **single SQL output**; reject multi‑block replies.
+- Integrate MCP tools: `describe_schema`, `find_tables`, `sample_rows` (read‑only).
+
+**Exit Criteria**
+- With a sample DB, user asks a question → model inspects schema via MCP → returns one T‑SQL query in fenced block.
+- Contract enforcement errors surfaced as user‑friendly toasts.
+- Playwright E2E covering the flow above.
+
+---
+### Phase 3 — Guardrails & Insert to Editor
+**Scope**
+- Lint with SQLFluff; policy: block `SELECT *` unless explicitly requested; add ROWCOUNT/LIMIT if missing (configurable).
+- Blocklist of hazardous statements; read‑only enforcement in chat.
+- **Insert SQL to New Tab**: open editor tab bound to selected DB; paste only SQL.
+
+**Exit Criteria**
+- Hazardous statements cannot pass; insertion always opens correctly bound tab.
+- Security unit tests and E2E for negative cases.
+
+---
+### Phase 4 — History & UX Polish
+**Scope**
+- Chat **History** button expands panel; left sub‑pane lists recent conversations (title, engine, db, updatedAt).
+- Conversation title auto‑generate; rename; soft‑delete/restore.
+- Message badges (engine/provider+model); streaming tokens where supported.
+
+**Exit Criteria**
+- History navigation restores full context reliably.
+- Large threads perform smoothly (virtualized list when needed).
+
+---
+### Phase 5 — Provider Depth & Model Discovery
+**Scope**
+- Dynamic **Fetch Models** for OpenAI/Azure/Anthropic/Google; Ollama `/api/tags`.
+- Custom HTTP provider skeleton + docs.
+- Rate‑limit/RPM guard and retry/backoff tuning.
+
+**Exit Criteria**
+- Fetch Models populates dropdowns; fallbacks to manual model ID.
+- Adapter resilience verified with fault‑injection tests.
+
+---
+### Phase 6 — Docs, CI & Release
+**Scope**
+- `/docs/ai-engines.md` & troubleshooting.
+- Extend Azure DevOps pipelines (matrix build; unit+E2E; artifacts). 
+- Release notes; changelog entries; feature flag default → **on**.
+
+**Exit Criteria**
+- Pipelines green across OS matrix; installers generated; docs linked from Help menu.
+
+---
+## CHECKLISTS
+
+### Security & Privacy
+- [ ] Keys only in Keytar; redaction in logs.
+- [ ] Chat tools are read‑only; writes blocked at the tool layer.
+- [ ] Blocklist & allowlist evaluated before insertion.
+- [ ] Telemetry is opt‑in; no SQL text unless diagnostics mode (hash only).
+
+### QA
+- [ ] Unit tests for adapters, agent contract, guardrails.
+- [ ] Playwright E2E for first‑run, normal flow, history, negative cases.
+- [ ] Performance: stream rendering and large grid sanity checks.
+
+### UX
+- [ ] Keyboard shortcuts documented.
+- [ ] Empty‑state guidance and error toasts.
+- [ ] Accessible labels and screen‑reader hints in Settings & Chat.
+
+## RISK LOG (watch items)
+- Provider API changes → mitigate with adapter version checks.
+- Long schema payloads → truncate + summarize; progressive disclosure.
+- False positives in SQL lint/blocklist → allow user override with explicit confirmation (still blocked in chat; allowed only in editor flow).
+

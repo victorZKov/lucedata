@@ -15,6 +15,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     window.matchMedia(prefersDarkQuery).matches ? "dark" : "light";
 
   const [mode, setModeState] = useState<"system" | "light" | "dark">(() => {
+    // Prefer persisted app setting from Electron store via preload if available
+    // Note: electronAPI.store.get is async; we fall back to localStorage here
     const stored = localStorage.getItem("themeMode");
     return stored === "light" || stored === "dark" || stored === "system"
       ? (stored as any)
@@ -72,6 +74,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       mq.removeListener?.(onChange as any);
     };
   }, [mode]);
+
+  // Listen for menu-triggered theme mode changes from main process
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const { detail } = e as CustomEvent<{ mode: "system" | "light" | "dark" }>;
+      if (!detail) return;
+      setMode(detail.mode);
+    };
+    document.addEventListener("set-theme-mode", handler as EventListener);
+    return () =>
+      document.removeEventListener("set-theme-mode", handler as EventListener);
+  }, []);
 
   return (
     <ThemeContext.Provider value={{ theme, mode, toggleTheme, setMode }}>

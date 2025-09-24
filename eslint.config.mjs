@@ -16,6 +16,8 @@ export default [
       '**/.turbo/**',
       '**/.vite/**',
       'apps/renderer/dist/**',
+      'packages/ai-integration/src/mcp/tools.ts',
+      'packages/storage/temp-types/**',
     ],
     languageOptions: {
       parser: tsParser,

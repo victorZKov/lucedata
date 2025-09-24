@@ -1,45 +1,35 @@
+import type { DatabaseType } from '@sqlhelper/database-core';
+
 import { 
   IAIProvider, 
   AIProvider, 
-  AIConfig, 
-  SQLContext 
+  AIEngineConfig, 
+  SQLContext,
+  ChatMessage 
 } from './types.js';
-import type { DatabaseType } from '@sqlhelper/database-core';
-import { OpenAIProvider } from './providers/openai.js';
-import { MCPToolRegistryImpl, createBuiltinTools } from './mcp/tools.js';
+import { OpenAIProvider } from './providers/openai-enhanced.js';
 
 export class AIManager {
   private providers = new Map<string, IAIProvider>();
   private currentProvider: IAIProvider | null = null;
-  private toolRegistry = new MCPToolRegistryImpl();
 
   constructor() {
-    // Register built-in MCP tools
-    const builtinTools = createBuiltinTools();
-    builtinTools.forEach(tool => this.toolRegistry.registerTool(tool));
+    // MCP tools will be added later when ready
   }
 
-  async configureProvider(config: AIConfig): Promise<void> {
+  async configureProvider(config: AIEngineConfig): Promise<void> {
     const providerId = `${config.provider}-${Date.now()}`;
     
     let provider: IAIProvider;
     
     switch (config.provider) {
       case AIProvider.OpenAI:
-        provider = new OpenAIProvider({
-          apiKey: config.apiKey,
-          baseUrl: config.baseUrl,
-          model: config.model
-        });
+        provider = new OpenAIProvider(config);
         break;
         
       case AIProvider.Anthropic:
         // TODO: Implement Anthropic provider
         throw new Error('Anthropic provider not yet implemented');
-        
-      case AIProvider.Azure:
-        // TODO: Implement Azure provider  
-        throw new Error('Azure provider not yet implemented');
         
       default:
         throw new Error(`Unknown AI provider: ${config.provider}`);
@@ -86,61 +76,57 @@ export class AIManager {
     if (!this.currentProvider) {
       throw new Error('No AI provider configured');
     }
-    return this.currentProvider.generateSQL(prompt, context);
+    const messages = [
+      {
+        role: 'system' as const,
+        content: `You are a SQL assistant. Generate SQL queries based on user requests.
+Database: ${context.databaseType}
+Available tables: ${context.tables.map(t => t.name).join(', ')}`,
+        context
+      },
+      { role: 'user' as const, content: prompt }
+    ];
+    return this.currentProvider.generate(messages);
   }
 
-  async explainQuery(query: string, context: SQLContext) {
+  async chat(messages: ChatMessage[], context?: SQLContext) {
     if (!this.currentProvider) {
       throw new Error('No AI provider configured');
     }
-    return this.currentProvider.explainQuery(query, context);
+    
+    // Add context to the first system message if available
+    const enrichedMessages = [...messages];
+    if (context && enrichedMessages.length > 0 && enrichedMessages[0].role === 'system') {
+      enrichedMessages[0] = { ...enrichedMessages[0], context };
+    }
+    
+    return this.currentProvider.generate(enrichedMessages, { stream: false });
   }
 
-  async analyzeSchema(schema: any, databaseType: DatabaseType) {
+  async generateStream(messages: ChatMessage[], context?: SQLContext) {
     if (!this.currentProvider) {
       throw new Error('No AI provider configured');
     }
-    return this.currentProvider.analyzeSchema(schema, databaseType);
-  }
-
-  async chat(messages: any[], context?: SQLContext) {
-    if (!this.currentProvider) {
-      throw new Error('No AI provider configured');
+    
+    // Add context to the first system message if available
+    const enrichedMessages = [...messages];
+    if (context && enrichedMessages.length > 0 && enrichedMessages[0].role === 'system') {
+      enrichedMessages[0] = { ...enrichedMessages[0], context };
     }
-    return this.currentProvider.chat(messages, context);
+    
+    return this.currentProvider.generateStream(enrichedMessages);
   }
 
-  async optimizeQuery(query: string, context: SQLContext) {
-    if (!this.currentProvider) {
-      throw new Error('No AI provider configured');
-    }
-    return this.currentProvider.optimizeQuery(query, context);
-  }
-
-  async validateSQL(query: string, context: SQLContext) {
-    if (!this.currentProvider) {
-      throw new Error('No AI provider configured');
-    }
-    return this.currentProvider.validateSQL(query, context);
-  }
-
-  async generateDocumentation(query: string, context: SQLContext) {
-    if (!this.currentProvider) {
-      throw new Error('No AI provider configured');
-    }
-    return this.currentProvider.generateDocumentation(query, context);
-  }
-
-  // MCP Tools integration
+  // MCP Tools integration (placeholder - to be implemented)
   getToolRegistry() {
-    return this.toolRegistry;
+    throw new Error('MCP tools not yet implemented');
   }
 
-  async executeTool(toolName: string, args: any, context: SQLContext) {
-    return this.toolRegistry.executeTool(toolName, args, context);
+  async executeTool(_toolName: string, _args: Record<string, unknown>, _context: SQLContext) {
+    throw new Error('MCP tools not yet implemented');
   }
 
   listTools() {
-    return this.toolRegistry.listTools();
+    return [];
   }
 }

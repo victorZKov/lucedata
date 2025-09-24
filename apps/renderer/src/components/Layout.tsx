@@ -44,6 +44,15 @@ export default function Layout() {
     // Get platform info
     if (window.electronAPI) {
       window.electronAPI.getPlatform().then(setPlatform);
+
+      // Listen for menu actions
+      window.electronAPI.onMenuAction((action: string) => {
+        switch (action) {
+          case "manage-ai-engines":
+            document.dispatchEvent(new CustomEvent("open-ai-engines-settings"));
+            break;
+        }
+      });
     }
 
     // Listen for menu events

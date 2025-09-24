@@ -1,7 +1,8 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import Layout from "./components/Layout";
+import AIEnginesDialog from "./components/AIEnginesDialog";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 // Create a client
@@ -15,9 +16,18 @@ const queryClient = new QueryClient({
 });
 
 function App() {
+  const [showAIEnginesDialog, setShowAIEnginesDialog] = useState(false);
+
   useEffect(() => {
+    // Listen for AI engines dialog events
+    const handleOpenAIEnginesSettings = () => {
+      setShowAIEnginesDialog(true);
+    };
+
+    document.addEventListener("open-ai-engines-settings", handleOpenAIEnginesSettings);
+
     // Set up menu action handlers
-    const handleMenuAction = (action: string, ...args: any[]) => {
+    const handleMenuAction = (action: string, ...args: unknown[]) => {
       console.log("Menu action:", action, args);
 
       switch (action) {
@@ -53,6 +63,13 @@ function App() {
           // This will be handled by the WorkArea component
           document.dispatchEvent(new CustomEvent("toggle-results"));
           break;
+        case "set-theme-mode": {
+          const mode = (args?.[0] as "system" | "light" | "dark") ?? "system";
+          document.dispatchEvent(
+            new CustomEvent("set-theme-mode", { detail: { mode } })
+          );
+          break;
+        }
         case "preferences":
           // Handle preferences
           console.log("Opening preferences");
@@ -85,6 +102,7 @@ function App() {
 
     // Cleanup
     return () => {
+      document.removeEventListener("open-ai-engines-settings", handleOpenAIEnginesSettings);
       if (window.electronAPI) {
         window.electronAPI.removeAllListeners("menu-action");
       }
@@ -96,6 +114,10 @@ function App() {
       <ThemeProvider>
         <div className="h-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors">
           <Layout />
+          <AIEnginesDialog 
+            isOpen={showAIEnginesDialog} 
+            onClose={() => setShowAIEnginesDialog(false)} 
+          />
         </div>
       </ThemeProvider>
     </QueryClientProvider>

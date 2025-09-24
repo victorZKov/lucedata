@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+import { contextBridge, ipcRenderer } from "electron";
 
 console.log("🔧 Preload script starting...");
 
@@ -12,13 +12,13 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Store methods
   store: {
     get: (key: string) => ipcRenderer.invoke("store-get", key),
-    set: (key: string, value: any) => ipcRenderer.invoke("store-set", key, value),
+    set: (key: string, value: unknown) => ipcRenderer.invoke("store-set", key, value),
     delete: (key: string) => ipcRenderer.invoke("store-delete", key),
   },
 
   // Connection management
   connections: {
-    save: (connection: any, password?: string) => {
+    save: (connection: unknown, password?: string) => {
       console.log('🔗 preload.ts: connections.save called with:', { connection, hasPassword: !!password });
       return ipcRenderer.invoke("connection-save", connection, password);
     },
@@ -68,6 +68,17 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // Menu actions
   onMenuAction: (callback: (action: string, ...args: any[]) => void) => {
     ipcRenderer.on("menu-action", (_: any, action: string, ...args: any[]) => callback(action, ...args));
+  },
+
+  // AI Engines management
+  aiEngines: {
+    list: () => ipcRenderer.invoke("ai-engines-list"),
+    get: (id: string) => ipcRenderer.invoke("ai-engines-get", id),
+    create: (engine: any) => ipcRenderer.invoke("ai-engines-create", engine),
+    update: (id: string, updates: any) => ipcRenderer.invoke("ai-engines-update", id, updates),
+    delete: (id: string) => ipcRenderer.invoke("ai-engines-delete", id),
+    test: (config: any) => ipcRenderer.invoke("ai-engines-test", config),
+    validate: (config: any) => ipcRenderer.invoke("ai-engines-validate", config),
   },
 
   // Cleanup

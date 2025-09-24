@@ -912,7 +912,7 @@ export default function Explorer() {
       {/* Context Menu */}
       {contextMenu.visible && (
         <div
-          className="fixed z-50 bg-popover border border-border rounded shadow-md text-sm text-foreground"
+          className="fixed z-50 border border-border rounded shadow-md text-sm isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onMouseLeave={() => setContextMenu(c => ({ ...c, visible: false }))}
         >

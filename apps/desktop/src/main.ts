@@ -200,7 +200,7 @@ function createWindow(): void {
   // Add error handling for preload script
   mainWindow.webContents.on(
     "console-message",
-    (event, level, message, line, sourceId) => {
+    (_event, level, message, _line, _sourceId) => {
       if (message.includes("preload") || message.includes("ElectronAPI")) {
         console.log(`🔧 Renderer Console [${level}]:`, message);
       }
@@ -970,6 +970,150 @@ ipcMain.handle(
       return result;
     } catch (error) {
       console.error("Error getting table data:", error);
+      throw error;
+    }
+  }
+);
+
+// Enhanced metadata IPC handlers for table tree enhancements
+ipcMain.handle(
+  "database-get-columns",
+  async (
+    _: IpcMainInvokeEvent,
+    connectionId: string,
+    tableName: string,
+    schema?: string
+  ) => {
+    try {
+      const provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        throw new Error(`No active connection found for id '${connectionId}'`);
+      }
+
+      const result = await provider.getColumns(tableName, schema);
+      return result;
+    } catch (error) {
+      console.error("Error getting table columns:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "database-get-keys",
+  async (
+    _: IpcMainInvokeEvent,
+    connectionId: string,
+    tableName: string,
+    schema?: string
+  ) => {
+    try {
+      const provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        throw new Error(`No active connection found for id '${connectionId}'`);
+      }
+
+      if (!provider.getKeys) {
+        console.warn(
+          `Provider for connection ${connectionId} does not support getKeys`
+        );
+        return [];
+      }
+
+      const result = await provider.getKeys(tableName, schema);
+      return result;
+    } catch (error) {
+      console.error("Error getting table keys:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "database-get-constraints",
+  async (
+    _: IpcMainInvokeEvent,
+    connectionId: string,
+    tableName: string,
+    schema?: string
+  ) => {
+    try {
+      const provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        throw new Error(`No active connection found for id '${connectionId}'`);
+      }
+
+      if (!provider.getConstraints) {
+        console.warn(
+          `Provider for connection ${connectionId} does not support getConstraints`
+        );
+        return [];
+      }
+
+      const result = await provider.getConstraints(tableName, schema);
+      return result;
+    } catch (error) {
+      console.error("Error getting table constraints:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "database-get-triggers",
+  async (
+    _: IpcMainInvokeEvent,
+    connectionId: string,
+    tableName: string,
+    schema?: string
+  ) => {
+    try {
+      const provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        throw new Error(`No active connection found for id '${connectionId}'`);
+      }
+
+      if (!provider.getTriggers) {
+        console.warn(
+          `Provider for connection ${connectionId} does not support getTriggers`
+        );
+        return [];
+      }
+
+      const result = await provider.getTriggers(tableName, schema);
+      return result;
+    } catch (error) {
+      console.error("Error getting table triggers:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "database-get-indexes",
+  async (
+    _: IpcMainInvokeEvent,
+    connectionId: string,
+    tableName: string,
+    schema?: string
+  ) => {
+    try {
+      const provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        throw new Error(`No active connection found for id '${connectionId}'`);
+      }
+
+      if (!provider.getIndexes) {
+        console.warn(
+          `Provider for connection ${connectionId} does not support getIndexes`
+        );
+        return [];
+      }
+
+      const result = await provider.getIndexes(tableName, schema);
+      return result;
+    } catch (error) {
+      console.error("Error getting table indexes:", error);
       throw error;
     }
   }

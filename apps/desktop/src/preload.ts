@@ -88,6 +88,88 @@ try {
           schema
         );
       },
+      // Enhanced metadata methods for table tree enhancements
+      getColumns: (
+        connectionId: string,
+        tableName: string,
+        schema?: string
+      ) => {
+        console.log("🔗 preload.ts: database.getColumns called with:", {
+          connectionId,
+          tableName,
+          schema,
+        });
+        return ipcRenderer.invoke(
+          "database-get-columns",
+          connectionId,
+          tableName,
+          schema
+        );
+      },
+      getKeys: (connectionId: string, tableName: string, schema?: string) => {
+        console.log("🔗 preload.ts: database.getKeys called with:", {
+          connectionId,
+          tableName,
+          schema,
+        });
+        return ipcRenderer.invoke(
+          "database-get-keys",
+          connectionId,
+          tableName,
+          schema
+        );
+      },
+      getConstraints: (
+        connectionId: string,
+        tableName: string,
+        schema?: string
+      ) => {
+        console.log("🔗 preload.ts: database.getConstraints called with:", {
+          connectionId,
+          tableName,
+          schema,
+        });
+        return ipcRenderer.invoke(
+          "database-get-constraints",
+          connectionId,
+          tableName,
+          schema
+        );
+      },
+      getTriggers: (
+        connectionId: string,
+        tableName: string,
+        schema?: string
+      ) => {
+        console.log("🔗 preload.ts: database.getTriggers called with:", {
+          connectionId,
+          tableName,
+          schema,
+        });
+        return ipcRenderer.invoke(
+          "database-get-triggers",
+          connectionId,
+          tableName,
+          schema
+        );
+      },
+      getIndexes: (
+        connectionId: string,
+        tableName: string,
+        schema?: string
+      ) => {
+        console.log("🔗 preload.ts: database.getIndexes called with:", {
+          connectionId,
+          tableName,
+          schema,
+        });
+        return ipcRenderer.invoke(
+          "database-get-indexes",
+          connectionId,
+          tableName,
+          schema
+        );
+      },
     },
 
     // Export helpers

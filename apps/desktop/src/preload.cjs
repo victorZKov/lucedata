@@ -54,6 +54,26 @@ try {
       console.log('🔗 preload.js: database.getTableData called with:', { connectionId, tableName, schema });
       return ipcRenderer.invoke("database-get-table-data", connectionId, tableName, schema);
     },
+    getColumns: (connectionId, tableName, schema) => {
+      console.log('🔗 preload.js: database.getColumns called with:', { connectionId, tableName, schema });
+      return ipcRenderer.invoke("database-get-columns", connectionId, tableName, schema);
+    },
+    getKeys: (connectionId, tableName, schema) => {
+      console.log('🔗 preload.js: database.getKeys called with:', { connectionId, tableName, schema });
+      return ipcRenderer.invoke("database-get-keys", connectionId, tableName, schema);
+    },
+    getConstraints: (connectionId, tableName, schema) => {
+      console.log('🔗 preload.js: database.getConstraints called with:', { connectionId, tableName, schema });
+      return ipcRenderer.invoke("database-get-constraints", connectionId, tableName, schema);
+    },
+    getTriggers: (connectionId, tableName, schema) => {
+      console.log('🔗 preload.js: database.getTriggers called with:', { connectionId, tableName, schema });
+      return ipcRenderer.invoke("database-get-triggers", connectionId, tableName, schema);
+    },
+    getIndexes: (connectionId, tableName, schema) => {
+      console.log('🔗 preload.js: database.getIndexes called with:', { connectionId, tableName, schema });
+      return ipcRenderer.invoke("database-get-indexes", connectionId, tableName, schema);
+    },
   },
 
   // Export helpers

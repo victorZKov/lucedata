@@ -1,17 +1,22 @@
-import Database from 'better-sqlite3';
-import path from 'path';
-import fs from 'fs';
-import { 
-  IDatabaseProvider, 
-  DatabaseConnection, 
-  DatabaseType, 
-  QueryResult, 
-  TableInfo, 
+import path from "path";
+import fs from "fs";
+
+import Database from "better-sqlite3";
+
+import {
+  IDatabaseProvider,
+  DatabaseConnection,
+  DatabaseType,
+  QueryResult,
+  TableInfo,
   ColumnInfo,
   SchemaInfo,
   ExecutionPlan,
-  PoolConfig 
-} from '../types.js';
+  KeyInfo,
+  ConstraintInfo,
+  TriggerInfo,
+  IndexInfo,
+} from "../types.js";
 
 export class SQLiteProvider implements IDatabaseProvider {
   readonly type = DatabaseType.SQLite;
@@ -21,11 +26,11 @@ export class SQLiteProvider implements IDatabaseProvider {
   async connect(connection: DatabaseConnection): Promise<void> {
     try {
       this.config = connection;
-      
+
       // For SQLite, the database path is either in connectionString or database field
       const dbPath = connection.connectionString || connection.database;
       if (!dbPath) {
-        throw new Error('Database path is required for SQLite connection');
+        throw new Error("Database path is required for SQLite connection");
       }
 
       // Ensure the directory exists
@@ -35,11 +40,13 @@ export class SQLiteProvider implements IDatabaseProvider {
       }
 
       this.db = new Database(dbPath);
-      
+
       // Test the connection with a simple query
-      this.db.prepare('SELECT 1').get();
+      this.db.prepare("SELECT 1").get();
     } catch (error) {
-      throw new Error(`Failed to connect to SQLite: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to connect to SQLite: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -63,7 +70,7 @@ export class SQLiteProvider implements IDatabaseProvider {
       }
 
       const testDb = new Database(dbPath);
-      testDb.prepare('SELECT 1').get();
+      testDb.prepare("SELECT 1").get();
       testDb.close();
       return true;
     } catch {
@@ -73,7 +80,7 @@ export class SQLiteProvider implements IDatabaseProvider {
 
   async query(sql: string, params?: any[]): Promise<QueryResult> {
     if (!this.db) {
-      throw new Error('Not connected to database');
+      throw new Error("Not connected to database");
     }
 
     const startTime = Date.now();
@@ -84,8 +91,8 @@ export class SQLiteProvider implements IDatabaseProvider {
       let affectedRows = 0;
 
       // Determine if this is a SELECT query
-      const isSelect = sql.trim().toLowerCase().startsWith('select');
-      
+      const isSelect = sql.trim().toLowerCase().startsWith("select");
+
       if (isSelect) {
         result = params ? stmt.all(...params) : stmt.all();
       } else {
@@ -101,7 +108,7 @@ export class SQLiteProvider implements IDatabaseProvider {
         Object.keys(result[0]).forEach(key => {
           columns.push({
             name: key,
-            dataType: typeof result[0][key] === 'number' ? 'INTEGER' : 'TEXT',
+            dataType: typeof result[0][key] === "number" ? "INTEGER" : "TEXT",
             nullable: true,
             isPrimaryKey: false,
             isForeignKey: false,
@@ -117,41 +124,47 @@ export class SQLiteProvider implements IDatabaseProvider {
         messages: [],
       };
     } catch (error) {
-      throw new Error(`Query failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Query failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   async getSchemaInfo(): Promise<SchemaInfo> {
     if (!this.db) {
-      throw new Error('Not connected to database');
+      throw new Error("Not connected to database");
     }
 
     try {
       // Get all tables
-      const tablesResult = this.db.prepare(`
+      const tablesResult = this.db
+        .prepare(
+          `
         SELECT name, type 
         FROM sqlite_master 
         WHERE type IN ('table', 'view') 
         AND name NOT LIKE 'sqlite_%'
         ORDER BY name
-      `).all() as any[];
+      `
+        )
+        .all() as any[];
 
       const tables: TableInfo[] = [];
       const views: TableInfo[] = [];
-      
+
       for (const tableRow of tablesResult) {
-        if (tableRow.type === 'table') {
+        if (tableRow.type === "table") {
           tables.push({
             name: tableRow.name,
-            schema: 'main', // SQLite uses 'main' as default schema
-            type: 'table',
+            schema: "main", // SQLite uses 'main' as default schema
+            type: "table",
             rowCount: 0, // Could get this with SELECT COUNT(*) if needed
           });
-        } else if (tableRow.type === 'view') {
+        } else if (tableRow.type === "view") {
           views.push({
             name: tableRow.name,
-            schema: 'main',
-            type: 'view',
+            schema: "main",
+            type: "view",
             rowCount: 0,
           });
         }
@@ -164,43 +177,55 @@ export class SQLiteProvider implements IDatabaseProvider {
         functions: [], // SQLite has limited function support
       };
     } catch (error) {
-      throw new Error(`Failed to get schema: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get schema: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
-  async getTables(schema?: string): Promise<TableInfo[]> {
+  async getTables(_schema?: string): Promise<TableInfo[]> {
     const schemaInfo = await this.getSchemaInfo();
     return schemaInfo.tables || [];
   }
 
   async getSchemas(): Promise<string[]> {
-    return ['main']; // SQLite typically uses 'main' as the default schema
+    return ["main"]; // SQLite typically uses 'main' as the default schema
   }
 
-  async getColumns(table: string, schema?: string): Promise<ColumnInfo[]> {
+  async getColumns(table: string, _schema?: string): Promise<ColumnInfo[]> {
     if (!this.db) {
-      throw new Error('Not connected to database');
+      throw new Error("Not connected to database");
     }
 
     try {
-      const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as any[];
-      
+      const columns = this.db
+        .prepare(`PRAGMA table_info(${table})`)
+        .all() as any[];
+
+      // Get foreign key information
+      const foreignKeys = this.db
+        .prepare(`PRAGMA foreign_key_list(${table})`)
+        .all() as any[];
+      const fkColumns = new Set(foreignKeys.map((fk: any) => fk.from));
+
       return columns.map(col => ({
         name: col.name,
-        dataType: col.type || 'TEXT',
+        dataType: col.type || "TEXT",
         nullable: !col.notnull,
         isPrimaryKey: !!col.pk,
-        isForeignKey: false, // We'd need to check foreign keys separately
+        isForeignKey: fkColumns.has(col.name),
         maxLength: undefined,
       }));
     } catch (error) {
-      throw new Error(`Failed to get columns for table ${table}: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get columns for table ${table}: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
   async executeNonQuery(query: string, params?: unknown[]): Promise<number> {
     if (!this.db) {
-      throw new Error('Not connected to database');
+      throw new Error("Not connected to database");
     }
 
     try {
@@ -208,7 +233,9 @@ export class SQLiteProvider implements IDatabaseProvider {
       const result = params ? stmt.run(...params) : stmt.run();
       return result.changes || 0;
     } catch (error) {
-      throw new Error(`Non-query execution failed: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Non-query execution failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 
@@ -222,24 +249,211 @@ export class SQLiteProvider implements IDatabaseProvider {
     return query.trim();
   }
 
-  async validateQuery(query: string): Promise<{ isValid: boolean; errors: string[] }> {
+  async validateQuery(
+    query: string
+  ): Promise<{ isValid: boolean; errors: string[] }> {
     if (!this.db) {
-      return { isValid: false, errors: ['Not connected to database'] };
+      return { isValid: false, errors: ["Not connected to database"] };
     }
 
     try {
       // Try to prepare the query to validate syntax
-      const stmt = this.db.prepare(query);
+      const _stmt = this.db.prepare(query);
       return { isValid: true, errors: [] };
     } catch (error) {
-      return { 
-        isValid: false, 
-        errors: [error instanceof Error ? error.message : String(error)] 
+      return {
+        isValid: false,
+        errors: [error instanceof Error ? error.message : String(error)],
       };
     }
   }
 
-  async getTableInfo(tableName: string, schema?: string): Promise<TableInfo | null> {
+  async getKeys(table: string, _schema?: string): Promise<KeyInfo[]> {
+    if (!this.db) {
+      throw new Error("Not connected to database");
+    }
+
+    try {
+      const keys: KeyInfo[] = [];
+
+      // Get foreign keys
+      const foreignKeys = this.db
+        .prepare(`PRAGMA foreign_key_list(${table})`)
+        .all();
+      const fkMap = new Map<string, KeyInfo>();
+
+      foreignKeys.forEach((fk: any) => {
+        const keyName = `FK_${table}_${fk.table}_${fk.id}`;
+        if (!fkMap.has(keyName)) {
+          fkMap.set(keyName, {
+            name: keyName,
+            type: "FOREIGN",
+            columns: [],
+            references: {
+              table: fk.table,
+              columns: [],
+            },
+          });
+        }
+
+        const key = fkMap.get(keyName)!;
+        key.columns.push(fk.from);
+        key.references!.columns.push(fk.to);
+      });
+
+      keys.push(...Array.from(fkMap.values()));
+
+      // Get indexes that are unique (including primary key)
+      const indexes = this.db.prepare(`PRAGMA index_list(${table})`).all();
+
+      indexes.forEach((idx: any) => {
+        if (idx.unique) {
+          const indexStmt = this.db!.prepare(`PRAGMA index_info(${idx.name})`);
+          const indexInfo = indexStmt.all();
+          const columns = indexInfo.map((col: any) => col.name);
+
+          keys.push({
+            name: idx.name,
+            type: idx.origin === "pk" ? "PRIMARY" : "UNIQUE",
+            columns,
+          });
+        }
+      });
+
+      return keys;
+    } catch (error) {
+      throw new Error(
+        `Failed to get keys for table ${table}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  async getConstraints(
+    table: string,
+    _schema?: string
+  ): Promise<ConstraintInfo[]> {
+    if (!this.db) {
+      throw new Error("Not connected to database");
+    }
+
+    try {
+      const constraints: ConstraintInfo[] = [];
+
+      // SQLite doesn't have a direct way to query constraints like other databases
+      // We can get check constraints from the table schema
+      const tableSchema = this.db
+        .prepare(
+          `
+        SELECT sql FROM sqlite_master 
+        WHERE type = 'table' AND name = ?
+      `
+        )
+        .get(table) as any;
+
+      if (tableSchema?.sql) {
+        // This is a very basic parsing - in a real implementation,
+        // you'd want more sophisticated SQL parsing
+        const checkMatches = tableSchema.sql.match(/CHECK\s*\([^)]+\)/gi);
+        if (checkMatches) {
+          checkMatches.forEach((check: string, index: number) => {
+            constraints.push({
+              name: `CK_${table}_${index + 1}`,
+              type: "CHECK",
+              definition: check,
+            });
+          });
+        }
+      }
+
+      return constraints;
+    } catch (error) {
+      throw new Error(
+        `Failed to get constraints for table ${table}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  async getTriggers(table: string, _schema?: string): Promise<TriggerInfo[]> {
+    if (!this.db) {
+      throw new Error("Not connected to database");
+    }
+
+    try {
+      const triggers = this.db
+        .prepare(
+          `
+        SELECT name, sql 
+        FROM sqlite_master 
+        WHERE type = 'trigger' AND tbl_name = ?
+      `
+        )
+        .all(table) as any[];
+
+      return triggers.map((trigger: any) => {
+        const sql = trigger.sql || "";
+
+        // Parse trigger timing and events from SQL
+        let timing: TriggerInfo["timing"] = "UNKNOWN";
+        if (sql.includes("BEFORE")) timing = "BEFORE";
+        else if (sql.includes("AFTER")) timing = "AFTER";
+        else if (sql.includes("INSTEAD OF")) timing = "INSTEAD OF";
+
+        const events: string[] = [];
+        if (sql.includes("INSERT")) events.push("INSERT");
+        if (sql.includes("UPDATE")) events.push("UPDATE");
+        if (sql.includes("DELETE")) events.push("DELETE");
+
+        return {
+          name: trigger.name,
+          timing,
+          events,
+          enabled: true, // SQLite doesn't have disabled triggers
+          definition: trigger.sql,
+        };
+      });
+    } catch (error) {
+      throw new Error(
+        `Failed to get triggers for table ${table}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  async getIndexes(table: string, _schema?: string): Promise<IndexInfo[]> {
+    if (!this.db) {
+      throw new Error("Not connected to database");
+    }
+
+    try {
+      const indexes = this.db
+        .prepare(`PRAGMA index_list(${table})`)
+        .all() as any[];
+
+      return indexes.map((idx: any) => {
+        const indexStmt = this.db!.prepare(`PRAGMA index_info(${idx.name})`);
+        const indexInfo = indexStmt.all();
+        const columns = indexInfo.map((col: any) => col.name);
+
+        return {
+          name: idx.name,
+          unique: !!idx.unique,
+          method: undefined, // SQLite doesn't expose index method
+          columns,
+          include: [],
+          where: null,
+          isPrimary: idx.origin === "pk",
+        };
+      });
+    } catch (error) {
+      throw new Error(
+        `Failed to get indexes for table ${table}: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  async getTableInfo(
+    tableName: string,
+    schema?: string
+  ): Promise<TableInfo | null> {
     const tables = await this.getTables(schema);
     return tables.find(t => t.name === tableName) || null;
   }
@@ -250,12 +464,12 @@ export class SQLiteProvider implements IDatabaseProvider {
 
   async getExecutionPlan(sql: string): Promise<ExecutionPlan> {
     if (!this.db) {
-      throw new Error('Not connected to database');
+      throw new Error("Not connected to database");
     }
 
     try {
       const plan = this.db.prepare(`EXPLAIN QUERY PLAN ${sql}`).all();
-      
+
       return {
         query: sql,
         estimatedCost: 0, // SQLite doesn't provide cost estimates
@@ -268,7 +482,9 @@ export class SQLiteProvider implements IDatabaseProvider {
         })),
       };
     } catch (error) {
-      throw new Error(`Failed to get execution plan: ${error instanceof Error ? error.message : String(error)}`);
+      throw new Error(
+        `Failed to get execution plan: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 }

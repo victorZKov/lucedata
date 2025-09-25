@@ -33,7 +33,7 @@ interface DatabaseSchema {
 interface DatabaseNode {
   name: string;
   type: "database";
-  children?: SchemaNode[];
+  children?: (SchemaNode | GroupNode)[];
 }
 
 interface SchemaNode {
@@ -53,6 +53,14 @@ interface TableNode {
   type: "table";
   schema: string;
   rowCount?: number;
+  children?: GroupNode[];
+  metadataLoaded?: {
+    columns?: boolean;
+    keys?: boolean;
+    constraints?: boolean;
+    triggers?: boolean;
+    indexes?: boolean;
+  };
 }
 
 interface ViewNode {
@@ -76,7 +84,56 @@ interface FunctionNode {
 interface GroupNode {
   name: string;
   type: "group";
-  children?: (TableNode | ViewNode | ProcedureNode | FunctionNode)[];
+  children?: (
+    | TableNode
+    | ViewNode
+    | ProcedureNode
+    | FunctionNode
+    | ColumnNode
+    | KeyNode
+    | ConstraintNode
+    | TriggerNode
+    | IndexNode
+  )[];
+}
+
+interface ColumnNode {
+  name: string;
+  type: "column";
+  dataType: string;
+  nullable: boolean;
+  isPrimaryKey: boolean;
+  isForeignKey: boolean;
+}
+
+interface KeyNode {
+  name: string;
+  type: "key";
+  keyType: "PRIMARY" | "FOREIGN" | "UNIQUE";
+  columns: string[];
+}
+
+interface ConstraintNode {
+  name: string;
+  type: "constraint";
+  constraintType: "CHECK" | "DEFAULT" | "UNIQUE" | "EXCLUDE" | "OTHER";
+  definition?: string;
+}
+
+interface TriggerNode {
+  name: string;
+  type: "trigger";
+  timing: "BEFORE" | "AFTER" | "INSTEAD OF" | "UNKNOWN";
+  events: string[];
+  enabled?: boolean;
+}
+
+interface IndexNode {
+  name: string;
+  type: "index";
+  unique: boolean;
+  isPrimary?: boolean;
+  columns: string[];
 }
 
 export default function Explorer() {
@@ -277,6 +334,77 @@ export default function Explorer() {
     }
   };
 
+  // Helper function to group built-in schemas for SQL Server
+  const processSchemaDataForSqlServer = (
+    schemaData: DatabaseSchema,
+    connectionType: string
+  ): DatabaseSchema => {
+    if (connectionType !== "sqlserver") return schemaData;
+
+    // dbo is kept separate as it's the most important, other schemas are grouped
+    const builtInSchemas = [
+      "guest",
+      "INFORMATION_SCHEMA",
+      "sys",
+      "db_owner",
+      "db_accessadmin",
+      "db_securityadmin",
+      "db_ddladmin",
+      "db_backupoperator",
+      "db_datareader",
+      "db_datawriter",
+      "db_denydatareader",
+      "db_denydatawriter",
+    ];
+
+    return {
+      ...schemaData,
+      databases: schemaData.databases.map(database => {
+        if (!database.children) return database;
+
+        let dboSchema: SchemaNode | null = null;
+        const userSchemas: (SchemaNode | GroupNode)[] = [];
+        const builtInSchemaNodes: SchemaNode[] = [];
+
+        database.children.forEach(child => {
+          if (child.type === "schema") {
+            if (child.name === "dbo") {
+              dboSchema = child;
+            } else if (builtInSchemas.includes(child.name)) {
+              builtInSchemaNodes.push(child);
+            } else {
+              userSchemas.push(child);
+            }
+          } else {
+            userSchemas.push(child);
+          }
+        });
+
+        // Order: dbo first, then user schemas, then built-in schemas group
+        const newChildren: (SchemaNode | GroupNode)[] = [];
+
+        if (dboSchema) {
+          newChildren.push(dboSchema);
+        }
+
+        newChildren.push(...userSchemas);
+
+        if (builtInSchemaNodes.length > 0) {
+          newChildren.push({
+            name: "Built-in schemas",
+            type: "group",
+            children: builtInSchemaNodes as any,
+          });
+        }
+
+        return {
+          ...database,
+          children: newChildren,
+        };
+      }),
+    };
+  };
+
   const handleConnect = async (connectionId: string) => {
     const connectionState = connectionStates.get(connectionId);
     if (!connectionState || connectionState.isConnecting) return;
@@ -301,8 +429,13 @@ export default function Explorer() {
       console.log("Attempting to connect to", connectionId);
       console.log("window.electronAPI.database:", window.electronAPI.database);
       await window.electronAPI.database.connect(connectionId);
-      const schemaData =
+      const rawSchemaData =
         await window.electronAPI.database.getSchema(connectionId);
+      const schemaData = processSchemaDataForSqlServer(
+        rawSchemaData,
+        connectionState.connection.type
+      );
+
       // Persist last used connection context for default New Query binding
       try {
         const conn = connectionState.connection;
@@ -315,7 +448,9 @@ export default function Explorer() {
             database: conn.database,
           })
         );
-      } catch {}
+      } catch {
+        // Ignore localStorage errors
+      }
 
       setConnectionStates(prev => {
         const newStates = new Map(prev);
@@ -377,7 +512,55 @@ export default function Explorer() {
     }
   };
 
-  const toggleNodeExpansion = (connectionId: string, nodeKey: string) => {
+  const toggleNodeExpansion = async (
+    connectionId: string,
+    nodeKey: string,
+    node: any
+  ) => {
+    const connectionState = connectionStates.get(connectionId);
+    if (!connectionState) return;
+
+    const isExpanded = connectionState.expandedNodes.has(nodeKey);
+
+    // If we're expanding a table node and it doesn't have metadata branches yet, create them
+    if (
+      !isExpanded &&
+      node.type === "table" &&
+      (!node.children || node.children.length === 0)
+    ) {
+      const metadataBranches = createTableMetadataBranches(node, connectionId);
+      node.children = metadataBranches;
+    }
+
+    // If we're expanding a metadata group node and it's empty, load the data
+    if (
+      !isExpanded &&
+      node.type === "group" &&
+      node.children &&
+      node.children.length === 0
+    ) {
+      // The group node should be a child of a table, we need to find its parent table
+      const groupName = node.name;
+      console.log(`Expanding group ${groupName} for nodeKey ${nodeKey}`);
+
+      // Find the parent table node by searching the schema data
+      const tableNode = findParentTableForGroup(
+        connectionState.schemaData,
+        groupName,
+        nodeKey
+      );
+      console.log(`Found parent table:`, tableNode);
+
+      if (tableNode) {
+        console.log(
+          `Loading metadata for ${groupName} on table ${tableNode.name}`
+        );
+        await loadTableMetadata(tableNode, groupName, connectionId);
+      } else {
+        console.log(`No parent table found for group ${groupName}`);
+      }
+    }
+
     setConnectionStates(prev => {
       const newStates = new Map(prev);
       const state = newStates.get(connectionId);
@@ -392,6 +575,125 @@ export default function Explorer() {
       }
       return newStates;
     });
+  };
+
+  // Helper function to find parent table for a metadata group
+  const findParentTableForGroup = (
+    schemaData: any,
+    _groupName: string,
+    nodeKey: string
+  ): TableNode | null => {
+    if (!schemaData?.databases) return null;
+
+    // Extract table information from nodeKey
+    // Format: ${connectionId}:table:${schema}:${tableName}:group:${groupName}
+    const parts = nodeKey.split(":");
+    if (parts.length >= 5 && parts[1] === "table" && parts[4] === "group") {
+      const targetSchema = parts[2];
+      const targetTable = parts[3];
+
+      console.log(`Looking for table ${targetTable} in schema ${targetSchema}`);
+
+      // Search for the specific table by schema and name
+      for (const database of schemaData.databases) {
+        if (database.children) {
+          for (const schemaOrGroup of database.children) {
+            // Handle both direct schemas and "Built-in schemas" groups
+            const schemasToSearch = [];
+
+            if (schemaOrGroup.type === "schema") {
+              schemasToSearch.push(schemaOrGroup);
+            } else if (
+              schemaOrGroup.type === "group" &&
+              schemaOrGroup.name === "Built-in schemas" &&
+              schemaOrGroup.children
+            ) {
+              // Search inside the built-in schemas group
+              schemasToSearch.push(
+                ...schemaOrGroup.children.filter(
+                  (child: any) => child.type === "schema"
+                )
+              );
+            }
+
+            for (const schema of schemasToSearch) {
+              if (schema.name === targetSchema && schema.children) {
+                for (const item of schema.children) {
+                  if (item.type === "table" && item.name === targetTable) {
+                    console.log(
+                      `Found target table: ${targetTable} in schema ${targetSchema}`
+                    );
+                    return item as TableNode;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    console.warn(`Could not find table from nodeKey: ${nodeKey}`);
+    return null;
+  };
+
+  // Helper function to update table metadata in schema data
+  const updateTableMetadataInSchemaData = (
+    schemaData: any,
+    tableName: string,
+    schemaName: string,
+    branchType: string,
+    childNodes: any[]
+  ) => {
+    if (!schemaData?.databases) return schemaData;
+
+    const updatedData = JSON.parse(JSON.stringify(schemaData)); // Deep clone
+
+    for (const database of updatedData.databases) {
+      if (database.children) {
+        for (const schemaOrGroup of database.children) {
+          // Handle both direct schemas and "Built-in schemas" groups
+          const schemasToUpdate = [];
+
+          if (schemaOrGroup.type === "schema") {
+            schemasToUpdate.push(schemaOrGroup);
+          } else if (
+            schemaOrGroup.type === "group" &&
+            schemaOrGroup.name === "Built-in schemas" &&
+            schemaOrGroup.children
+          ) {
+            // Search inside the built-in schemas group
+            schemasToUpdate.push(
+              ...schemaOrGroup.children.filter(
+                (child: any) => child.type === "schema"
+              )
+            );
+          }
+
+          for (const schema of schemasToUpdate) {
+            if (schema.children && schema.name === schemaName) {
+              for (const item of schema.children) {
+                if (item.type === "table" && item.name === tableName) {
+                  // Find the metadata branch in the table's children
+                  if (item.children) {
+                    for (const branch of item.children) {
+                      if (
+                        branch.type === "group" &&
+                        branch.name === branchType
+                      ) {
+                        branch.children = childNodes;
+                        return updatedData;
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return updatedData;
   };
 
   const handleDeleteConnection = async (id: string) => {
@@ -642,6 +944,197 @@ export default function Explorer() {
     }
   };
 
+  // Helper function to create metadata branches for tables
+  const createTableMetadataBranches = (
+    _table: TableNode,
+    _connectionId: string
+  ): GroupNode[] => {
+    return [
+      {
+        name: "Columns",
+        type: "group",
+        children: [],
+      },
+      {
+        name: "Keys",
+        type: "group",
+        children: [],
+      },
+      {
+        name: "Constraints",
+        type: "group",
+        children: [],
+      },
+      {
+        name: "Triggers",
+        type: "group",
+        children: [],
+      },
+      {
+        name: "Indexes",
+        type: "group",
+        children: [],
+      },
+    ];
+  }; // Helper function to load metadata for a table branch
+  const loadTableMetadata = async (
+    table: TableNode,
+    branchType: string,
+    connectionId: string
+  ) => {
+    const connState = connectionStates.get(connectionId);
+    if (!connState || !connState.isConnected) return;
+
+    try {
+      if (!window.electronAPI?.database) {
+        console.error("ElectronAPI or database methods not available");
+        return;
+      }
+
+      // Check if the specific method exists
+      const methodMap = {
+        Columns: "getColumns",
+        Keys: "getKeys",
+        Constraints: "getConstraints",
+        Triggers: "getTriggers",
+        Indexes: "getIndexes",
+      };
+
+      const methodName = methodMap[branchType as keyof typeof methodMap];
+      if (!methodName || !(window.electronAPI.database as any)[methodName]) {
+        console.error(`Method ${methodName} not available for ${branchType}`);
+        console.log(
+          "Available database methods:",
+          Object.keys(window.electronAPI.database)
+        );
+        return;
+      }
+
+      let metadataItems: any[] = [];
+
+      switch (branchType) {
+        case "Columns":
+          metadataItems =
+            (await window.electronAPI.database.getColumns?.(
+              connectionId,
+              table.name,
+              table.schema
+            )) || [];
+          break;
+        case "Keys":
+          metadataItems =
+            (await window.electronAPI.database.getKeys?.(
+              connectionId,
+              table.name,
+              table.schema
+            )) || [];
+          break;
+        case "Constraints":
+          metadataItems =
+            (await window.electronAPI.database.getConstraints?.(
+              connectionId,
+              table.name,
+              table.schema
+            )) || [];
+          break;
+        case "Triggers":
+          metadataItems =
+            (await window.electronAPI.database.getTriggers?.(
+              connectionId,
+              table.name,
+              table.schema
+            )) || [];
+          break;
+        case "Indexes":
+          metadataItems =
+            (await window.electronAPI.database.getIndexes?.(
+              connectionId,
+              table.name,
+              table.schema
+            )) || [];
+          break;
+      }
+
+      // Convert metadata items to appropriate node types
+      const childNodes = metadataItems
+        .map(item => {
+          switch (branchType) {
+            case "Columns":
+              return {
+                name: item.name,
+                type: "column" as const,
+                dataType: item.dataType,
+                nullable: item.nullable,
+                isPrimaryKey: item.isPrimaryKey,
+                isForeignKey: item.isForeignKey,
+              };
+            case "Keys":
+              return {
+                name: item.name,
+                type: "key" as const,
+                keyType: item.type,
+                columns: item.columns,
+              };
+            case "Constraints":
+              return {
+                name: item.name,
+                type: "constraint" as const,
+                constraintType: item.type,
+                definition: item.definition,
+              };
+            case "Triggers":
+              return {
+                name: item.name,
+                type: "trigger" as const,
+                timing: item.timing,
+                events: item.events,
+                enabled: item.enabled,
+              };
+            case "Indexes":
+              return {
+                name: item.name,
+                type: "index" as const,
+                unique: item.unique,
+                isPrimary: item.isPrimary,
+                columns: item.columns,
+              };
+            default:
+              return null;
+          }
+        })
+        .filter(Boolean);
+
+      // Update the connection state to include the loaded metadata
+      setConnectionStates(prev => {
+        const newStates = new Map(prev);
+        const state = newStates.get(connectionId);
+        if (state?.schemaData) {
+          // Find and update the table node in the schema data
+          const updatedSchemaData = updateTableMetadataInSchemaData(
+            state.schemaData,
+            table.name,
+            table.schema,
+            branchType,
+            childNodes
+          );
+          newStates.set(connectionId, {
+            ...state,
+            schemaData: updatedSchemaData,
+          });
+          console.log(
+            `Loaded ${metadataItems.length} ${branchType} for ${table.schema}.${table.name}`
+          );
+        }
+        return newStates;
+      });
+    } catch (error) {
+      console.error(
+        `Failed to load ${branchType} for ${table.schema}.${table.name}:`,
+        error
+      );
+    }
+  };
+
   const renderTreeNode = (
     node:
       | DatabaseNode
@@ -650,15 +1143,34 @@ export default function Explorer() {
       | ViewNode
       | ProcedureNode
       | FunctionNode
-      | GroupNode,
+      | GroupNode
+      | ColumnNode
+      | KeyNode
+      | ConstraintNode
+      | TriggerNode
+      | IndexNode,
     connectionId: string,
-    level: number = 0
+    level: number = 0,
+    parentContext?: string
   ) => {
-    const nodeKey = `${connectionId}:${node.type}:${node.name}`;
+    // For group nodes that are table metadata branches, include parent table context
+    const nodeKey =
+      node.type === "group" && parentContext
+        ? `${connectionId}:${parentContext}:${node.type}:${node.name}`
+        : `${connectionId}:${node.type}:${node.name}`;
     const connectionState = connectionStates.get(connectionId);
     const isExpanded = connectionState?.expandedNodes.has(nodeKey) || false;
+    // Check if node has children or if it's a table that can have metadata branches
     const hasChildren =
-      "children" in node && node.children && node.children.length > 0;
+      ("children" in node && node.children && node.children.length > 0) ||
+      (node.type === "table" &&
+        (!node.children || node.children.length === 0)) ||
+      (node.type === "group" &&
+        (node.name === "Columns" ||
+          node.name === "Keys" ||
+          node.name === "Constraints" ||
+          node.name === "Triggers" ||
+          node.name === "Indexes"));
 
     const getIcon = () => {
       switch (node.type as any) {
@@ -689,6 +1201,25 @@ export default function Explorer() {
       ) {
         return `${node.name} (${node.rowCount} rows)`;
       }
+
+      // Enhanced column display with PK/FK, type, and nullable info
+      if (node.type === "column" && "dataType" in node) {
+        const columnNode = node as ColumnNode;
+        const keyInfo = [];
+
+        if (columnNode.isPrimaryKey) {
+          keyInfo.push("PK");
+        }
+        if (columnNode.isForeignKey) {
+          keyInfo.push("FK");
+        }
+
+        const keyText = keyInfo.length > 0 ? keyInfo.join(", ") + ", " : "";
+        const nullableText = columnNode.nullable ? "null" : "not null";
+
+        return `${columnNode.name} (${keyText}${columnNode.dataType}, ${nullableText})`;
+      }
+
       return node.name;
     };
 
@@ -766,7 +1297,7 @@ export default function Explorer() {
           className={`flex items-center px-2 py-1 text-sm hover:bg-accent cursor-pointer text-foreground`}
           style={{ paddingLeft: `${(level + 1) * 16 + 8}px` }}
           onClick={() =>
-            hasChildren && toggleNodeExpansion(connectionId, nodeKey)
+            hasChildren && toggleNodeExpansion(connectionId, nodeKey, node)
           }
           onDoubleClick={handleDoubleClick}
           onContextMenu={handleContextMenu}
@@ -863,9 +1394,19 @@ export default function Explorer() {
                 );
               }
               // Render generic children
-              return node.children.map(child =>
-                renderTreeNode(child as any, connectionId, level + 1)
-              );
+              return node.children.map(child => {
+                // If parent is a table and child is a group (metadata branch), pass table context
+                const parentContext =
+                  node.type === "table" && child.type === "group"
+                    ? `table:${(node as TableNode).schema}:${node.name}`
+                    : undefined;
+                return renderTreeNode(
+                  child as any,
+                  connectionId,
+                  level + 1,
+                  parentContext
+                );
+              });
             })()}
           </div>
         )}
@@ -891,7 +1432,7 @@ export default function Explorer() {
               />
               <div
                 className="font-medium truncate cursor-pointer"
-                onDoubleClick={() => {
+                onClick={() => {
                   if (!isConnected && !isConnecting)
                     handleConnect(connection.id);
                 }}

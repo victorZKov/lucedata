@@ -83,6 +83,82 @@ declare global {
           executionTime: number;
           messages?: string[];
         }>;
+        // Enhanced metadata methods for table tree enhancements
+        getColumns: (
+          connectionId: string,
+          tableName: string,
+          schema?: string
+        ) => Promise<
+          Array<{
+            name: string;
+            dataType: string;
+            nullable: boolean;
+            isPrimaryKey: boolean;
+            isForeignKey: boolean;
+            defaultValue?: string;
+            maxLength?: number;
+            precision?: number;
+            scale?: number;
+            ordinal?: number;
+            computed?: boolean;
+          }>
+        >;
+        getKeys: (
+          connectionId: string,
+          tableName: string,
+          schema?: string
+        ) => Promise<
+          Array<{
+            name: string;
+            type: "PRIMARY" | "FOREIGN" | "UNIQUE";
+            columns: string[];
+            references?: {
+              schema?: string;
+              table: string;
+              columns: string[];
+            };
+          }>
+        >;
+        getConstraints: (
+          connectionId: string,
+          tableName: string,
+          schema?: string
+        ) => Promise<
+          Array<{
+            name: string;
+            type: "CHECK" | "DEFAULT" | "UNIQUE" | "EXCLUDE" | "OTHER";
+            definition?: string;
+            columns?: string[];
+          }>
+        >;
+        getTriggers: (
+          connectionId: string,
+          tableName: string,
+          schema?: string
+        ) => Promise<
+          Array<{
+            name: string;
+            timing: "BEFORE" | "AFTER" | "INSTEAD OF" | "UNKNOWN";
+            events: string[];
+            enabled?: boolean;
+            definition?: string;
+          }>
+        >;
+        getIndexes: (
+          connectionId: string,
+          tableName: string,
+          schema?: string
+        ) => Promise<
+          Array<{
+            name: string;
+            unique: boolean;
+            method?: string;
+            columns: string[];
+            include?: string[];
+            where?: string | null;
+            isPrimary?: boolean;
+          }>
+        >;
       };
       export: {
         save: (options: {

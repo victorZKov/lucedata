@@ -153,9 +153,30 @@ export class SqlServerProvider implements IDatabaseProvider {
         messages,
       };
     } catch (error) {
-      throw new Error(
-        `Query execution failed: ${error instanceof Error ? error.message : String(error)}`
-      );
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+
+      // Enhanced error handling for column name issues
+      if (errorMessage.includes("Invalid column name")) {
+        const columnMatch = errorMessage.match(/Invalid column name '([^']+)'/);
+        const columnName = columnMatch ? columnMatch[1] : "unknown";
+
+        // Extract table name from the query if possible
+        const tableMatch = query.match(
+          /FROM\s+(?:\[?(\w+)\]?\.)?(?:\[?(\w+)\]?)/i
+        );
+        const tableName = tableMatch
+          ? tableMatch[2] || tableMatch[1]
+          : "unknown";
+
+        throw new Error(
+          `Invalid column name '${columnName}' in table '${tableName}'. ` +
+            `Please check the column name and try again. ` +
+            `Tip: Use the Explorer panel to view available columns for this table.`
+        );
+      }
+
+      throw new Error(`Query execution failed: ${errorMessage}`);
     }
   }
 

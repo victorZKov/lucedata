@@ -159,6 +159,16 @@ declare global {
             isPrimary?: boolean;
           }>
         >;
+        createDatabase: (
+          connectionId: string,
+          databaseData: {
+            name: string;
+            collation?: string;
+            owner?: string;
+            template?: string;
+            encoding?: string;
+          }
+        ) => Promise<{ success: boolean; message: string }>;
       };
       export: {
         save: (options: {

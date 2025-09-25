@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Plug, LogOut, Pencil, Trash2 } from "lucide-react";
 
 import ConnectionDialog from "./ConnectionDialog";
+import CreateDatabaseDialog from "./CreateDatabaseDialog";
 
 interface Connection {
   id: string;
@@ -146,11 +147,17 @@ export default function Explorer() {
   const [isLoading, setIsLoading] = useState(true);
   const [apiReady, setApiReady] = useState(false);
   const [isElectronEnv, setIsElectronEnv] = useState(false);
+  const [isCreateDbDialogOpen, setIsCreateDbDialogOpen] = useState(false);
+  const [createDbConnection, setCreateDbConnection] = useState<{
+    id: string;
+    type: string;
+    name: string;
+  } | null>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
     visible: boolean;
-    mode?: "table" | "schema" | "routine";
+    mode?: "table" | "schema" | "routine" | "connection";
     connId?: string;
     schema?: string;
     table?: string;
@@ -731,6 +738,56 @@ export default function Explorer() {
     };
     setEditConnection({ ...editData, id: connection.id }); // Add ID for updating
     setIsDialogOpen(true);
+  };
+
+  const handleCreateDatabase = async (databaseData: {
+    name: string;
+    collation?: string;
+    owner?: string;
+    template?: string;
+    encoding?: string;
+  }) => {
+    if (!createDbConnection) return;
+
+    try {
+      if (!window.electronAPI || !window.electronAPI.database) {
+        throw new Error("ElectronAPI database methods not available");
+      }
+
+      await window.electronAPI.database.createDatabase(
+        createDbConnection.id,
+        databaseData
+      );
+
+      // Refresh the schema to show the new database
+      const rawSchemaData = await window.electronAPI.database.getSchema(
+        createDbConnection.id
+      );
+      const connectionState = connectionStates.get(createDbConnection.id);
+      if (connectionState) {
+        const schemaData = processSchemaDataForSqlServer(
+          rawSchemaData,
+          connectionState.connection.type
+        );
+
+        setConnectionStates(prev => {
+          const newStates = new Map(prev);
+          const state = newStates.get(createDbConnection.id);
+          if (state) {
+            newStates.set(createDbConnection.id, {
+              ...state,
+              schemaData,
+            });
+          }
+          return newStates;
+        });
+      }
+
+      console.log(`Database '${databaseData.name}' created successfully`);
+    } catch (error) {
+      console.error("Failed to create database:", error);
+      throw error; // Let the dialog handle the error display
+    }
   };
 
   const handleSaveConnection = async (connectionData: any) => {
@@ -1514,7 +1571,24 @@ export default function Explorer() {
         key={connection.id}
         className="border-b border-border last:border-b-0"
       >
-        <div className="flex items-center justify-between px-3 py-2 text-sm">
+        <div
+          className="flex items-center justify-between px-3 py-2 text-sm"
+          onContextMenu={e => {
+            if (isConnected) {
+              e.preventDefault();
+              setContextMenu({
+                x: e.clientX,
+                y: e.clientY,
+                visible: true,
+                mode: "connection",
+                connId: connection.id,
+                type: connection.type,
+                connName: connection.name,
+                db: connection.database,
+              });
+            }
+          }}
+        >
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
               <div
@@ -1813,6 +1887,43 @@ export default function Explorer() {
               </button>
             </>
           )}
+          {contextMenu.mode === "connection" && (
+            <>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                onClick={() => {
+                  if (
+                    !contextMenu.connId ||
+                    !contextMenu.type ||
+                    !contextMenu.connName
+                  )
+                    return;
+
+                  // Only allow database creation for supported database types
+                  if (
+                    !["postgresql", "sqlserver", "mysql"].includes(
+                      contextMenu.type
+                    )
+                  ) {
+                    alert(
+                      `Database creation is not supported for ${contextMenu.type}`
+                    );
+                    return;
+                  }
+
+                  setCreateDbConnection({
+                    id: contextMenu.connId,
+                    type: contextMenu.type,
+                    name: contextMenu.connName,
+                  });
+                  setIsCreateDbDialogOpen(true);
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                Create Database
+              </button>
+            </>
+          )}
           <button
             className="block w-full text-left px-3 py-1 hover:bg-accent"
             onClick={() => setContextMenu(c => ({ ...c, visible: false }))}
@@ -1874,6 +1985,18 @@ export default function Explorer() {
         }}
         onSave={handleSaveConnection}
         editConnection={editConnection}
+      />
+
+      <CreateDatabaseDialog
+        isOpen={isCreateDbDialogOpen}
+        onClose={() => {
+          setIsCreateDbDialogOpen(false);
+          setCreateDbConnection(null);
+        }}
+        onSave={handleCreateDatabase}
+        connectionId={createDbConnection?.id || ""}
+        connectionType={createDbConnection?.type || ""}
+        connectionName={createDbConnection?.name || ""}
       />
     </div>
   );

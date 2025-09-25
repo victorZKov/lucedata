@@ -74,6 +74,10 @@ try {
       console.log('🔗 preload.js: database.getIndexes called with:', { connectionId, tableName, schema });
       return ipcRenderer.invoke("database-get-indexes", connectionId, tableName, schema);
     },
+    createDatabase: (connectionId, databaseData) => {
+      console.log('🔗 preload.js: database.createDatabase called with:', { connectionId, databaseName: databaseData.name });
+      return ipcRenderer.invoke("database-create-database", connectionId, databaseData);
+    },
   },
 
   // Export helpers

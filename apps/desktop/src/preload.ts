@@ -153,6 +153,26 @@ try {
           schema
         );
       },
+      createDatabase: (
+        connectionId: string,
+        databaseData: {
+          name: string;
+          collation?: string;
+          owner?: string;
+          template?: string;
+          encoding?: string;
+        }
+      ) => {
+        console.log("🔗 preload.ts: database.createDatabase called with:", {
+          connectionId,
+          databaseName: databaseData.name,
+        });
+        return ipcRenderer.invoke(
+          "database-create-database",
+          connectionId,
+          databaseData
+        );
+      },
       getIndexes: (
         connectionId: string,
         tableName: string,

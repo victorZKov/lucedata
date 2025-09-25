@@ -1173,6 +1173,87 @@ ipcMain.handle(
   }
 );
 
+// Database management operations
+ipcMain.handle(
+  "database-create-database",
+  async (
+    _: IpcMainInvokeEvent,
+    connectionId: string,
+    databaseData: {
+      name: string;
+      collation?: string;
+      owner?: string;
+      template?: string;
+      encoding?: string;
+    }
+  ) => {
+    try {
+      const provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        throw new Error(`No active connection found for id '${connectionId}'`);
+      }
+
+      // Get connection info to determine database type
+      const connectionData =
+        await database.getConnectionWithCredentials(connectionId);
+      if (!connectionData) {
+        throw new Error(`Connection data not found for id '${connectionId}'`);
+      }
+
+      let sql = "";
+      const dbName = provider.escapeIdentifier(databaseData.name);
+
+      switch (connectionData.type) {
+        case "postgresql":
+          sql = `CREATE DATABASE ${dbName}`;
+          if (databaseData.owner) {
+            sql += ` OWNER ${provider.escapeIdentifier(databaseData.owner)}`;
+          }
+          if (databaseData.template) {
+            sql += ` TEMPLATE ${provider.escapeIdentifier(databaseData.template)}`;
+          }
+          if (databaseData.encoding) {
+            sql += ` ENCODING '${databaseData.encoding}'`;
+          }
+          break;
+
+        case "sqlserver":
+          sql = `CREATE DATABASE ${dbName}`;
+          if (databaseData.collation) {
+            sql += ` COLLATE ${databaseData.collation}`;
+          }
+          break;
+
+        case "mysql":
+          sql = `CREATE DATABASE ${dbName}`;
+          if (databaseData.encoding) {
+            sql += ` CHARACTER SET ${databaseData.encoding}`;
+          }
+          if (databaseData.collation) {
+            sql += ` COLLATE ${databaseData.collation}`;
+          }
+          break;
+
+        default:
+          throw new Error(
+            `Database creation not supported for ${connectionData.type}`
+          );
+      }
+
+      console.log(`Creating database with SQL: ${sql}`);
+      await provider.executeNonQuery(sql);
+
+      return {
+        success: true,
+        message: `Database '${databaseData.name}' created successfully`,
+      };
+    } catch (error) {
+      console.error("Error creating database:", error);
+      throw error;
+    }
+  }
+);
+
 // Save text file (CSV/JSON export)
 ipcMain.handle(
   "export-save-file",

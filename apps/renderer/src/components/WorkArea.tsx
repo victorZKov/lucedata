@@ -1,6 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import { format as sqlFormat } from "sql-formatter";
+import type * as Monaco from "monaco-editor";
 
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -126,6 +127,12 @@ const parseSQLQueries = (sqlText: string): string[] => {
 
 export default function WorkArea() {
   const { theme } = useTheme();
+  const monacoEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(
+    null
+  );
+  const monacoRef = useRef<typeof Monaco | null>(null);
+  const decorationIdsRef = useRef<string[]>([]);
+
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const headerRefs = useMemo(
@@ -219,6 +226,18 @@ export default function WorkArea() {
   // For multiple query results - track which result is currently active
   const [activeResultIndex, setActiveResultIndex] = useState(0);
 
+  // Track current sort state for click-to-sort functionality
+  const [currentSort, setCurrentSort] = useState<{
+    column: string;
+    direction: "ASC" | "DESC";
+  } | null>(null);
+
+  // Search/filter state for results table
+  const [searchFilter, setSearchFilter] = useState<{
+    column: string; // empty string means search all columns
+    value: string;
+  }>({ column: "", value: "" });
+
   // Helper to get the current result to display
   const getCurrentResult = (tab: Tab) => {
     if (tab.results && tab.results.length > 0) {
@@ -251,7 +270,16 @@ export default function WorkArea() {
   // Reset active result index when switching tabs or when results change
   useEffect(() => {
     setActiveResultIndex(0);
+    // Clear query highlighting when switching tabs
+    clearQueryHighlighting();
+    // Clear search filter when switching tabs
+    setSearchFilter({ column: "", value: "" });
   }, [activeTabId]);
+
+  // Clear search filter when switching between result tabs
+  useEffect(() => {
+    setSearchFilter({ column: "", value: "" });
+  }, [activeResultIndex]);
 
   useEffect(() => {
     const handleToggleResults = () => setShowResults((prev: boolean) => !prev);
@@ -1020,6 +1048,116 @@ export default function WorkArea() {
     );
   };
 
+  // Function to clear all query highlighting
+  const clearQueryHighlighting = () => {
+    if (!monacoEditorRef.current || decorationIdsRef.current.length === 0)
+      return;
+
+    const editor = monacoEditorRef.current;
+    // Clear existing decorations using stored IDs
+    decorationIdsRef.current = editor.deltaDecorations(
+      decorationIdsRef.current,
+      []
+    );
+  };
+
+  // Function to filter table results based on search criteria
+  const filterTableResults = (result: QueryResult) => {
+    if (!searchFilter.value.trim()) return result; // No filter applied
+
+    const filteredRows = result.rows.filter(row => {
+      const searchTerm = searchFilter.value.toLowerCase().trim();
+
+      if (!searchFilter.column) {
+        // Search in all columns
+        return result.columns.some(column => {
+          const value = row[column];
+          const stringValue =
+            value !== null && value !== undefined
+              ? String(value).toLowerCase()
+              : "";
+          return stringValue.includes(searchTerm);
+        });
+      } else {
+        // Search in specific column
+        const value = row[searchFilter.column];
+        const stringValue =
+          value !== null && value !== undefined
+            ? String(value).toLowerCase()
+            : "";
+        return stringValue.includes(searchTerm);
+      }
+    });
+
+    return {
+      ...result,
+      rows: filteredRows,
+      rowCount: filteredRows.length,
+    };
+  };
+
+  // Function to highlight a specific query in the Monaco Editor
+  const highlightQuery = (queryIndex: number, sqlText: string) => {
+    if (!monacoEditorRef.current || !monacoRef.current) return;
+
+    const editor = monacoEditorRef.current;
+    const monaco = monacoRef.current;
+
+    try {
+      // Clear any existing decorations first
+      clearQueryHighlighting();
+
+      // Parse the SQL to get individual queries
+      const queries = parseSQLQueries(sqlText);
+
+      if (queryIndex >= queries.length || queryIndex < 0) return;
+
+      // Calculate line positions for the specific query
+      let currentLine = 1;
+      let startLine = 1;
+      let endLine = 1;
+
+      // Find the position of our target query
+      for (let i = 0; i <= queryIndex; i++) {
+        if (i === queryIndex) {
+          startLine = currentLine;
+          const queryLines = queries[i].split("\n").length;
+          endLine = currentLine + queryLines - 1;
+          break;
+        } else {
+          // Count lines in this query and the separator
+          const queryLines = queries[i].split("\n").length;
+          currentLine += queryLines;
+          // Add one for the semicolon separator if not the last query
+          if (i < queries.length - 1) {
+            currentLine += 1;
+          }
+        }
+      }
+
+      // Highlight the target query and store decoration IDs
+      const range = new monaco.Range(startLine, 1, endLine, 1);
+      decorationIdsRef.current = editor.deltaDecorations(
+        [],
+        [
+          {
+            range,
+            options: {
+              className: "highlighted-query",
+              isWholeLine: true,
+              inlineClassName: "highlighted-query-text",
+            },
+          },
+        ]
+      );
+
+      // Scroll to show the highlighted query
+      editor.revealRange(range, monaco.editor.ScrollType.Smooth);
+    } catch (error) {
+      console.warn("Error highlighting query:", error);
+    }
+  };
+
   // Execute a query using a provided SQL string
   const execQueryWithSql = async (sqlString: string) => {
     if (!activeTab || !activeTab.connectionId || !window.electronAPI) return;
@@ -1067,8 +1205,21 @@ export default function WorkArea() {
 
   const applyOrderBy = async (column: string, dir: "ASC" | "DESC") => {
     if (!activeTab) return;
-    const newSql = injectOrderBy(activeTab.sql, column, dir);
+    const newSql = injectOrderBy(activeTab.sql, column, dir, activeResultIndex);
+    setCurrentSort({ column, direction: dir });
     await execQueryWithSql(newSql);
+  };
+
+  const handleColumnHeaderClick = async (column: string) => {
+    if (!activeTab?.connectionId) return;
+
+    // Toggle sort direction: if same column, switch direction; if new column, start with ASC
+    let newDirection: "ASC" | "DESC" = "ASC";
+    if (currentSort?.column === column) {
+      newDirection = currentSort.direction === "ASC" ? "DESC" : "ASC";
+    }
+
+    await applyOrderBy(column, newDirection);
   };
 
   // Clipboard helpers
@@ -1723,6 +1874,10 @@ export default function WorkArea() {
                       }}
                       theme={theme === "dark" ? "vs-dark" : "light"}
                       onMount={(editor, monaco) => {
+                        // Store editor and monaco references for highlighting
+                        monacoEditorRef.current = editor;
+                        monacoRef.current = monaco;
+
                         editor.addCommand(
                           monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
                           () => runQuery()
@@ -1754,9 +1909,11 @@ export default function WorkArea() {
                         };
                         updatePos();
                         editor.onDidChangeCursorPosition(() => updatePos());
-                        editor.onDidFocusEditorText(() =>
-                          updateActiveTab({ editorFocused: true })
-                        );
+                        editor.onDidFocusEditorText(() => {
+                          updateActiveTab({ editorFocused: true });
+                          // Clear query highlighting when user clicks in editor
+                          clearQueryHighlighting();
+                        });
                         editor.onDidBlurEditorText(() =>
                           updateActiveTab({ editorFocused: false })
                         );
@@ -1820,7 +1977,10 @@ export default function WorkArea() {
                   </div>
                   <div className="flex-1 overflow-auto">
                     {(() => {
-                      const currentResult = getCurrentResult(activeTab);
+                      const rawResult = getCurrentResult(activeTab);
+                      const currentResult = rawResult
+                        ? filterTableResults(rawResult)
+                        : null;
 
                       if (currentResult?.error) {
                         return (
@@ -1878,24 +2038,34 @@ export default function WorkArea() {
                           {/* Multiple Results Navigation */}
                           {activeTab.results &&
                             activeTab.results.length > 1 && (
-                              <div className="flex items-center gap-2 p-2 border-b border-border">
-                                <span className="text-xs text-muted-foreground">
+                              <div className="flex items-center overflow-x-auto border-b border-border bg-secondary min-w-0">
+                                <span className="px-3 py-2 text-xs text-muted-foreground flex-shrink-0">
                                   Results:
                                 </span>
                                 {activeTab.results.map((result, index) => (
                                   <button
                                     key={index}
-                                    className={`px-2 py-1 text-xs rounded ${
+                                    className={`px-3 py-2 text-xs border-r border-border flex-shrink-0 border-t-2 transition-colors ${
                                       activeResultIndex === index
-                                        ? "bg-primary text-primary-foreground"
-                                        : "bg-muted text-foreground hover:bg-accent"
+                                        ? "bg-[hsl(var(--tab-active-bg))] text-secondary-foreground rounded-t-md border-t-accent"
+                                        : "bg-muted text-muted-foreground hover:bg-accent border-t-transparent"
                                     }`}
                                     onClick={() => {
                                       console.log(
                                         "🔧 Switching to result index:",
                                         index
                                       );
-                                      setActiveResultIndex(index);
+
+                                      // If clicking the same tab that's already active, clear highlighting
+                                      if (activeResultIndex === index) {
+                                        clearQueryHighlighting();
+                                      } else {
+                                        // Switch to new tab and highlight corresponding query
+                                        setActiveResultIndex(index);
+                                        if (activeTab?.sql) {
+                                          highlightQuery(index, activeTab.sql);
+                                        }
+                                      }
                                     }}
                                   >
                                     Query {index + 1} ({result.rowCount || 0}{" "}
@@ -1904,6 +2074,65 @@ export default function WorkArea() {
                                 ))}
                               </div>
                             )}
+
+                          {/* Search/Filter Interface */}
+                          <div className="px-3 py-2 border-b border-border bg-slate-100 dark:bg-slate-800">
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-muted-foreground font-medium">
+                                Search:
+                              </label>
+                              <select
+                                className="text-xs px-2 py-1 border border-border rounded bg-card text-foreground min-w-[120px]"
+                                value={searchFilter.column}
+                                onChange={e =>
+                                  setSearchFilter(prev => ({
+                                    ...prev,
+                                    column: e.target.value,
+                                  }))
+                                }
+                              >
+                                <option value="">All columns</option>
+                                {currentResult.columns.map((column, i) => (
+                                  <option key={i} value={column}>
+                                    {column}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                type="text"
+                                className="text-xs px-2 py-1 border border-border rounded bg-card text-foreground flex-1 min-w-[200px]"
+                                placeholder={
+                                  searchFilter.column
+                                    ? `Search in ${searchFilter.column}...`
+                                    : "Search in all columns..."
+                                }
+                                value={searchFilter.value}
+                                onChange={e =>
+                                  setSearchFilter(prev => ({
+                                    ...prev,
+                                    value: e.target.value,
+                                  }))
+                                }
+                              />
+                              {searchFilter.value && (
+                                <button
+                                  className="text-xs px-2 py-1 bg-muted text-foreground rounded hover:bg-accent"
+                                  onClick={() =>
+                                    setSearchFilter({ column: "", value: "" })
+                                  }
+                                  title="Clear search"
+                                >
+                                  Clear
+                                </button>
+                              )}
+                              {/* Filter result count */}
+                              <span className="text-xs text-muted-foreground ml-2">
+                                {searchFilter.value
+                                  ? `${currentResult.rows.length} of ${rawResult?.rows.length || 0} rows`
+                                  : `${currentResult.rows.length} rows`}
+                              </span>
+                            </div>
+                          </div>
 
                           {/* Results Table */}
                           <div
@@ -1928,12 +2157,13 @@ export default function WorkArea() {
                                       ref={el => {
                                         (headerRefs as any)[c] = el;
                                       }}
-                                      className="text-left px-2 py-1 border-b border-border whitespace-nowrap relative"
+                                      className="text-left px-2 py-1 border-b border-border whitespace-nowrap relative cursor-pointer hover:bg-accent"
                                       style={
                                         activeTab.columnWidths?.[c]
                                           ? { width: activeTab.columnWidths[c] }
                                           : { minWidth: "100px" }
                                       }
+                                      onClick={() => handleColumnHeaderClick(c)}
                                       onContextMenu={e => {
                                         e.preventDefault();
                                         if (!activeTab?.connectionId) return;
@@ -1945,7 +2175,16 @@ export default function WorkArea() {
                                         });
                                       }}
                                     >
-                                      {c}
+                                      <div className="flex items-center justify-between">
+                                        <span>{c}</span>
+                                        {currentSort?.column === c && (
+                                          <span className="ml-1 text-xs opacity-70">
+                                            {currentSort.direction === "ASC"
+                                              ? "↑"
+                                              : "↓"}
+                                          </span>
+                                        )}
+                                      </div>
                                       <span
                                         className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-blue-500/40"
                                         onMouseDown={e => startResize(c, e)}
@@ -2212,17 +2451,44 @@ function getTruncatedContent(value: unknown): {
   };
 }
 
-function injectOrderBy(sql: string, column: string, dir: "ASC" | "DESC") {
-  // Very basic ORDER BY toggler: if ORDER BY exists, replace; else, add.
-  const hasOrder = /order\s+by/gi.test(sql);
+function injectOrderBy(
+  sql: string,
+  column: string,
+  dir: "ASC" | "DESC",
+  queryIndex: number = 0
+) {
+  // Parse SQL into individual queries
+  const queries = parseSQLQueries(sql);
+
+  if (queries.length === 0) return sql;
+
+  // Make sure queryIndex is within bounds
+  const targetIndex = Math.min(queryIndex, queries.length - 1);
+  const targetQuery = queries[targetIndex];
+
+  // Apply ORDER BY to the target query
+  const hasOrder = /order\s+by/gi.test(targetQuery);
+  let modifiedQuery: string;
+
   if (hasOrder) {
-    return sql.replace(
-      /order\s+by[\s\S]*?($|;)/i,
-      `ORDER BY ${wrapIdent(column)} ${dir}$1`
+    modifiedQuery = targetQuery.replace(
+      /order\s+by[\s\S]*?$/i,
+      `ORDER BY ${wrapIdent(column)} ${dir}`
+    );
+  } else {
+    // Remove trailing semicolon if present, add ORDER BY, then add semicolon back
+    modifiedQuery = targetQuery.replace(
+      /;?\s*$/,
+      ` ORDER BY ${wrapIdent(column)} ${dir}`
     );
   }
-  // Inject before trailing ; if present
-  return sql.replace(/;?\s*$/, ` ORDER BY ${wrapIdent(column)} ${dir};`);
+
+  // Replace the target query in the array
+  const modifiedQueries = [...queries];
+  modifiedQueries[targetIndex] = modifiedQuery;
+
+  // Rejoin the queries with semicolons
+  return modifiedQueries.map(q => q.trim()).join(";\n") + ";";
 }
 
 function wrapIdent(name: string) {

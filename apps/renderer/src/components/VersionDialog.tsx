@@ -9,8 +9,8 @@ interface VersionDialogProps {
 export const VERSION_INFO = {
   major: 0,
   minor: 1,
-  build: 29,
-  version: "0.1.29",
+  build: 60,
+  version: "0.1.60",
   buildDate: "2025-09-25",
 };
 

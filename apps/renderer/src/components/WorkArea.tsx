@@ -674,6 +674,112 @@ export default function WorkArea() {
     return () => window.electronAPI?.removeAllListeners?.("menu-action");
   }, [activeTab]);
 
+  // Listen for new tab creation events from main process
+  useEffect(() => {
+    const handler = (tabData: {
+      id: string;
+      title: string;
+      sql: string;
+      connectionId?: string;
+      connectionName?: string;
+      connectionType?: string;
+      database?: string;
+      activeResultTab: "results" | "messages";
+      autoExecute?: boolean;
+    }) => {
+      console.log("Creating new tab from main process:", tabData);
+
+      // Check if tab already exists
+      const existing = tabs.find(t => t.id === tabData.id);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return;
+      }
+
+      // Create new tab
+      const newTab: Tab = {
+        ...tabData,
+      };
+
+      setTabs(prev => [...prev, newTab]);
+      setActiveTabId(newTab.id);
+
+      // Auto-execute query if requested
+      if (tabData.autoExecute && tabData.sql.trim() && tabData.connectionId) {
+        // Use setTimeout to ensure the tab is fully created and active before running the query
+        setTimeout(async () => {
+          console.log("Auto-executing query for new tab:", tabData.id);
+
+          // Execute query directly on the new tab instead of relying on activeTab
+          try {
+            const res = await window.electronAPI.database.executeQuery(
+              tabData.connectionId!,
+              tabData.sql
+            );
+            const columns =
+              res.columns?.map(c => c.name) ||
+              (res.rows[0] ? Object.keys(res.rows[0]) : []);
+
+            // Update the specific tab with results
+            setTabs(prev =>
+              prev.map(tab =>
+                tab.id === tabData.id
+                  ? {
+                      ...tab,
+                      result: {
+                        columns,
+                        rows: res.rows || [],
+                        rowCount: res.rowCount || res.rows?.length || 0,
+                        executionTime: res.executionTime || 0,
+                        messages: res.messages || [],
+                      },
+                      status: "idle",
+                      activeResultTab: "results",
+                    }
+                  : tab
+              )
+            );
+            setShowResults(true);
+            console.log(
+              "Auto-execution completed successfully for tab:",
+              tabData.id
+            );
+          } catch (err: any) {
+            console.error("Auto-execution failed:", err);
+            // Update tab with error
+            setTabs(prev =>
+              prev.map(tab =>
+                tab.id === tabData.id
+                  ? {
+                      ...tab,
+                      result: {
+                        columns: [],
+                        rows: [],
+                        rowCount: 0,
+                        executionTime: 0,
+                        error: err?.message || String(err),
+                      },
+                      status: "idle",
+                      activeResultTab: "results",
+                    }
+                  : tab
+              )
+            );
+          }
+        }, 300);
+      }
+    };
+
+    // Temporarily disabled until preload script is properly loaded
+    // window.electronAPI?.onCreateNewTab(handler);
+    // return () => window.electronAPI?.removeAllListeners?.("create-new-tab");
+
+    if (window.electronAPI?.onCreateNewTab) {
+      window.electronAPI.onCreateNewTab(handler);
+      return () => window.electronAPI?.removeAllListeners?.("create-new-tab");
+    }
+  }, [tabs]);
+
   // Global F5 handler to run query and prevent window reload in Electron
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1157,7 +1263,9 @@ export default function WorkArea() {
               <button
                 className="px-4 py-2 rounded bg-muted text-foreground text-sm hover:bg-accent"
                 onClick={() =>
-                  document.dispatchEvent(new CustomEvent("open-ai-engines-settings"))
+                  document.dispatchEvent(
+                    new CustomEvent("open-ai-engines-settings")
+                  )
                 }
               >
                 Setup AI Engines

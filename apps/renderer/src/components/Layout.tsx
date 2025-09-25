@@ -6,12 +6,21 @@ import Explorer from "./Explorer";
 import WorkArea from "./WorkArea";
 import ChatPanel from "./ChatPanel";
 import Resizer from "./Resizer";
+import { SaveChatDialog } from "./SaveChatDialog";
+import { LoadChatDialog } from "./LoadChatDialog";
+import { ChatHistoryTab } from "./ChatHistoryTab";
 
 interface LayoutState {
   explorerWidth: number;
   chatWidth: number;
   showExplorer: boolean;
   showChat: boolean;
+}
+
+interface DialogState {
+  saveChatDialog: boolean;
+  loadChatDialog: boolean;
+  chatHistoryTab: boolean;
 }
 
 export default function Layout() {
@@ -23,7 +32,7 @@ export default function Layout() {
     if (saved) {
       try {
         return JSON.parse(saved);
-      } catch (e) {
+      } catch (_e) {
         console.warn("Failed to parse saved layout, using defaults");
       }
     }
@@ -34,6 +43,23 @@ export default function Layout() {
       showChat: true,
     };
   });
+
+  const [dialogs, setDialogs] = useState<DialogState>({
+    saveChatDialog: false,
+    loadChatDialog: false,
+    chatHistoryTab: false,
+  });
+
+  // Mock data - in real app, these would come from your store
+  const [connections] = useState([
+    { id: "conn1", name: "Local SQL Server" },
+    { id: "conn2", name: "Production DB" },
+  ]);
+
+  const [engines] = useState([
+    { id: "openai", name: "OpenAI GPT-4" },
+    { id: "ollama", name: "Ollama CodeLlama" },
+  ]);
 
   // Save layout to localStorage whenever it changes
   useEffect(() => {
@@ -50,6 +76,18 @@ export default function Layout() {
         switch (action) {
           case "manage-ai-engines":
             document.dispatchEvent(new CustomEvent("open-ai-engines-settings"));
+            break;
+          case "new-chat":
+            handleNewChat();
+            break;
+          case "save-chat":
+            setDialogs(prev => ({ ...prev, saveChatDialog: true }));
+            break;
+          case "load-chat":
+            setDialogs(prev => ({ ...prev, loadChatDialog: true }));
+            break;
+          case "chat-history":
+            setDialogs(prev => ({ ...prev, chatHistoryTab: true }));
             break;
         }
       });
@@ -89,6 +127,84 @@ export default function Layout() {
       // For right-side panel: move left (negative delta) should NARROW chat
       chatWidth: Math.max(200, Math.min(800, prev.chatWidth - delta)),
     }));
+  };
+
+  const [currentChatMessages, setCurrentChatMessages] = useState<
+    Array<{
+      id: string;
+      role: "user" | "assistant";
+      content: string;
+      timestamp: string;
+      finalSQL?: string;
+    }>
+  >([]);
+  const [currentChatContext, setCurrentChatContext] = useState<{
+    connectionId?: string;
+    engineId?: string;
+  }>({});
+
+  // Listen for chat messages and context updates
+  useEffect(() => {
+    const handleChatMessages = (event: CustomEvent) => {
+      setCurrentChatMessages(event.detail);
+    };
+
+    const handleChatContext = (event: CustomEvent) => {
+      setCurrentChatContext(event.detail);
+    };
+
+    document.addEventListener(
+      "chat-messages-updated",
+      handleChatMessages as EventListener
+    );
+    document.addEventListener(
+      "chat-context-updated",
+      handleChatContext as EventListener
+    );
+
+    return () => {
+      document.removeEventListener(
+        "chat-messages-updated",
+        handleChatMessages as EventListener
+      );
+      document.removeEventListener(
+        "chat-context-updated",
+        handleChatContext as EventListener
+      );
+    };
+  }, []);
+
+  // Chat dialog handlers
+  const handleNewChat = () => {
+    // Reset chat state - this would be implemented in ChatPanel
+    document.dispatchEvent(new CustomEvent("new-chat"));
+  };
+
+  const handleSaveChat = async (title: string): Promise<void> => {
+    try {
+      const chatData = {
+        title,
+        messages: currentChatMessages,
+        connectionId: currentChatContext.connectionId,
+        engineId: currentChatContext.engineId,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      await window.electronAPI.chat.save(chatData);
+      console.log("Chat saved successfully:", title);
+      setDialogs(prev => ({ ...prev, saveChatDialog: false }));
+    } catch (error) {
+      console.error("Failed to save chat:", error);
+    }
+  };
+
+  const handleLoadChat = async (chatId: string): Promise<void> => {
+    // This would load chat messages from storage
+    console.log("Loading chat:", chatId);
+    const chatData = await window.electronAPI.chat.load(chatId);
+    document.dispatchEvent(new CustomEvent("load-chat", { detail: chatData }));
+    setDialogs(prev => ({ ...prev, loadChatDialog: false }));
   };
 
   // Calculate title bar height and padding based on platform
@@ -271,9 +387,7 @@ export default function Layout() {
                       Chat
                     </h2>
                     <button
-                      onClick={() => {
-                        /* TODO: reset chat */
-                      }}
+                      onClick={handleNewChat}
                       className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
                       title="New Chat"
                       aria-label="New Chat"
@@ -284,17 +398,43 @@ export default function Layout() {
                       +
                     </button>
                     <button
-                      onClick={() => {
-                        /* TODO: open history */
-                      }}
+                      onClick={() =>
+                        setDialogs(prev => ({ ...prev, saveChatDialog: true }))
+                      }
                       className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
-                      title="History"
-                      aria-label="History"
+                      title="Save Chat"
+                      aria-label="Save Chat"
                       style={
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      ⌘
+                      💾
+                    </button>
+                    <button
+                      onClick={() =>
+                        setDialogs(prev => ({ ...prev, loadChatDialog: true }))
+                      }
+                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
+                      title="Load Chat"
+                      aria-label="Load Chat"
+                      style={
+                        { WebkitAppRegion: "no-drag" } as React.CSSProperties
+                      }
+                    >
+                      📂
+                    </button>
+                    <button
+                      onClick={() =>
+                        setDialogs(prev => ({ ...prev, chatHistoryTab: true }))
+                      }
+                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
+                      title="Chat History"
+                      aria-label="Chat History"
+                      style={
+                        { WebkitAppRegion: "no-drag" } as React.CSSProperties
+                      }
+                    >
+                      📋
                     </button>
                   </div>
                   <button
@@ -306,7 +446,7 @@ export default function Layout() {
                   </button>
                 </div>
                 {/* Chat Content */}
-                <div className="flex-1">
+                <div className="flex-1 min-h-0">
                   <ChatPanel />
                 </div>
               </div>
@@ -314,6 +454,29 @@ export default function Layout() {
           )}
         </div>
       </div>
+
+      {/* Chat Dialogs */}
+      <SaveChatDialog
+        isOpen={dialogs.saveChatDialog}
+        onClose={() => setDialogs(prev => ({ ...prev, saveChatDialog: false }))}
+        onSave={handleSaveChat}
+        messages={currentChatMessages}
+      />
+
+      <LoadChatDialog
+        isOpen={dialogs.loadChatDialog}
+        onClose={() => setDialogs(prev => ({ ...prev, loadChatDialog: false }))}
+        onLoad={handleLoadChat}
+        connections={connections}
+        engines={engines}
+      />
+
+      <ChatHistoryTab
+        isOpen={dialogs.chatHistoryTab}
+        onClose={() => setDialogs(prev => ({ ...prev, chatHistoryTab: false }))}
+        connections={connections}
+        engines={engines}
+      />
     </div>
   );
 }

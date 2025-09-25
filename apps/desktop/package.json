@@ -15,6 +15,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@sqlhelper/ai-integration": "workspace:*",
     "@sqlhelper/database-core": "workspace:*",
     "@sqlhelper/storage": "workspace:*",
     "electron": "^38.1.2",

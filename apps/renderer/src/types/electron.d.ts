@@ -122,6 +122,9 @@ declare global {
           engine: any
         ) => Promise<{ valid: boolean; errors: string[] }>;
       };
+      ollama: {
+        fetchModels: (baseUrl?: string) => Promise<string[]>;
+      };
       chat: {
         sendMessage: (params: {
           message: string;
@@ -147,7 +150,89 @@ declare global {
           connectionId: string;
           createdAt: string;
         }>;
+        // Chat persistence
+        save: (params: {
+          title: string;
+          messages: Array<{
+            id: string;
+            role: "user" | "assistant";
+            content: string;
+            timestamp: string;
+            finalSQL?: string;
+          }>;
+          connectionId?: string;
+          engineId?: string;
+        }) => Promise<{ success: boolean; id: string }>;
+        loadList: () => Promise<
+          Array<{
+            id: string;
+            title: string;
+            createdAt: string;
+            updatedAt: string;
+            connectionId?: string;
+            engineId?: string;
+            messageCount: number;
+          }>
+        >;
+        load: (chatId: string) => Promise<{
+          id: string;
+          title: string;
+          messages: Array<{
+            id: string;
+            role: "user" | "assistant";
+            content: string;
+            timestamp: string;
+            finalSQL?: string;
+          }>;
+          connectionId?: string;
+          engineId?: string;
+          createdAt: string;
+          updatedAt: string;
+        }>;
+        delete: (chatId: string) => Promise<{ success: boolean }>;
+        searchHistory: (params: {
+          query?: string;
+          connectionId?: string;
+          engineId?: string;
+          dateFrom?: string;
+          dateTo?: string;
+        }) => Promise<
+          Array<{
+            id: string;
+            role: "user" | "assistant";
+            content: string;
+            timestamp: string;
+            finalSQL?: string;
+            chatId: string;
+            chatTitle: string;
+            connectionId?: string;
+            engineId?: string;
+            chatCreatedAt: string;
+          }>
+        >;
       };
+      createSqlTab: (params: {
+        sql: string;
+        connectionId?: string;
+        connectionName?: string;
+        connectionType?: string;
+        database?: string;
+        autoExecute?: boolean;
+      }) => Promise<{ success: boolean }>;
+      onCreateNewTab: (
+        callback: (tabData: {
+          id: string;
+          title: string;
+          sql: string;
+          connectionId?: string;
+          connectionName?: string;
+          connectionType?: string;
+          database?: string;
+          activeResultTab: "results" | "messages";
+          autoExecute?: boolean;
+        }) => void
+      ) => void;
+      removeAllListeners: (channel: string) => void;
     };
   }
 }

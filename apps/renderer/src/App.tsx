@@ -24,7 +24,10 @@ function App() {
       setShowAIEnginesDialog(true);
     };
 
-    document.addEventListener("open-ai-engines-settings", handleOpenAIEnginesSettings);
+    document.addEventListener(
+      "open-ai-engines-settings",
+      handleOpenAIEnginesSettings
+    );
 
     // Set up menu action handlers
     const handleMenuAction = (action: string, ...args: unknown[]) => {
@@ -102,7 +105,10 @@ function App() {
 
     // Cleanup
     return () => {
-      document.removeEventListener("open-ai-engines-settings", handleOpenAIEnginesSettings);
+      document.removeEventListener(
+        "open-ai-engines-settings",
+        handleOpenAIEnginesSettings
+      );
       if (window.electronAPI) {
         window.electronAPI.removeAllListeners("menu-action");
       }
@@ -114,9 +120,13 @@ function App() {
       <ThemeProvider>
         <div className="h-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors">
           <Layout />
-          <AIEnginesDialog 
-            isOpen={showAIEnginesDialog} 
-            onClose={() => setShowAIEnginesDialog(false)} 
+          <AIEnginesDialog
+            isOpen={showAIEnginesDialog}
+            onClose={() => {
+              setShowAIEnginesDialog(false);
+              // Dispatch event to refresh engines in other components
+              document.dispatchEvent(new CustomEvent("ai-engines-updated"));
+            }}
           />
         </div>
       </ThemeProvider>

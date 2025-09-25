@@ -85,6 +85,11 @@ try {
     validate: (config) => ipcRenderer.invoke("ai-engines-validate", config),
   },
 
+  // Ollama functionality
+  ollama: {
+    fetchModels: (baseUrl) => ipcRenderer.invoke("ollama-fetch-models", baseUrl),
+  },
+
   // Chat functionality
   chat: {
     sendMessage: (params) => ipcRenderer.invoke("chat-send-message", params),

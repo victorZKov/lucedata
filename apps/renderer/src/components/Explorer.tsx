@@ -401,6 +401,8 @@ export default function Explorer() {
       }
       await window.electronAPI.connections.delete(id);
       await loadConnections(); // Reload the connections list
+      // Dispatch event to update other components
+      document.dispatchEvent(new CustomEvent("database-connections-updated"));
     } catch (error) {
       console.error("Failed to delete connection:", error);
     }
@@ -517,6 +519,8 @@ export default function Explorer() {
       );
       setEditConnection(null); // Clear edit state
       await loadConnections(); // Reload the connections list
+      // Dispatch event to update other components
+      document.dispatchEvent(new CustomEvent("database-connections-updated"));
     } catch (error) {
       console.error("❌ Failed to save connection:", error);
       throw error; // Re-throw to let the dialog handle the error

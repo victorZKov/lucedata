@@ -39,21 +39,35 @@ const PROVIDERS = [
 
 const MODELS_BY_PROVIDER = {
   openai: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"],
-  anthropic: ["claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022", "claude-3-opus-20240229"],
+  anthropic: [
+    "claude-3-5-sonnet-20241022",
+    "claude-3-5-haiku-20241022",
+    "claude-3-opus-20240229",
+  ],
   google: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"],
-  "azure-openai": ["gpt-4o", "gpt-4-turbo", "gpt-35-turbo"],
+  "azure-openai": ["model-router", "gpt-4o"],
   ollama: ["llama3.2", "codellama", "mistral", "phi"],
   custom: [],
 } as const;
 
-export default function AIEnginesDialog({ isOpen, onClose }: AIEnginesDialogProps) {
+export default function AIEnginesDialog({
+  isOpen,
+  onClose,
+}: AIEnginesDialogProps) {
   const { theme } = useTheme();
   const [engines, setEngines] = useState<AIEngine[]>([]);
   const [loading, setLoading] = useState(false);
-  const [editingEngine, setEditingEngine] = useState<Partial<AIEngine> | null>(null);
+  const [editingEngine, setEditingEngine] = useState<Partial<AIEngine> | null>(
+    null
+  );
   const [isEditing, setIsEditing] = useState(false);
-  const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
+  const [testResults, setTestResults] = useState<
+    Record<string, { success: boolean; message: string }>
+  >({});
   const [apiKey, setApiKey] = useState("");
+  const [ollamaModels, setOllamaModels] = useState<string[]>([
+    ...MODELS_BY_PROVIDER.ollama,
+  ]);
 
   // Load engines on component mount
   useEffect(() => {
@@ -74,6 +88,21 @@ export default function AIEnginesDialog({ isOpen, onClose }: AIEnginesDialogProp
     }
   };
 
+  const fetchOllamaModels = async (baseUrl?: string) => {
+    try {
+      console.log("🦙 Fetching Ollama models...");
+      const models = await window.electronAPI.ollama.fetchModels(baseUrl);
+      console.log("🦙 Received models:", models);
+      setOllamaModels(models);
+      return models;
+    } catch (error) {
+      console.error("Failed to fetch Ollama models:", error);
+      // Fall back to default models if fetching fails
+      setOllamaModels([...MODELS_BY_PROVIDER.ollama]);
+      return [...MODELS_BY_PROVIDER.ollama];
+    }
+  };
+
   const handleSave = async () => {
     if (!editingEngine?.name || !editingEngine?.provider) {
       return;
@@ -90,6 +119,8 @@ export default function AIEnginesDialog({ isOpen, onClose }: AIEnginesDialogProp
         jsonMode: editingEngine.jsonMode ?? false,
         rateLimit: editingEngine.rateLimit ?? 60,
         isDefault: editingEngine.isDefault ?? false,
+        // Include API key if provided
+        ...(apiKey.trim() ? { apiKey } : {}),
       };
 
       if (isEditing && editingEngine.id) {
@@ -126,21 +157,29 @@ export default function AIEnginesDialog({ isOpen, onClose }: AIEnginesDialogProp
 
   const handleTest = async (engine: AIEngine) => {
     try {
-      setTestResults(prev => ({ ...prev, [engine.id]: { success: false, message: "Testing..." } }));
-      
+      setTestResults(prev => ({
+        ...prev,
+        [engine.id]: { success: false, message: "Testing..." },
+      }));
+
       const result = await window.electronAPI.aiEngines.test(engine.id);
 
       setTestResults(prev => ({
         ...prev,
-        [engine.id]: { 
-          success: result.success, 
-          message: result.error || `Test completed ${result.latency ? `(${result.latency}ms)` : ""}` 
-        }
+        [engine.id]: {
+          success: result.success,
+          message:
+            result.error ||
+            `Test completed ${result.latency ? `(${result.latency}ms)` : ""}`,
+        },
       }));
     } catch (error) {
       setTestResults(prev => ({
         ...prev,
-        [engine.id]: { success: false, message: error instanceof Error ? error.message : "Test failed" }
+        [engine.id]: {
+          success: false,
+          message: error instanceof Error ? error.message : "Test failed",
+        },
       }));
     }
   };
@@ -172,8 +211,16 @@ export default function AIEnginesDialog({ isOpen, onClose }: AIEnginesDialogProp
     return PROVIDERS.find(p => p.value === provider)?.label || provider;
   };
 
-  const selectedProvider = PROVIDERS.find(p => p.value === editingEngine?.provider);
-  const availableModels = editingEngine?.provider ? MODELS_BY_PROVIDER[editingEngine.provider as keyof typeof MODELS_BY_PROVIDER] || [] : [];
+  const selectedProvider = PROVIDERS.find(
+    p => p.value === editingEngine?.provider
+  );
+  const availableModels = editingEngine?.provider
+    ? editingEngine.provider === "ollama"
+      ? ollamaModels
+      : MODELS_BY_PROVIDER[
+          editingEngine.provider as keyof typeof MODELS_BY_PROVIDER
+        ] || []
+    : [];
 
   return (
     <Dialog
@@ -200,7 +247,9 @@ export default function AIEnginesDialog({ isOpen, onClose }: AIEnginesDialogProp
             {/* Header */}
             <div className="border-b px-6 py-4">
               <div className="flex items-center justify-between">
-                <Dialog.Title className="text-lg font-semibold">AI Engines</Dialog.Title>
+                <Dialog.Title className="text-lg font-semibold">
+                  AI Engines
+                </Dialog.Title>
                 <button
                   onClick={onClose}
                   className="text-muted-foreground hover:text-foreground"
@@ -213,257 +262,341 @@ export default function AIEnginesDialog({ isOpen, onClose }: AIEnginesDialogProp
 
             {/* Content */}
             <div className="flex h-[600px]">
-          {/* Engine List */}
-          <div className="w-1/2 border-r">
-            <div className="p-4 border-b">
-              <div className="flex items-center justify-between">
-                <h3 className="font-medium">Configured Engines</h3>
-                <button
-                  onClick={() => startEdit()}
-                  className="px-3 py-1 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90"
-                  disabled={loading}
-                >
-                  Add Engine
-                </button>
-              </div>
-            </div>
-            <div className="overflow-y-auto h-full p-4">
-              {loading && engines.length === 0 ? (
-                <div className="text-center text-muted-foreground py-8">
-                  Loading engines...
-                </div>
-              ) : engines.length === 0 ? (
-                <div className="text-center text-muted-foreground py-8">
-                  No AI engines configured.
-                  <br />
-                  <button
-                    onClick={() => startEdit()}
-                    className="text-primary hover:underline mt-2"
-                  >
-                    Add your first engine
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {engines.map((engine) => (
-                    <div
-                      key={engine.id}
-                      className="border rounded-lg p-3 hover:bg-accent/50 transition-colors"
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <h4 className="font-medium">{engine.name}</h4>
-                            {engine.isDefault && (
-                              <span className="px-2 py-0.5 text-xs bg-green-100 text-green-800 rounded">
-                                Default
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-sm text-muted-foreground">
-                            {getProviderLabel(engine.provider)} • {engine.defaultModel || "No model set"}
-                          </p>
-                          {testResults[engine.id] && (
-                            <div className={`text-xs mt-1 ${
-                              testResults[engine.id].success ? "text-green-600" : "text-red-600"
-                            }`}>
-                              {testResults[engine.id].message}
-                            </div>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <button
-                            onClick={() => handleTest(engine)}
-                            className="p-1 hover:bg-accent rounded text-xs"
-                            title="Test Connection"
-                            disabled={loading}
-                          >
-                            🔧
-                          </button>
-                          <button
-                            onClick={() => startEdit(engine)}
-                            className="p-1 hover:bg-accent rounded text-xs"
-                            title="Edit"
-                            disabled={loading}
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => handleDelete(engine.id)}
-                            className="p-1 hover:bg-accent rounded text-xs text-red-600"
-                            title="Delete"
-                            disabled={loading}
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* Edit Form */}
-          <div className="w-1/2">
-            {editingEngine ? (
-              <div className="p-4 h-full overflow-y-auto">
-                <h3 className="font-medium mb-4">
-                  {isEditing ? "Edit Engine" : "Add Engine"}
-                </h3>
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Name</label>
-                    <input
-                      type="text"
-                      value={editingEngine.name || ""}
-                      onChange={(e) => setEditingEngine(prev => ({ ...prev, name: e.target.value }))}
-                      className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground placeholder:text-muted-foreground"
-                      placeholder="My OpenAI Engine"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Provider</label>
-                    <select
-                      value={editingEngine.provider || "openai"}
-                      onChange={(e) => setEditingEngine(prev => ({ 
-                        ...prev, 
-                        provider: e.target.value,
-                        defaultModel: "" // Reset model when provider changes
-                      }))}
-                      className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground"
-                    >
-                      {PROVIDERS.map((provider) => (
-                        <option key={provider.value} value={provider.value}>
-                          {provider.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Default Model</label>
-                    <select
-                      value={editingEngine.defaultModel || ""}
-                      onChange={(e) => setEditingEngine(prev => ({ ...prev, defaultModel: e.target.value }))}
-                      className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground"
-                    >
-                      <option value="">Select a model</option>
-                      {availableModels.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  {selectedProvider?.requiresApiKey && (
-                    <div>
-                      <label className="block text-sm font-medium mb-1">API Key</label>
-                      <input
-                        type="password"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                        className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground placeholder:text-muted-foreground"
-                        placeholder="sk-... (will be stored securely)"
-                      />
-                      <p className="text-xs text-muted-foreground mt-1">
-                        API keys are stored securely in your system keychain
-                      </p>
-                    </div>
-                  )}
-
-                  {(editingEngine.provider === "azure-openai" || editingEngine.provider === "ollama" || editingEngine.provider === "custom") && (
-                    <div>
-                      <label className="block text-sm font-medium mb-1">
-                        {editingEngine.provider === "azure-openai" ? "Azure Endpoint" : 
-                         editingEngine.provider === "ollama" ? "Ollama Base URL" : "API Endpoint"}
-                      </label>
-                      <input
-                        type="url"
-                        value={editingEngine.endpoint || ""}
-                        onChange={(e) => setEditingEngine(prev => ({ ...prev, endpoint: e.target.value }))}
-                        className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground placeholder:text-muted-foreground"
-                        placeholder={
-                          editingEngine.provider === "azure-openai" 
-                            ? "https://your-resource.openai.azure.com"
-                            : editingEngine.provider === "ollama"
-                            ? "http://localhost:11434"
-                            : "https://api.example.com"
-                        }
-                      />
-                    </div>
-                  )}
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Temperature</label>
-                      <input
-                        type="number"
-                        min="0"
-                        max="2"
-                        step="0.1"
-                        value={editingEngine.temperature || 0.7}
-                        onChange={(e) => setEditingEngine(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
-                        className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium mb-1">Max Tokens</label>
-                      <input
-                        type="number"
-                        min="1"
-                        value={editingEngine.maxTokens || 2048}
-                        onChange={(e) => setEditingEngine(prev => ({ ...prev, maxTokens: parseInt(e.target.value) }))}
-                        className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      id="isDefault"
-                      checked={editingEngine.isDefault ?? false}
-                      onChange={(e) => setEditingEngine(prev => ({ ...prev, isDefault: e.target.checked }))}
-                      className="w-4 h-4"
-                    />
-                    <label htmlFor="isDefault" className="text-sm">
-                      Set as default engine
-                    </label>
-                  </div>
-
-                  <div className="flex gap-2 pt-4">
+              {/* Engine List */}
+              <div className="w-1/2 border-r">
+                <div className="p-4 border-b">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium">Configured Engines</h3>
                     <button
-                      onClick={handleSave}
-                      disabled={loading || !editingEngine.name || !editingEngine.provider}
-                      className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
-                    >
-                      {loading ? "Saving..." : isEditing ? "Update" : "Create"}
-                    </button>
-                    <button
-                      onClick={() => {
-                        setEditingEngine(null);
-                        setIsEditing(false);
-                      }}
-                      className="px-4 py-2 border rounded hover:bg-accent"
+                      onClick={() => startEdit()}
+                      className="px-3 py-1 text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90"
                       disabled={loading}
                     >
-                      Cancel
+                      Add Engine
                     </button>
                   </div>
                 </div>
+                <div className="overflow-y-auto h-full p-4">
+                  {loading && engines.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-8">
+                      Loading engines...
+                    </div>
+                  ) : engines.length === 0 ? (
+                    <div className="text-center text-muted-foreground py-8">
+                      No AI engines configured.
+                      <br />
+                      <button
+                        onClick={() => startEdit()}
+                        className="text-primary hover:underline mt-2"
+                      >
+                        Add your first engine
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {engines.map(engine => (
+                        <div
+                          key={engine.id}
+                          className="border rounded-lg p-3 hover:bg-accent/50 transition-colors"
+                        >
+                          <div className="flex items-start justify-between">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2">
+                                <h4 className="font-medium">{engine.name}</h4>
+                                {engine.isDefault && (
+                                  <span className="px-2 py-0.5 text-xs bg-green-100 text-green-800 rounded">
+                                    Default
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-sm text-muted-foreground">
+                                {getProviderLabel(engine.provider)} •{" "}
+                                {engine.defaultModel || "No model set"}
+                              </p>
+                              {testResults[engine.id] && (
+                                <div
+                                  className={`text-xs mt-1 ${
+                                    testResults[engine.id].success
+                                      ? "text-green-600"
+                                      : "text-red-600"
+                                  }`}
+                                >
+                                  {testResults[engine.id].message}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleTest(engine)}
+                                className="p-1 hover:bg-accent rounded text-xs"
+                                title="Test Connection"
+                                disabled={loading}
+                              >
+                                🔧
+                              </button>
+                              <button
+                                onClick={() => startEdit(engine)}
+                                className="p-1 hover:bg-accent rounded text-xs"
+                                title="Edit"
+                                disabled={loading}
+                              >
+                                ✏️
+                              </button>
+                              <button
+                                onClick={() => handleDelete(engine.id)}
+                                className="p-1 hover:bg-accent rounded text-xs text-red-600"
+                                title="Delete"
+                                disabled={loading}
+                              >
+                                🗑️
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            ) : (
-              <div className="p-8 text-center text-muted-foreground">
-                <p>Select an engine to edit or add a new one</p>
+
+              {/* Edit Form */}
+              <div className="w-1/2">
+                {editingEngine ? (
+                  <div className="p-4 h-full overflow-y-auto">
+                    <h3 className="font-medium mb-4">
+                      {isEditing ? "Edit Engine" : "Add Engine"}
+                    </h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-1">
+                          Name
+                        </label>
+                        <input
+                          type="text"
+                          value={editingEngine.name || ""}
+                          onChange={e =>
+                            setEditingEngine(prev => ({
+                              ...prev,
+                              name: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground placeholder:text-muted-foreground"
+                          placeholder="My OpenAI Engine"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-1">
+                          Provider
+                        </label>
+                        <select
+                          value={editingEngine.provider || "openai"}
+                          onChange={async e => {
+                            const newProvider = e.target.value;
+                            setEditingEngine(prev => ({
+                              ...prev,
+                              provider: newProvider,
+                              defaultModel: "", // Reset model when provider changes
+                            }));
+
+                            // Fetch Ollama models when Ollama is selected
+                            if (newProvider === "ollama") {
+                              await fetchOllamaModels();
+                            }
+                          }}
+                          className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground"
+                        >
+                          {PROVIDERS.map(provider => (
+                            <option key={provider.value} value={provider.value}>
+                              {provider.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-1">
+                          Default Model
+                        </label>
+                        <select
+                          value={editingEngine.defaultModel || ""}
+                          onChange={e =>
+                            setEditingEngine(prev => ({
+                              ...prev,
+                              defaultModel: e.target.value,
+                            }))
+                          }
+                          className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground"
+                        >
+                          <option value="">Select a model</option>
+                          {availableModels.map(model => (
+                            <option key={model} value={model}>
+                              {model}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {selectedProvider?.requiresApiKey && (
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            API Key
+                          </label>
+                          <input
+                            type="password"
+                            value={apiKey}
+                            onChange={e => setApiKey(e.target.value)}
+                            className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground placeholder:text-muted-foreground"
+                            placeholder="sk-... (will be stored securely)"
+                          />
+                          <p className="text-xs text-muted-foreground mt-1">
+                            API keys are stored securely in your system keychain
+                          </p>
+                        </div>
+                      )}
+
+                      {(editingEngine.provider === "azure-openai" ||
+                        editingEngine.provider === "ollama" ||
+                        editingEngine.provider === "custom") && (
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            {editingEngine.provider === "azure-openai"
+                              ? "Azure Endpoint"
+                              : editingEngine.provider === "ollama"
+                                ? "Ollama Base URL"
+                                : "API Endpoint"}
+                          </label>
+                          <div className="flex gap-2">
+                            <input
+                              type="url"
+                              value={editingEngine.endpoint || ""}
+                              onChange={e =>
+                                setEditingEngine(prev => ({
+                                  ...prev,
+                                  endpoint: e.target.value,
+                                }))
+                              }
+                              className="flex-1 px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground placeholder:text-muted-foreground"
+                              placeholder={
+                                editingEngine.provider === "azure-openai"
+                                  ? "https://your-resource.openai.azure.com"
+                                  : editingEngine.provider === "ollama"
+                                    ? "http://localhost:11434"
+                                    : "https://api.example.com"
+                              }
+                            />
+                            {editingEngine.provider === "ollama" && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  fetchOllamaModels(
+                                    editingEngine.endpoint || undefined
+                                  )
+                                }
+                                className="px-3 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                title="Refresh Ollama models"
+                              >
+                                🔄
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Temperature
+                          </label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="2"
+                            step="0.1"
+                            value={editingEngine.temperature || 0.7}
+                            onChange={e =>
+                              setEditingEngine(prev => ({
+                                ...prev,
+                                temperature: parseFloat(e.target.value),
+                              }))
+                            }
+                            className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium mb-1">
+                            Max Tokens
+                          </label>
+                          <input
+                            type="number"
+                            min="1"
+                            value={editingEngine.maxTokens || 2048}
+                            onChange={e =>
+                              setEditingEngine(prev => ({
+                                ...prev,
+                                maxTokens: parseInt(e.target.value),
+                              }))
+                            }
+                            className="w-full px-3 py-2 border border-border rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-card text-foreground"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="isDefault"
+                          checked={editingEngine.isDefault ?? false}
+                          onChange={e =>
+                            setEditingEngine(prev => ({
+                              ...prev,
+                              isDefault: e.target.checked,
+                            }))
+                          }
+                          className="w-4 h-4"
+                        />
+                        <label htmlFor="isDefault" className="text-sm">
+                          Set as default engine
+                        </label>
+                      </div>
+
+                      <div className="flex gap-2 pt-4">
+                        <button
+                          onClick={handleSave}
+                          disabled={
+                            loading ||
+                            !editingEngine.name ||
+                            !editingEngine.provider
+                          }
+                          className="px-4 py-2 bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50"
+                        >
+                          {loading
+                            ? "Saving..."
+                            : isEditing
+                              ? "Update"
+                              : "Create"}
+                        </button>
+                        <button
+                          onClick={() => {
+                            setEditingEngine(null);
+                            setIsEditing(false);
+                          }}
+                          className="px-4 py-2 border rounded hover:bg-accent"
+                          disabled={loading}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-muted-foreground">
+                    <p>Select an engine to edit or add a new one</p>
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
-        </div>
-        </div>
         </Dialog.Panel>
       </div>
     </Dialog>

@@ -1,0 +1,50 @@
+You are a senior full-stack engineer joining an existing **Electron desktop application** that already connects to databases (SQL Server, PostgreSQL, SQLite) and renders a tables tree. Your task is to **extend the existing tree**, not rewrite it.
+
+## Objective
+For every table node, add five **collapsed, lazy-loaded** child branches:
+1) **Columns**  2) **Keys**  3) **Constraints**  4) **Triggers**  5) **Indexes**
+
+- Branches remain collapsed until the user opens them; on first expand, fetch metadata and populate.
+- Cache results per session. Show a small loading spinner during fetch. Provide **Refresh** in each branch’s context menu to re-query and update cache.
+- Right-click on **Triggers** must include: **Script CREATE**, **Script ALTER**, **Script DROP** for the selected trigger.
+- “The more the merrier”: where feasible, also add scripting menu items for other objects (tables, indexes, keys, constraints, columns) following the same pattern: **Script CREATE/ALTER/DROP** (engine-appropriate).
+- The UI must **adapt per engine** and only show items/actions that are valid for that engine.
+
+## Constraints & Integration
+- The application **already has connections and a working tree component**. Extend it: add nodes, loaders, adapters, and menus. 
+- Preserve existing folder structure and patterns.
+- Include unit-testable metadata functions (pure where possible) and small integration shims for the renderer process (IPC if already used).
+
+## Data Model & Types (example; align with the app’s conventions)
+type DbEngine = 'sqlserver' | 'postgres' | 'sqlite';
+interface TableRef { engine: DbEngine; database?: string; schema?: string; name: string; }
+interface ColumnInfo { name: string; ordinal: number; dataType: string; nullable: boolean; default?: string | null; computed?: boolean; }
+interface KeyInfo { name: string; type: 'PRIMARY' | 'FOREIGN' | 'UNIQUE'; columns: string[]; references?: { schema?: string; table: string; columns: string[]; }; }
+interface ConstraintInfo { name: string; type: 'CHECK' | 'DEFAULT' | 'UNIQUE' | 'EXCLUDE' | 'OTHER'; definition?: string; columns?: string[]; }
+interface TriggerInfo { name: string; timing: 'BEFORE' | 'AFTER' | 'INSTEAD OF' | 'UNKNOWN'; events: string[]; enabled?: boolean; definition?: string; }
+interface IndexInfo { name: string; unique: boolean; method?: string; columns: string[]; include?: string[]; where?: string | null; isPrimary?: boolean; }
+
+
+## Scripting Generators (Engine-aware)
+Implement a `ScriptBuilder` with per-engine strategies for triggers (required), indexes, keys, and constraints when feasible.
+
+## UI/UX Requirements
+- Lazy-load and cache branch content.
+- Show spinners on load, Refresh in context menu.
+- Context menus with script options (CREATE/ALTER/DROP).
+- Hide unsupported features per engine.
+
+## Deliverables
+1) Engine-agnostic metadata API.
+2) UI changes to render new branches.
+3) ScriptBuilder producing engine-specific DDL.
+4) Tests and checklist across all engines.
+
+## Acceptance Criteria
+- 5 collapsed branches per table.
+- Triggers menu includes CREATE/ALTER/DROP scripts.
+- Unsupported features hidden.
+- Refresh reloads a branch.
+- Works for SQL Server, PostgreSQL, and SQLite.
+
+Follow the above, integrate with the existing Electron app, and produce well-structured, documented code that matches the project’s patterns.

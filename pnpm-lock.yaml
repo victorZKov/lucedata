@@ -61,6 +61,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      "@sqlhelper/ai-integration":
+        specifier: workspace:*
+        version: link:../../packages/ai-integration
       "@sqlhelper/database-core":
         specifier: workspace:*
         version: link:../../packages/database-core

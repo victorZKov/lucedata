@@ -6,6 +6,18 @@ import { useTheme } from "../contexts/ThemeContext";
 
 import Resizer from "./Resizer";
 
+type QueryResult = {
+  query: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+  rowCount: number;
+  executionTime: number;
+  messages?: string[];
+  error?: string;
+  startTime: number;
+  endTime: number;
+};
+
 type Tab = {
   id: string;
   title: string;
@@ -18,19 +30,81 @@ type Tab = {
   table?: string;
   sql: string;
   activeResultTab?: "results" | "messages";
-  result?: {
-    columns: string[];
-    rows: Array<Record<string, unknown>>;
-    rowCount: number;
-    executionTime: number;
-    messages?: string[];
-    error?: string;
-  };
+  result?: QueryResult; // Legacy single result for backward compatibility
+  results?: QueryResult[]; // Multiple results for multi-query execution
   status?: "idle" | "running" | "error";
   startedAt?: number | null;
   columnWidths?: Record<string, number>; // px per column key
   editorPos?: { line: number; column: number };
   editorFocused?: boolean;
+};
+
+// Utility function to parse SQL text into individual queries
+const parseSQLQueries = (sqlText: string): string[] => {
+  if (!sqlText || !sqlText.trim()) return [];
+
+  // Split by semicolon, but be careful about semicolons inside string literals
+  const queries: string[] = [];
+  let currentQuery = "";
+  let inString = false;
+  let stringChar = "";
+  let escaped = false;
+
+  for (let i = 0; i < sqlText.length; i++) {
+    const char = sqlText[i];
+    const nextChar = sqlText[i + 1];
+
+    if (escaped) {
+      currentQuery += char;
+      escaped = false;
+      continue;
+    }
+
+    if (char === "\\") {
+      escaped = true;
+      currentQuery += char;
+      continue;
+    }
+
+    if (!inString && (char === '"' || char === "'")) {
+      inString = true;
+      stringChar = char;
+      currentQuery += char;
+      continue;
+    }
+
+    if (inString && char === stringChar) {
+      // Check for escaped quotes
+      if (nextChar === stringChar) {
+        currentQuery += char + nextChar;
+        i++; // Skip next character
+        continue;
+      }
+      inString = false;
+      stringChar = "";
+      currentQuery += char;
+      continue;
+    }
+
+    if (!inString && char === ";") {
+      const trimmedQuery = currentQuery.trim();
+      if (trimmedQuery) {
+        queries.push(trimmedQuery);
+      }
+      currentQuery = "";
+      continue;
+    }
+
+    currentQuery += char;
+  }
+
+  // Add the last query if it doesn't end with semicolon
+  const trimmedQuery = currentQuery.trim();
+  if (trimmedQuery) {
+    queries.push(trimmedQuery);
+  }
+
+  return queries.filter(q => q.length > 0);
 };
 
 export default function WorkArea() {
@@ -124,6 +198,30 @@ export default function WorkArea() {
     column?: string;
   }>({ x: 0, y: 0, show: false });
 
+  // For multiple query results - track which result is currently active
+  const [activeResultIndex, setActiveResultIndex] = useState(0);
+
+  // Helper to get the current result to display
+  const getCurrentResult = (tab: Tab) => {
+    if (tab.results && tab.results.length > 0) {
+      // Ensure activeResultIndex is within bounds
+      const safeIndex = Math.max(
+        0,
+        Math.min(activeResultIndex, tab.results.length - 1)
+      );
+      const result = tab.results[safeIndex];
+      console.log("🔧 getCurrentResult - multiple results mode:", {
+        activeResultIndex,
+        safeIndex,
+        totalResults: tab.results.length,
+        selectedResult: result,
+      });
+      return result;
+    }
+    console.log("🔧 getCurrentResult - single result mode:", tab.result);
+    return tab.result;
+  };
+
   useEffect(() => {
     localStorage.setItem("sqlhelper-sql-height", sqlHeight.toString());
   }, [sqlHeight]);
@@ -131,6 +229,11 @@ export default function WorkArea() {
   useEffect(() => {
     localStorage.setItem("sqlhelper-show-results", JSON.stringify(showResults));
   }, [showResults]);
+
+  // Reset active result index when switching tabs or when results change
+  useEffect(() => {
+    setActiveResultIndex(0);
+  }, [activeTabId]);
 
   useEffect(() => {
     const handleToggleResults = () => setShowResults((prev: boolean) => !prev);
@@ -317,37 +420,95 @@ export default function WorkArea() {
 
   const runQuery = async () => {
     if (!activeTab || !activeTab.connectionId || !window.electronAPI) return;
+
+    const queries = parseSQLQueries(activeTab.sql);
+    if (queries.length === 0) return;
+
     try {
       updateActiveTab({ status: "running", startedAt: Date.now() });
-      const res = await window.electronAPI.database.executeQuery(
-        activeTab.connectionId,
-        activeTab.sql
-      );
-      const columns =
-        res.columns?.map(c => c.name) ||
-        (res.rows[0] ? Object.keys(res.rows[0]) : []);
-      updateActiveTab({
-        result: {
-          columns,
-          rows: res.rows || [],
-          rowCount: res.rowCount || res.rows?.length || 0,
-          executionTime: res.executionTime || 0,
-          messages: res.messages || [],
-        },
-      });
-      updateActiveTab({ status: "idle" });
+
+      const results: QueryResult[] = [];
+      let totalExecutionTime = 0;
+
+      for (let i = 0; i < queries.length; i++) {
+        const query = queries[i];
+        const startTime = Date.now();
+
+        try {
+          const res = await window.electronAPI.database.executeQuery(
+            activeTab.connectionId,
+            query
+          );
+
+          const endTime = Date.now();
+          const executionTime = endTime - startTime;
+          totalExecutionTime += executionTime;
+
+          const columns =
+            res.columns?.map(c => c.name) ||
+            (res.rows[0] ? Object.keys(res.rows[0]) : []);
+
+          results.push({
+            query,
+            columns,
+            rows: res.rows || [],
+            rowCount: res.rowCount || res.rows?.length || 0,
+            executionTime,
+            messages: res.messages || [],
+            startTime,
+            endTime,
+          });
+        } catch (queryError: any) {
+          const endTime = Date.now();
+          results.push({
+            query,
+            columns: [],
+            rows: [],
+            rowCount: 0,
+            executionTime: endTime - startTime,
+            error: queryError?.message || String(queryError),
+            startTime,
+            endTime,
+          });
+        }
+      }
+
+      // Update tab with all results
+      if (results.length === 1) {
+        // Single query - maintain backward compatibility
+        updateActiveTab({
+          result: results[0],
+          results: undefined,
+          status: "idle",
+        });
+      } else {
+        // Multiple queries - use new results array
+        console.log("🔧 Multiple queries executed, results:", results);
+        updateActiveTab({
+          result: results[0], // Set first result as fallback
+          results,
+          status: "idle",
+        });
+        // Reset to first result when we have new multiple results
+        setActiveResultIndex(0);
+      }
+
       setShowResults(true);
     } catch (err: any) {
       updateActiveTab({
         result: {
+          query: activeTab.sql,
           columns: [],
           rows: [],
           rowCount: 0,
           executionTime: 0,
           error: err?.message || String(err),
+          startTime: Date.now(),
+          endTime: Date.now(),
         },
+        status: "error",
+        activeResultTab: "messages",
       });
-      updateActiveTab({ status: "error", activeResultTab: "messages" });
     }
   };
 
@@ -375,11 +536,14 @@ export default function WorkArea() {
         (res.rows[0] ? Object.keys(res.rows[0]) : []);
       updateActiveTab({
         result: {
+          query: prefix + query,
           columns,
           rows: res.rows || [],
           rowCount: res.rowCount || res.rows?.length || 0,
           executionTime: res.executionTime || 0,
           messages: res.messages || [],
+          startTime: Date.now() - (res.executionTime || 0),
+          endTime: Date.now(),
         },
       });
       updateActiveTab({ status: "idle" });
@@ -387,11 +551,14 @@ export default function WorkArea() {
     } catch (err: any) {
       updateActiveTab({
         result: {
+          query: prefix + query,
           columns: [],
           rows: [],
           rowCount: 0,
           executionTime: 0,
           error: err?.message || String(err),
+          startTime: Date.now(),
+          endTime: Date.now(),
         },
       });
       updateActiveTab({ status: "error", activeResultTab: "messages" });
@@ -442,11 +609,14 @@ export default function WorkArea() {
       updateActiveTab({
         sql: sqlString,
         result: {
+          query: sqlString,
           columns,
           rows: res.rows || [],
           rowCount: res.rowCount || res.rows?.length || 0,
           executionTime: res.executionTime || 0,
           messages: res.messages || [],
+          startTime: Date.now(),
+          endTime: Date.now(),
         },
         status: "idle",
       });
@@ -454,11 +624,14 @@ export default function WorkArea() {
     } catch (err: any) {
       updateActiveTab({
         result: {
+          query: sqlString,
           columns: [],
           rows: [],
           rowCount: 0,
           executionTime: 0,
           error: err?.message || String(err),
+          startTime: Date.now(),
+          endTime: Date.now(),
         },
         status: "error",
         activeResultTab: "messages",
@@ -514,14 +687,16 @@ export default function WorkArea() {
   };
 
   const copyCSV = async () => {
-    const res = activeTab?.result;
+    if (!activeTab) return;
+    const res = getCurrentResult(activeTab);
     if (!res || !res.columns?.length) return;
     const csv = stringifyCSV(res.rows || [], res.columns);
     await writeClipboard(csv);
   };
 
   const copyJSON = async () => {
-    const res = activeTab?.result;
+    if (!activeTab) return;
+    const res = getCurrentResult(activeTab);
     if (!res) return;
     const json = JSON.stringify(res.rows || [], null, 2);
     await writeClipboard(json);
@@ -542,7 +717,8 @@ export default function WorkArea() {
   };
 
   const exportCSV = async () => {
-    const res = activeTab?.result;
+    if (!activeTab) return;
+    const res = getCurrentResult(activeTab);
     if (!res || !res.columns?.length) return;
     const csv = stringifyCSV(res.rows || [], res.columns);
     const base = activeTab?.title || "results";
@@ -558,7 +734,8 @@ export default function WorkArea() {
   };
 
   const exportJSON = async () => {
-    const res = activeTab?.result;
+    if (!activeTab) return;
+    const res = getCurrentResult(activeTab);
     if (!res) return;
     const json = JSON.stringify(res.rows || [], null, 2);
     const base = activeTab?.title || "results";
@@ -727,11 +904,14 @@ export default function WorkArea() {
                   ? {
                       ...tab,
                       result: {
+                        query: tabData.sql,
                         columns,
                         rows: res.rows || [],
                         rowCount: res.rowCount || res.rows?.length || 0,
                         executionTime: res.executionTime || 0,
                         messages: res.messages || [],
+                        startTime: Date.now() - (res.executionTime || 0),
+                        endTime: Date.now(),
                       },
                       status: "idle",
                       activeResultTab: "results",
@@ -753,11 +933,14 @@ export default function WorkArea() {
                   ? {
                       ...tab,
                       result: {
+                        query: tabData.sql,
                         columns: [],
                         rows: [],
                         rowCount: 0,
                         executionTime: 0,
                         error: err?.message || String(err),
+                        startTime: Date.now(),
+                        endTime: Date.now(),
                       },
                       status: "idle",
                       activeResultTab: "results",
@@ -936,7 +1119,7 @@ export default function WorkArea() {
       {activeTab ? (
         <div className="flex-1 flex flex-col min-h-0">
           {(() => {
-            const resultsVisible = showResults && !!activeTab.result;
+            const resultsVisible = showResults && !!getCurrentResult(activeTab);
             return (
               <div
                 className={
@@ -1001,7 +1184,7 @@ export default function WorkArea() {
             );
           })()}
 
-          {showResults && !!activeTab.result && (
+          {showResults && !!getCurrentResult(activeTab) && (
             <Resizer
               direction="vertical"
               onResize={delta =>
@@ -1011,7 +1194,7 @@ export default function WorkArea() {
             />
           )}
 
-          {showResults && !!activeTab.result && (
+          {showResults && !!getCurrentResult(activeTab) && (
             <div className="flex-1 min-h-[160px] bg-muted p-2 overflow-hidden">
               <div className="h-full border border-border rounded bg-card flex flex-col min-w-0">
                 <div className="flex items-center justify-between border-b border-border px-2 py-1 text-xs">
@@ -1051,97 +1234,165 @@ export default function WorkArea() {
                   </div>
                 </div>
                 <div className="flex-1 overflow-auto">
-                  {activeTab.result?.error ? (
-                    <div className="p-3 text-sm text-red-600">
-                      {activeTab.result.error}
-                    </div>
-                  ) : (activeTab.activeResultTab ?? "results") ===
-                    "messages" ? (
-                    <div className="p-3 text-xs space-y-1">
-                      {activeTab.result?.messages &&
-                      activeTab.result.messages.length > 0 ? (
-                        activeTab.result.messages.map((m, i) => (
-                          <div key={i} className="text-foreground/80">
-                            {m}
-                          </div>
-                        ))
-                      ) : (
-                        <div className="text-muted-foreground">No messages</div>
-                      )}
-                    </div>
-                  ) : activeTab.result &&
-                    (activeTab.result.rows?.length || 0) > 0 ? (
-                    <div
-                      className="w-full h-full overflow-auto"
-                      onContextMenu={e => {
-                        e.preventDefault();
-                        if (!activeTab?.result) return;
-                        setResultMenu({
-                          x: e.clientX,
-                          y: e.clientY,
-                          show: true,
-                        });
-                      }}
-                    >
-                      <table className="w-full text-xs">
-                        <thead className="sticky top-0 bg-muted">
-                          <tr>
-                            {activeTab.result.columns.map((c, i) => (
-                              <th
-                                key={i}
-                                ref={el => {
-                                  (headerRefs as any)[c] = el;
-                                }}
-                                className="text-left px-2 py-1 border-b border-border whitespace-nowrap relative"
-                                style={
-                                  activeTab.columnWidths?.[c]
-                                    ? { width: activeTab.columnWidths[c] }
-                                    : { minWidth: "100px" }
-                                }
-                                onContextMenu={e => {
-                                  e.preventDefault();
-                                  if (!activeTab?.connectionId) return;
-                                  setColumnMenu({
-                                    x: e.clientX,
-                                    y: e.clientY,
-                                    show: true,
-                                    column: c,
-                                  });
+                  {(() => {
+                    const currentResult = getCurrentResult(activeTab);
+
+                    if (currentResult?.error) {
+                      return (
+                        <div className="p-3 text-sm text-red-600">
+                          {currentResult.error}
+                        </div>
+                      );
+                    }
+
+                    if (
+                      (activeTab.activeResultTab ?? "results") === "messages"
+                    ) {
+                      return (
+                        <div className="p-3 text-xs space-y-1">
+                          {currentResult?.messages &&
+                          currentResult.messages.length > 0 ? (
+                            currentResult.messages.map((m, i) => (
+                              <div key={i} className="text-foreground/80">
+                                {m}
+                              </div>
+                            ))
+                          ) : (
+                            <div className="text-muted-foreground">
+                              No messages
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    if (!currentResult) {
+                      console.log("🔧 No current result to display");
+                      return null;
+                    }
+
+                    const hasRows =
+                      currentResult.rows && currentResult.rows.length > 0;
+                    console.log("🔧 Rendering result check:", {
+                      hasCurrentResult: !!currentResult,
+                      rowsLength: currentResult.rows?.length,
+                      hasRows,
+                      columns: currentResult.columns,
+                    });
+
+                    if (!hasRows) {
+                      return (
+                        <div className="p-3 text-sm text-muted-foreground">
+                          No rows returned
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div className="flex flex-col h-full">
+                        {/* Multiple Results Navigation */}
+                        {activeTab.results && activeTab.results.length > 1 && (
+                          <div className="flex items-center gap-2 p-2 border-b border-border">
+                            <span className="text-xs text-muted-foreground">
+                              Results:
+                            </span>
+                            {activeTab.results.map((result, index) => (
+                              <button
+                                key={index}
+                                className={`px-2 py-1 text-xs rounded ${
+                                  activeResultIndex === index
+                                    ? "bg-primary text-primary-foreground"
+                                    : "bg-muted text-foreground hover:bg-accent"
+                                }`}
+                                onClick={() => {
+                                  console.log(
+                                    "🔧 Switching to result index:",
+                                    index
+                                  );
+                                  setActiveResultIndex(index);
                                 }}
                               >
-                                {c}
-                                <span
-                                  className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-blue-500/40"
-                                  onMouseDown={e => startResize(c, e)}
-                                />
-                              </th>
+                                Query {index + 1} ({result.rowCount || 0} rows)
+                              </button>
                             ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {activeTab.result.rows.map((r, i) => (
-                            <tr key={i} className="odd:bg-muted/50">
-                              {activeTab.result!.columns.map((c, j) => (
-                                <td
-                                  key={j}
-                                  className="px-2 py-1 align-top border-b border-border/60"
-                                  style={
-                                    activeTab.columnWidths?.[c]
-                                      ? { width: activeTab.columnWidths[c] }
-                                      : undefined
-                                  }
-                                >
-                                  <pre className="whitespace-pre-wrap break-words text-[11px]">
-                                    {formatCell(r[c])}
-                                  </pre>
-                                </td>
+                          </div>
+                        )}
+
+                        {/* Results Table */}
+                        <div
+                          className="w-full h-full overflow-auto"
+                          onContextMenu={e => {
+                            e.preventDefault();
+                            const result = getCurrentResult(activeTab);
+                            if (!result) return;
+                            setResultMenu({
+                              x: e.clientX,
+                              y: e.clientY,
+                              show: true,
+                            });
+                          }}
+                        >
+                          <table className="w-full text-xs">
+                            <thead className="sticky top-0 bg-muted">
+                              <tr>
+                                {currentResult.columns.map((c, i) => (
+                                  <th
+                                    key={i}
+                                    ref={el => {
+                                      (headerRefs as any)[c] = el;
+                                    }}
+                                    className="text-left px-2 py-1 border-b border-border whitespace-nowrap relative"
+                                    style={
+                                      activeTab.columnWidths?.[c]
+                                        ? { width: activeTab.columnWidths[c] }
+                                        : { minWidth: "100px" }
+                                    }
+                                    onContextMenu={e => {
+                                      e.preventDefault();
+                                      if (!activeTab?.connectionId) return;
+                                      setColumnMenu({
+                                        x: e.clientX,
+                                        y: e.clientY,
+                                        show: true,
+                                        column: c,
+                                      });
+                                    }}
+                                  >
+                                    {c}
+                                    <span
+                                      className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-blue-500/40"
+                                      onMouseDown={e => startResize(c, e)}
+                                    />
+                                  </th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {currentResult.rows.map((r, i) => (
+                                <tr key={i} className="odd:bg-muted/50">
+                                  {currentResult.columns.map((c, j) => (
+                                    <td
+                                      key={j}
+                                      className="px-2 py-1 align-top border-b border-border/60"
+                                      style={
+                                        activeTab.columnWidths?.[c]
+                                          ? { width: activeTab.columnWidths[c] }
+                                          : undefined
+                                      }
+                                    >
+                                      <pre className="whitespace-pre-wrap break-words text-[11px]">
+                                        {formatCell(r[c])}
+                                      </pre>
+                                    </td>
+                                  ))}
+                                </tr>
                               ))}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  ) : null}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
                 {/* Status Bar */}
                 <StatusBar tab={activeTab} />
@@ -1160,23 +1411,23 @@ export default function WorkArea() {
                     <MenuItem
                       label="Copy CSV"
                       onClick={copyCSV}
-                      disabled={!activeTab?.result?.columns?.length}
+                      disabled={!getCurrentResult(activeTab)?.columns?.length}
                     />
                     <MenuItem
                       label="Copy JSON"
                       onClick={copyJSON}
-                      disabled={!activeTab?.result}
+                      disabled={!getCurrentResult(activeTab)}
                     />
                     <div className="h-px bg-border mx-1" />
                     <MenuItem
                       label="Export CSV…"
                       onClick={exportCSV}
-                      disabled={!activeTab?.result?.columns?.length}
+                      disabled={!getCurrentResult(activeTab)?.columns?.length}
                     />
                     <MenuItem
                       label="Export JSON…"
                       onClick={exportJSON}
-                      disabled={!activeTab?.result}
+                      disabled={!getCurrentResult(activeTab)}
                     />
                   </div>
                 )}

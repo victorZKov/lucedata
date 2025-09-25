@@ -437,6 +437,70 @@ export default function WorkArea() {
       "open-edit-data-tab",
       editDataHandler as EventListener
     );
+
+    const routineHandler = (e: Event) => {
+      const { detail } = e as CustomEvent<{
+        connectionId: string;
+        connectionType?: string;
+        connectionName?: string;
+        database?: string;
+        schema: string;
+        table?: string;
+        routine: string;
+        routineType: "procedure" | "function" | "trigger";
+        definition: string;
+      }>;
+      if (!detail) return;
+
+      const {
+        connectionId,
+        connectionName,
+        connectionType,
+        database,
+        schema,
+        table,
+        routine,
+        routineType,
+        definition,
+      } = detail;
+
+      // Create a unique tab ID based on the routine type and context
+      const tabContext = table ? `${schema}.${table}` : schema;
+      const id = `${connectionId}:${routineType}:${tabContext}:${routine}`;
+      const title = table
+        ? `${routine} (${routineType} on ${schema}.${table})`
+        : `${routine} (${routineType} in ${schema})`;
+
+      const existing = tabs.find(t => t.id === id);
+      if (existing) {
+        // Update existing tab with fresh definition
+        setTabs(prev =>
+          prev.map(t => (t.id === existing.id ? { ...t, sql: definition } : t))
+        );
+        setActiveTabId(existing.id);
+      } else {
+        const newTab: Tab = {
+          id,
+          type: "sql",
+          title,
+          connectionId,
+          connectionName,
+          connectionType,
+          database,
+          schema,
+          table: table || "",
+          sql: definition,
+          activeResultTab: "results",
+        };
+        setTabs(prev => [...prev, newTab]);
+        setActiveTabId(id);
+      }
+    };
+    document.addEventListener(
+      "open-routine-tab",
+      routineHandler as EventListener
+    );
+
     return () => {
       document.removeEventListener("open-sql-tab", handler as EventListener);
       document.removeEventListener(
@@ -450,6 +514,10 @@ export default function WorkArea() {
       document.removeEventListener(
         "open-edit-data-tab",
         editDataHandler as EventListener
+      );
+      document.removeEventListener(
+        "open-routine-tab",
+        routineHandler as EventListener
       );
     };
   }, [tabs]);

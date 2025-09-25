@@ -9,6 +9,7 @@ import Resizer from "./Resizer";
 import { SaveChatDialog } from "./SaveChatDialog";
 import { LoadChatDialog } from "./LoadChatDialog";
 import { ChatHistoryTab } from "./ChatHistoryTab";
+import VersionDialog from "./VersionDialog";
 
 interface LayoutState {
   explorerWidth: number;
@@ -21,6 +22,7 @@ interface DialogState {
   saveChatDialog: boolean;
   loadChatDialog: boolean;
   chatHistoryTab: boolean;
+  versionDialog: boolean;
 }
 
 export default function Layout() {
@@ -48,6 +50,7 @@ export default function Layout() {
     saveChatDialog: false,
     loadChatDialog: false,
     chatHistoryTab: false,
+    versionDialog: false,
   });
 
   // Mock data - in real app, these would come from your store
@@ -265,6 +268,15 @@ export default function Layout() {
             ◨
           </button>
           <button
+            onClick={() =>
+              setDialogs(prev => ({ ...prev, versionDialog: true }))
+            }
+            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5"
+            title="About SQL Helper"
+          >
+            ℹ️
+          </button>
+          <button
             onClick={toggleTheme}
             title={
               theme === "light" ? "Switch to dark mode" : "Switch to light mode"
@@ -476,6 +488,11 @@ export default function Layout() {
         onClose={() => setDialogs(prev => ({ ...prev, chatHistoryTab: false }))}
         connections={connections}
         engines={engines}
+      />
+
+      <VersionDialog
+        isOpen={dialogs.versionDialog}
+        onClose={() => setDialogs(prev => ({ ...prev, versionDialog: false }))}
       />
     </div>
   );

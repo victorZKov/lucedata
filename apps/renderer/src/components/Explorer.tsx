@@ -860,6 +860,7 @@ export default function Explorer() {
     schema?: string;
     routine?: string;
     type?: string;
+    routineType?: "procedure" | "function" | "trigger";
   }) => {
     if (!ctx.connId || !ctx.schema || !ctx.routine) return "-- Missing context";
     const ident = (n: string) =>
@@ -872,8 +873,28 @@ export default function Explorer() {
           ctx.connId,
           q
         );
-        const def = res?.rows?.[0]?.definition as string | undefined;
-        if (def && def.trim()) return def;
+        let def = res?.rows?.[0]?.definition as string | undefined;
+
+        if (def && def.trim()) {
+          // Convert CREATE to ALTER for editing
+          if (ctx.routineType === "procedure") {
+            // More robust regex to handle various whitespace and newlines
+            def = def.replace(
+              /^(\s*)CREATE(\s+)PROCEDURE/im,
+              "$1ALTER$2PROCEDURE"
+            );
+          } else if (ctx.routineType === "function") {
+            def = def.replace(
+              /^(\s*)CREATE(\s+)FUNCTION/im,
+              "$1ALTER$2FUNCTION"
+            );
+          } else if (ctx.routineType === "trigger") {
+            // For triggers, we might want to show a DROP and CREATE pattern
+            // since ALTER TRIGGER has limited functionality
+            def = `-- To modify this trigger, drop and recreate it\n${def.replace(/^(\s*)CREATE(\s+)TRIGGER/im, `$1DROP TRIGGER ${qualified};\nGO\n\n$1CREATE$2TRIGGER`)}`;
+          }
+          return def;
+        }
         return `-- No definition found for ${qualified}`;
       }
       return `-- Scripting not yet implemented for ${ctx.type}`;
@@ -1223,10 +1244,11 @@ export default function Explorer() {
       return node.name;
     };
 
-    const handleDoubleClick = () => {
+    const handleDoubleClick = async () => {
+      const connState = connectionStates.get(connectionId);
+      const conn = connState?.connection;
+
       if (node.type === "table") {
-        const connState = connectionStates.get(connectionId);
-        const conn = connState?.connection;
         const detail = {
           connectionId,
           connectionType: conn?.type,
@@ -1236,6 +1258,74 @@ export default function Explorer() {
           table: node.name,
         };
         document.dispatchEvent(new CustomEvent("open-sql-tab", { detail }));
+      } else if (node.type === "procedure" || node.type === "function") {
+        // Handle stored procedures and functions
+        const routineNode = node as ProcedureNode | FunctionNode;
+        const ctx = {
+          connId: connectionId,
+          schema: routineNode.schema,
+          routine: routineNode.name,
+          type: conn?.type,
+          routineType: node.type as "procedure" | "function",
+        };
+
+        try {
+          const definition = await fetchRoutineDefinition(ctx);
+          const detail = {
+            connectionId,
+            connectionType: conn?.type,
+            connectionName: conn?.name,
+            database: conn?.database,
+            schema: routineNode.schema,
+            routine: routineNode.name,
+            routineType: node.type,
+            definition,
+          };
+          document.dispatchEvent(
+            new CustomEvent("open-routine-tab", { detail })
+          );
+        } catch (error) {
+          console.error("Failed to fetch routine definition:", error);
+        }
+      } else if (node.type === "trigger") {
+        // Handle triggers - similar to procedures but with different handling
+        const triggerNode = node as TriggerNode;
+        // For triggers, we need to get the parent table context from the nodeKey
+        const parts = nodeKey.split(":");
+        if (parts.length >= 5 && parts[1] === "table") {
+          const parentSchema = parts[2];
+          const parentTable = parts[3];
+
+          // For triggers, we might need a different query than OBJECT_DEFINITION
+          // Let's use a basic approach for now
+          const ctx = {
+            connId: connectionId,
+            schema: parentSchema,
+            routine: triggerNode.name,
+            type: conn?.type,
+            routineType: "trigger" as const,
+          };
+
+          try {
+            const definition = await fetchRoutineDefinition(ctx);
+            const detail = {
+              connectionId,
+              connectionType: conn?.type,
+              connectionName: conn?.name,
+              database: conn?.database,
+              schema: parentSchema,
+              table: parentTable,
+              routine: triggerNode.name,
+              routineType: "trigger",
+              definition,
+            };
+            document.dispatchEvent(
+              new CustomEvent("open-routine-tab", { detail })
+            );
+          } catch (error) {
+            console.error("Failed to fetch trigger definition:", error);
+          }
+        }
       }
     };
 
@@ -1667,7 +1757,10 @@ export default function Explorer() {
                     !contextMenu.routine
                   )
                     return;
-                  const def = await fetchRoutineDefinition(contextMenu);
+                  const def = await fetchRoutineDefinition({
+                    ...contextMenu,
+                    routineType: contextMenu.routineKind,
+                  });
                   const title = `Edit ${contextMenu.schema}.${contextMenu.routine}`;
                   openScriptTab(contextMenu, title, def);
                   setContextMenu(c => ({ ...c, visible: false }));
@@ -1684,7 +1777,10 @@ export default function Explorer() {
                     !contextMenu.routine
                   )
                     return;
-                  const def = await fetchRoutineDefinition(contextMenu);
+                  const def = await fetchRoutineDefinition({
+                    ...contextMenu,
+                    routineType: contextMenu.routineKind,
+                  });
                   const title = `Script CREATE ${contextMenu.schema}.${contextMenu.routine}`;
                   openScriptTab(contextMenu, title, def);
                   setContextMenu(c => ({ ...c, visible: false }));

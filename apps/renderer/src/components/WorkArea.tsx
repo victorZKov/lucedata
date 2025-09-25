@@ -5,6 +5,7 @@ import { format as sqlFormat } from "sql-formatter";
 import { useTheme } from "../contexts/ThemeContext";
 
 import Resizer from "./Resizer";
+import EditableDataGrid from "./EditableDataGrid";
 
 type QueryResult = {
   query: string;
@@ -21,6 +22,7 @@ type QueryResult = {
 type Tab = {
   id: string;
   title: string;
+  type?: "sql" | "edit-data" | "content-viewer"; // Add content viewer tab type
   filePath?: string; // persisted file path for Save
   connectionId?: string;
   connectionName?: string;
@@ -29,6 +31,20 @@ type Tab = {
   schema?: string;
   table?: string;
   sql: string;
+  // Content viewer specific fields
+  content?: string;
+  rawContent?: string; // Store original unformatted content
+  contentType?:
+    | "text"
+    | "json"
+    | "xml"
+    | "html"
+    | "sql"
+    | "yaml"
+    | "csv"
+    | "javascript"
+    | "css";
+  showFormatted?: boolean; // Toggle between formatted and raw content
   activeResultTab?: "results" | "messages";
   result?: QueryResult; // Legacy single result for backward compatibility
   results?: QueryResult[]; // Multiple results for multi-query execution
@@ -150,6 +166,7 @@ export default function WorkArea() {
         } catch {}
         const newTab: Tab = {
           id,
+          type: "sql",
           title: "New Query",
           sql: "",
           activeResultTab: "results",
@@ -272,6 +289,7 @@ export default function WorkArea() {
       } else {
         const newTab: Tab = {
           id,
+          type: "sql",
           title,
           connectionId,
           connectionName,
@@ -317,6 +335,7 @@ export default function WorkArea() {
       } else {
         const newTab: Tab = {
           id,
+          type: "sql",
           title,
           connectionId,
           connectionName,
@@ -354,6 +373,7 @@ export default function WorkArea() {
       else {
         const newTab: Tab = {
           id,
+          type: "sql",
           title,
           connectionId,
           connectionName,
@@ -372,6 +392,51 @@ export default function WorkArea() {
       "open-empty-sql-tab",
       emptyHandler as EventListener
     );
+    const editDataHandler = (e: Event) => {
+      const { detail } = e as CustomEvent<{
+        connectionId: string;
+        connectionType?: string;
+        connectionName?: string;
+        database?: string;
+        schema: string;
+        table: string;
+      }>;
+      if (!detail) return;
+      const {
+        connectionId,
+        connectionName,
+        connectionType,
+        database,
+        schema,
+        table,
+      } = detail;
+      const id = `${connectionId}:edit-data:${schema}.${table}`;
+      const title = `${schema}.${table} • Edit Data`;
+      const existing = tabs.find(t => t.id === id);
+      if (existing) {
+        setActiveTabId(existing.id);
+      } else {
+        const newTab: Tab = {
+          id,
+          type: "edit-data",
+          title,
+          connectionId,
+          connectionName,
+          connectionType,
+          database,
+          schema,
+          table,
+          sql: "", // Not needed for edit-data tabs
+          activeResultTab: "results",
+        };
+        setTabs(prev => [...prev, newTab]);
+        setActiveTabId(id);
+      }
+    };
+    document.addEventListener(
+      "open-edit-data-tab",
+      editDataHandler as EventListener
+    );
     return () => {
       document.removeEventListener("open-sql-tab", handler as EventListener);
       document.removeEventListener(
@@ -381,6 +446,10 @@ export default function WorkArea() {
       document.removeEventListener(
         "open-empty-sql-tab",
         emptyHandler as EventListener
+      );
+      document.removeEventListener(
+        "open-edit-data-tab",
+        editDataHandler as EventListener
       );
     };
   }, [tabs]);
@@ -416,6 +485,294 @@ export default function WorkArea() {
       const next = tabs[idx + 1] || tabs[idx - 1] || null;
       setActiveTabId(next ? next.id : null);
     }
+  };
+
+  // Function to detect content type based on content
+  const detectContentType = (
+    content: string
+  ):
+    | "text"
+    | "json"
+    | "xml"
+    | "html"
+    | "sql"
+    | "yaml"
+    | "csv"
+    | "javascript"
+    | "css" => {
+    if (!content || typeof content !== "string") return "text";
+
+    const trimmed = content.trim();
+    const lowerContent = content.toLowerCase();
+
+    // JSON detection - more thorough
+    if (
+      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    ) {
+      try {
+        JSON.parse(trimmed);
+        return "json";
+      } catch {
+        // Could be JavaScript object notation or malformed JSON
+        if (
+          trimmed.includes("function") ||
+          trimmed.includes("=>") ||
+          /\b(const|let|var)\s+\w+\s*=/.test(trimmed)
+        ) {
+          return "javascript";
+        }
+      }
+    }
+
+    // XML/HTML detection - improved patterns
+    if (
+      trimmed.startsWith("<") &&
+      (trimmed.endsWith(">") || trimmed.includes("</"))
+    ) {
+      const htmlIndicators = [
+        "<!doctype html",
+        "<html",
+        "<head>",
+        "<body>",
+        "<div",
+        "<span",
+        "<p>",
+        "<h1",
+        "<h2",
+        "<h3",
+        "<a ",
+        "<img",
+        "<script",
+        "<style",
+        "<link",
+      ];
+      if (htmlIndicators.some(indicator => lowerContent.includes(indicator))) {
+        return "html";
+      }
+      // Check for XML declaration or namespaces
+      if (
+        trimmed.startsWith("<?xml") ||
+        trimmed.includes("xmlns") ||
+        /^<\w+(\s+[\w:]+="[^"]*")*\s*(\/?>|>[\s\S]*<\/\w+>)$/.test(trimmed)
+      ) {
+        return "xml";
+      }
+      return "xml"; // Default to XML for angle bracket content
+    }
+
+    // SQL detection - enhanced keyword matching
+    const sqlKeywords = [
+      "SELECT",
+      "INSERT",
+      "UPDATE",
+      "DELETE",
+      "CREATE",
+      "ALTER",
+      "DROP",
+      "FROM",
+      "WHERE",
+      "JOIN",
+      "INNER JOIN",
+      "LEFT JOIN",
+      "RIGHT JOIN",
+      "GROUP BY",
+      "ORDER BY",
+      "HAVING",
+      "UNION",
+      "WITH",
+    ];
+    const hasSqlKeywords = sqlKeywords.some(keyword => {
+      const regex = new RegExp(`\\b${keyword}\\b`, "i");
+      return regex.test(content);
+    });
+    if (hasSqlKeywords) {
+      return "sql";
+    }
+
+    // YAML detection - improved patterns
+    if (
+      content.includes("---") ||
+      /^[\w\-_]+:\s*.+$/m.test(content) ||
+      /^\s*-\s+\w+/.test(content)
+    ) {
+      return "yaml";
+    }
+
+    // CSV detection - enhanced logic
+    const lines = content.split("\n").filter(line => line.trim().length > 0);
+    if (lines.length >= 2) {
+      const firstLine = lines[0];
+      const secondLine = lines[1];
+      if (firstLine.includes(",") && secondLine.includes(",")) {
+        const firstLineCommas = (firstLine.match(/,/g) || []).length;
+        const secondLineCommas = (secondLine.match(/,/g) || []).length;
+        if (
+          firstLineCommas === secondLineCommas &&
+          firstLineCommas > 0 &&
+          firstLineCommas < 20
+        ) {
+          return "csv";
+        }
+      }
+    }
+
+    // CSS detection - better patterns
+    const cssPatterns = [
+      /[\w-.#[\]]+\s*\{[^}]*\}/, // CSS rules
+      /@\w+\s*\{/, // CSS at-rules
+      /\w+\s*:\s*[^;]+;/, // CSS properties
+    ];
+    const hasCssPatterns = cssPatterns.some(pattern => pattern.test(content));
+    const hasCssKeywords = [
+      "color",
+      "margin",
+      "padding",
+      "font",
+      "background",
+      "border",
+      "width",
+      "height",
+    ].some(keyword => content.includes(keyword + ":"));
+    if (hasCssPatterns || (hasCssKeywords && content.includes("{"))) {
+      return "css";
+    }
+
+    // JavaScript detection - comprehensive patterns
+    const jsPatterns = [
+      /\bfunction\s+\w+\s*\(/, // Function declarations
+      /\b(const|let|var)\s+\w+\s*=/, // Variable declarations
+      /=>\s*[{\w]/, // Arrow functions
+      /\bconsole\.\w+\s*\(/, // Console methods
+      /\bdocument\.\w+/, // DOM access
+      /\bwindow\.\w+/, // Window object
+      /import\s+.*\s+from\s+['"`]/, // ES6 imports
+      /export\s+(default\s+)?\w+/, // ES6 exports
+      /require\s*\(\s*['"`]/, // CommonJS require
+      /module\.exports\s*=/, // CommonJS exports
+    ];
+    if (jsPatterns.some(pattern => pattern.test(content))) {
+      return "javascript";
+    }
+
+    return "text";
+  };
+
+  // Function to format content based on type
+  const formatContent = (
+    content: string,
+    type:
+      | "text"
+      | "json"
+      | "xml"
+      | "html"
+      | "sql"
+      | "yaml"
+      | "csv"
+      | "javascript"
+      | "css"
+  ): string => {
+    if (!content) return "";
+
+    try {
+      switch (type) {
+        case "json":
+          try {
+            const parsed = JSON.parse(content);
+            return JSON.stringify(parsed, null, 2);
+          } catch {
+            return content;
+          }
+        case "sql":
+          // Basic SQL formatting - add line breaks after keywords
+          return content
+            .replace(/\bSELECT\b/gi, "\nSELECT")
+            .replace(/\bFROM\b/gi, "\nFROM")
+            .replace(/\bWHERE\b/gi, "\nWHERE")
+            .replace(/\bJOIN\b/gi, "\nJOIN")
+            .replace(/\bINNER JOIN\b/gi, "\nINNER JOIN")
+            .replace(/\bLEFT JOIN\b/gi, "\nLEFT JOIN")
+            .replace(/\bRIGHT JOIN\b/gi, "\nRIGHT JOIN")
+            .replace(/\bORDER BY\b/gi, "\nORDER BY")
+            .replace(/\bGROUP BY\b/gi, "\nGROUP BY")
+            .replace(/\bHAVING\b/gi, "\nHAVING")
+            .trim();
+        case "html":
+        case "xml": {
+          // Basic XML/HTML formatting - add line breaks and indentation
+          let formatted = content;
+          formatted = formatted.replace(/></g, ">\n<");
+          // Simple indentation
+          const lines = formatted.split("\n");
+          let indent = 0;
+          return lines
+            .map(line => {
+              const trimmed = line.trim();
+              if (trimmed.startsWith("</")) indent = Math.max(0, indent - 1);
+              const result = "  ".repeat(indent) + trimmed;
+              if (
+                trimmed.startsWith("<") &&
+                !trimmed.startsWith("</") &&
+                !trimmed.endsWith("/>")
+              ) {
+                indent++;
+              }
+              return result;
+            })
+            .join("\n");
+        }
+        case "css": {
+          // Basic CSS formatting
+          return content
+            .replace(/\{/g, " {\n  ")
+            .replace(/\}/g, "\n}\n")
+            .replace(/;/g, ";\n  ")
+            .replace(/,/g, ",\n")
+            .split("\n")
+            .map(line => line.trim())
+            .filter(line => line.length > 0)
+            .join("\n");
+        }
+        default:
+          return content;
+      }
+    } catch {
+      return content;
+    }
+  };
+
+  // Function to open content in a new tab with auto-detection
+  const openContentTab = (
+    content: string,
+    title: string,
+    contentType?:
+      | "text"
+      | "json"
+      | "xml"
+      | "html"
+      | "sql"
+      | "yaml"
+      | "csv"
+      | "javascript"
+      | "css"
+  ) => {
+    const detectedType = contentType || detectContentType(content);
+    const formattedContent = formatContent(content, detectedType);
+
+    const id = `content-${Date.now()}`;
+    const newTab: Tab = {
+      id,
+      title: `📄 ${title}`,
+      type: "content-viewer",
+      content: formattedContent,
+      rawContent: content, // Store original unformatted content
+      contentType: detectedType,
+      showFormatted: true, // Default to formatted view
+      sql: "", // Required field but not used for content viewer
+    };
+
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(id);
   };
 
   const runQuery = async () => {
@@ -783,6 +1140,7 @@ export default function WorkArea() {
           } else {
             const newTab: Tab = {
               id,
+              type: "sql",
               title,
               sql: res.content || "",
               filePath: res.filePath,
@@ -1080,385 +1438,575 @@ export default function WorkArea() {
         )}
       </div>
 
-      {/* Toolbar (only when a tab is active) */}
-      {activeTab && (
-        <div className="border-b border-border p-2 bg-secondary flex-shrink-0 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={runQuery}
-              disabled={!activeTab?.connectionId}
-              className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-            >
-              Run
-            </button>
-            <button
-              onClick={explainQuery}
-              disabled={!activeTab?.connectionId}
-              className="px-3 py-1 bg-muted text-foreground rounded text-sm hover:bg-accent disabled:opacity-50"
-            >
-              Explain
-            </button>
-            <button
-              onClick={formatSql}
-              className="px-3 py-1 bg-muted text-foreground rounded text-sm hover:bg-accent"
-            >
-              Format
-            </button>
-          </div>
-          <div className="text-xs text-muted-foreground">
-            {activeTab?.connectionName || activeTab?.database
-              ? [activeTab.connectionName, activeTab.database]
-                  .filter(Boolean)
-                  .join(" • ")
-              : "No database selected"}
-          </div>
-        </div>
-      )}
-
-      {/* Editor + Results */}
-      {activeTab ? (
-        <div className="flex-1 flex flex-col min-h-0">
-          {(() => {
-            const resultsVisible = showResults && !!getCurrentResult(activeTab);
-            return (
-              <div
-                className={
-                  resultsVisible ? "flex-shrink-0 p-2" : "flex-1 p-2 min-w-0"
-                }
-                style={resultsVisible ? { height: sqlHeight } : undefined}
+      {/* Toolbar (only when a tab is active and not edit-data or content-viewer) */}
+      {activeTab &&
+        activeTab.type !== "edit-data" &&
+        activeTab.type !== "content-viewer" && (
+          <div className="border-b border-border p-2 bg-secondary flex-shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={runQuery}
+                disabled={!activeTab?.connectionId}
+                className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
               >
-                <div className="h-full border border-border rounded bg-card overflow-hidden min-w-0">
-                  <Editor
-                    height="100%"
-                    defaultLanguage="sql"
-                    value={activeTab.sql}
-                    onChange={v => updateActiveTab({ sql: v || "" })}
-                    options={{
-                      minimap: { enabled: false },
-                      fontSize: 13,
-                      wordWrap: "on",
-                    }}
-                    theme={theme === "dark" ? "vs-dark" : "light"}
-                    onMount={(editor, monaco) => {
-                      editor.addCommand(
-                        monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-                        () => runQuery()
-                      );
-                      editor.addCommand(
-                        monaco.KeyMod.CtrlCmd |
-                          monaco.KeyMod.Shift |
-                          monaco.KeyCode.Enter,
-                        () => explainQuery()
-                      );
-                      // F5 to run query inside editor
-                      editor.addCommand(monaco.KeyCode.F5, () => runQuery());
-                      editor.addCommand(
-                        monaco.KeyMod.CtrlCmd |
-                          monaco.KeyMod.Shift |
-                          monaco.KeyCode.KeyF,
-                        () => formatSql()
-                      );
+                Run
+              </button>
+              <button
+                onClick={explainQuery}
+                disabled={!activeTab?.connectionId}
+                className="px-3 py-1 bg-muted text-foreground rounded text-sm hover:bg-accent disabled:opacity-50"
+              >
+                Explain
+              </button>
+              <button
+                onClick={formatSql}
+                className="px-3 py-1 bg-muted text-foreground rounded text-sm hover:bg-accent"
+              >
+                Format
+              </button>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {activeTab?.connectionName || activeTab?.database
+                ? [activeTab.connectionName, activeTab.database]
+                    .filter(Boolean)
+                    .join(" • ")
+                : "No database selected"}
+            </div>
+          </div>
+        )}
 
-                      const updatePos = () => {
-                        const pos = editor.getPosition();
-                        if (pos)
-                          updateActiveTab({
-                            editorPos: {
-                              line: pos.lineNumber,
-                              column: pos.column,
-                            },
-                          });
-                      };
-                      updatePos();
-                      editor.onDidChangeCursorPosition(() => updatePos());
-                      editor.onDidFocusEditorText(() =>
-                        updateActiveTab({ editorFocused: true })
-                      );
-                      editor.onDidBlurEditorText(() =>
-                        updateActiveTab({ editorFocused: false })
-                      );
+      {/* Editor + Results / EditableDataGrid */}
+      {activeTab ? (
+        activeTab.type === "edit-data" ? (
+          <div className="flex-1 min-h-0">
+            <EditableDataGrid
+              connectionId={activeTab.connectionId!}
+              connectionType={activeTab.connectionType}
+              schema={activeTab.schema!}
+              table={activeTab.table!}
+              onStatusChange={(status, _message) => {
+                // Update tab status if needed
+                updateActiveTab({
+                  status:
+                    status === "loading"
+                      ? "running"
+                      : status === "saving"
+                        ? "running"
+                        : "idle",
+                });
+              }}
+            />
+          </div>
+        ) : activeTab.type === "content-viewer" ? (
+          <div className="flex-1 min-h-0 p-4">
+            <div className="h-full border border-border rounded bg-card overflow-hidden flex flex-col">
+              <div className="flex items-center justify-between border-b border-border px-3 py-2 bg-muted/50 flex-shrink-0">
+                <div className="flex items-center gap-2">
+                  <h3 className="font-medium text-sm">
+                    {activeTab.title.replace("📄 ", "")}
+                  </h3>
+                  <span className="px-2 py-1 text-xs bg-primary/10 text-primary rounded-full font-mono">
+                    {activeTab.contentType?.toUpperCase() || "TEXT"}
+                  </span>
+                  {activeTab.showFormatted ? (
+                    <span className="px-2 py-1 text-xs bg-green-100 text-green-800 rounded-full font-mono">
+                      FORMATTED
+                    </span>
+                  ) : (
+                    <span className="px-2 py-1 text-xs bg-gray-100 text-gray-800 rounded-full font-mono">
+                      RAW
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {activeTab.showFormatted
+                      ? activeTab.content?.length || 0
+                      : activeTab.rawContent?.length || 0}{" "}
+                    characters
+                  </span>
+                  <button
+                    onClick={() => {
+                      const contentToCopy = activeTab.showFormatted
+                        ? activeTab.content
+                        : activeTab.rawContent;
+                      if (contentToCopy) {
+                        navigator.clipboard.writeText(contentToCopy);
+                      }
                     }}
-                  />
+                    className="px-2 py-1 bg-muted text-foreground rounded hover:bg-accent transition-colors"
+                    title="Copy to clipboard"
+                  >
+                    📋 Copy
+                  </button>
+                  <button
+                    onClick={() => {
+                      updateActiveTab({
+                        showFormatted: !activeTab.showFormatted,
+                      });
+                    }}
+                    className="px-2 py-1 bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors"
+                    title={
+                      activeTab.showFormatted
+                        ? "Show raw content"
+                        : "Show formatted content"
+                    }
+                  >
+                    {activeTab.showFormatted ? "🔧 Raw" : "✨ Format"}
+                  </button>
                 </div>
               </div>
-            );
-          })()}
+              <div className="flex-1 min-h-0">
+                {(() => {
+                  const currentContent = activeTab.showFormatted
+                    ? activeTab.content
+                    : activeTab.rawContent;
+                  const useMonaco =
+                    activeTab.showFormatted &&
+                    activeTab.contentType &&
+                    [
+                      "json",
+                      "xml",
+                      "html",
+                      "sql",
+                      "yaml",
+                      "javascript",
+                      "css",
+                    ].includes(activeTab.contentType);
 
-          {showResults && !!getCurrentResult(activeTab) && (
-            <Resizer
-              direction="vertical"
-              onResize={delta =>
-                setSqlHeight(prev => Math.max(200, Math.min(800, prev + delta)))
-              }
-              className="border-t border-border"
-            />
-          )}
+                  if (useMonaco) {
+                    return (
+                      <Editor
+                        height="100%"
+                        language={(() => {
+                          const type = activeTab.contentType;
+                          switch (type) {
+                            case "javascript":
+                              return "javascript";
+                            case "sql":
+                              return "sql";
+                            case "json":
+                              return "json";
+                            case "html":
+                              return "html";
+                            case "xml":
+                              return "xml";
+                            case "yaml":
+                              return "yaml";
+                            case "css":
+                              return "css";
+                            default:
+                              return "plaintext";
+                          }
+                        })()}
+                        value={currentContent || "No content"}
+                        options={{
+                          readOnly: true,
+                          minimap: { enabled: false },
+                          fontSize: 13,
+                          lineNumbers: "on",
+                          wordWrap: "on",
+                          scrollBeyondLastLine: false,
+                          automaticLayout: true,
+                          folding: true,
+                          renderWhitespace: "selection",
+                          contextmenu: true,
+                          selectOnLineNumbers: true,
+                        }}
+                        theme="vs-dark"
+                      />
+                    );
+                  } else {
+                    return (
+                      <div className="p-4 h-full overflow-auto">
+                        <pre className="whitespace-pre-wrap break-words text-sm font-mono bg-muted/30 p-4 rounded border">
+                          {currentContent || "No content"}
+                        </pre>
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex-1 flex flex-col min-h-0">
+            {(() => {
+              const resultsVisible =
+                showResults && !!getCurrentResult(activeTab);
+              return (
+                <div
+                  className={
+                    resultsVisible ? "flex-shrink-0 p-2" : "flex-1 p-2 min-w-0"
+                  }
+                  style={resultsVisible ? { height: sqlHeight } : undefined}
+                >
+                  <div className="h-full border border-border rounded bg-card overflow-hidden min-w-0">
+                    <Editor
+                      height="100%"
+                      defaultLanguage="sql"
+                      value={activeTab.sql}
+                      onChange={v => updateActiveTab({ sql: v || "" })}
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        wordWrap: "on",
+                      }}
+                      theme={theme === "dark" ? "vs-dark" : "light"}
+                      onMount={(editor, monaco) => {
+                        editor.addCommand(
+                          monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+                          () => runQuery()
+                        );
+                        editor.addCommand(
+                          monaco.KeyMod.CtrlCmd |
+                            monaco.KeyMod.Shift |
+                            monaco.KeyCode.Enter,
+                          () => explainQuery()
+                        );
+                        // F5 to run query inside editor
+                        editor.addCommand(monaco.KeyCode.F5, () => runQuery());
+                        editor.addCommand(
+                          monaco.KeyMod.CtrlCmd |
+                            monaco.KeyMod.Shift |
+                            monaco.KeyCode.KeyF,
+                          () => formatSql()
+                        );
 
-          {showResults && !!getCurrentResult(activeTab) && (
-            <div className="flex-1 min-h-[160px] bg-muted p-2 overflow-hidden">
-              <div className="h-full border border-border rounded bg-card flex flex-col min-w-0">
-                <div className="flex items-center justify-between border-b border-border px-2 py-1 text-xs">
-                  <div className="flex items-center gap-2">
-                    <button
-                      className={`${(activeTab.activeResultTab ?? "results") === "results" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"} px-2 py-0.5 rounded hover:bg-accent`}
-                      onClick={() =>
-                        updateActiveTab({ activeResultTab: "results" })
-                      }
-                    >
-                      Results
-                    </button>
-                    <button
-                      className={`${(activeTab.activeResultTab ?? "results") === "messages" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"} px-2 py-0.5 rounded hover:bg-accent`}
-                      onClick={() =>
-                        updateActiveTab({ activeResultTab: "messages" })
-                      }
-                    >
-                      Messages
-                    </button>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      className="px-2 py-0.5 bg-muted text-foreground rounded hover:bg-accent"
-                      onClick={autoFitColumns}
-                      disabled={!activeTab?.result?.columns?.length}
-                    >
-                      Auto-fit
-                    </button>
-                    <button
-                      className="px-2 py-0.5 bg-muted text-foreground rounded hover:bg-accent"
-                      onClick={resetColumnWidths}
-                      disabled={!activeTab?.result?.columns?.length}
-                    >
-                      Reset widths
-                    </button>
+                        const updatePos = () => {
+                          const pos = editor.getPosition();
+                          if (pos)
+                            updateActiveTab({
+                              editorPos: {
+                                line: pos.lineNumber,
+                                column: pos.column,
+                              },
+                            });
+                        };
+                        updatePos();
+                        editor.onDidChangeCursorPosition(() => updatePos());
+                        editor.onDidFocusEditorText(() =>
+                          updateActiveTab({ editorFocused: true })
+                        );
+                        editor.onDidBlurEditorText(() =>
+                          updateActiveTab({ editorFocused: false })
+                        );
+                      }}
+                    />
                   </div>
                 </div>
-                <div className="flex-1 overflow-auto">
-                  {(() => {
-                    const currentResult = getCurrentResult(activeTab);
+              );
+            })()}
 
-                    if (currentResult?.error) {
-                      return (
-                        <div className="p-3 text-sm text-red-600">
-                          {currentResult.error}
-                        </div>
-                      );
-                    }
+            {showResults && !!getCurrentResult(activeTab) && (
+              <Resizer
+                direction="vertical"
+                onResize={delta =>
+                  setSqlHeight(prev =>
+                    Math.max(200, Math.min(800, prev + delta))
+                  )
+                }
+                className="border-t border-border"
+              />
+            )}
 
-                    if (
-                      (activeTab.activeResultTab ?? "results") === "messages"
-                    ) {
-                      return (
-                        <div className="p-3 text-xs space-y-1">
-                          {currentResult?.messages &&
-                          currentResult.messages.length > 0 ? (
-                            currentResult.messages.map((m, i) => (
-                              <div key={i} className="text-foreground/80">
-                                {m}
-                              </div>
-                            ))
-                          ) : (
-                            <div className="text-muted-foreground">
-                              No messages
-                            </div>
-                          )}
-                        </div>
-                      );
-                    }
+            {showResults && !!getCurrentResult(activeTab) && (
+              <div className="flex-1 min-h-[160px] bg-muted p-2 overflow-hidden">
+                <div className="h-full border border-border rounded bg-card flex flex-col min-w-0">
+                  <div className="flex items-center justify-between border-b border-border px-2 py-1 text-xs">
+                    <div className="flex items-center gap-2">
+                      <button
+                        className={`${(activeTab.activeResultTab ?? "results") === "results" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"} px-2 py-0.5 rounded hover:bg-accent`}
+                        onClick={() =>
+                          updateActiveTab({ activeResultTab: "results" })
+                        }
+                      >
+                        Results
+                      </button>
+                      <button
+                        className={`${(activeTab.activeResultTab ?? "results") === "messages" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"} px-2 py-0.5 rounded hover:bg-accent`}
+                        onClick={() =>
+                          updateActiveTab({ activeResultTab: "messages" })
+                        }
+                      >
+                        Messages
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="px-2 py-0.5 bg-muted text-foreground rounded hover:bg-accent"
+                        onClick={autoFitColumns}
+                        disabled={!activeTab?.result?.columns?.length}
+                      >
+                        Auto-fit
+                      </button>
+                      <button
+                        className="px-2 py-0.5 bg-muted text-foreground rounded hover:bg-accent"
+                        onClick={resetColumnWidths}
+                        disabled={!activeTab?.result?.columns?.length}
+                      >
+                        Reset widths
+                      </button>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-auto">
+                    {(() => {
+                      const currentResult = getCurrentResult(activeTab);
 
-                    if (!currentResult) {
-                      console.log("🔧 No current result to display");
-                      return null;
-                    }
-
-                    const hasRows =
-                      currentResult.rows && currentResult.rows.length > 0;
-                    console.log("🔧 Rendering result check:", {
-                      hasCurrentResult: !!currentResult,
-                      rowsLength: currentResult.rows?.length,
-                      hasRows,
-                      columns: currentResult.columns,
-                    });
-
-                    if (!hasRows) {
-                      return (
-                        <div className="p-3 text-sm text-muted-foreground">
-                          No rows returned
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div className="flex flex-col h-full">
-                        {/* Multiple Results Navigation */}
-                        {activeTab.results && activeTab.results.length > 1 && (
-                          <div className="flex items-center gap-2 p-2 border-b border-border">
-                            <span className="text-xs text-muted-foreground">
-                              Results:
-                            </span>
-                            {activeTab.results.map((result, index) => (
-                              <button
-                                key={index}
-                                className={`px-2 py-1 text-xs rounded ${
-                                  activeResultIndex === index
-                                    ? "bg-primary text-primary-foreground"
-                                    : "bg-muted text-foreground hover:bg-accent"
-                                }`}
-                                onClick={() => {
-                                  console.log(
-                                    "🔧 Switching to result index:",
-                                    index
-                                  );
-                                  setActiveResultIndex(index);
-                                }}
-                              >
-                                Query {index + 1} ({result.rowCount || 0} rows)
-                              </button>
-                            ))}
+                      if (currentResult?.error) {
+                        return (
+                          <div className="p-3 text-sm text-red-600">
+                            {currentResult.error}
                           </div>
-                        )}
+                        );
+                      }
 
-                        {/* Results Table */}
-                        <div
-                          className="w-full h-full overflow-auto"
-                          onContextMenu={e => {
-                            e.preventDefault();
-                            const result = getCurrentResult(activeTab);
-                            if (!result) return;
-                            setResultMenu({
-                              x: e.clientX,
-                              y: e.clientY,
-                              show: true,
-                            });
-                          }}
-                        >
-                          <table className="w-full text-xs">
-                            <thead className="sticky top-0 bg-muted">
-                              <tr>
-                                {currentResult.columns.map((c, i) => (
-                                  <th
-                                    key={i}
-                                    ref={el => {
-                                      (headerRefs as any)[c] = el;
-                                    }}
-                                    className="text-left px-2 py-1 border-b border-border whitespace-nowrap relative"
-                                    style={
-                                      activeTab.columnWidths?.[c]
-                                        ? { width: activeTab.columnWidths[c] }
-                                        : { minWidth: "100px" }
-                                    }
-                                    onContextMenu={e => {
-                                      e.preventDefault();
-                                      if (!activeTab?.connectionId) return;
-                                      setColumnMenu({
-                                        x: e.clientX,
-                                        y: e.clientY,
-                                        show: true,
-                                        column: c,
-                                      });
+                      if (
+                        (activeTab.activeResultTab ?? "results") === "messages"
+                      ) {
+                        return (
+                          <div className="p-3 text-xs space-y-1">
+                            {currentResult?.messages &&
+                            currentResult.messages.length > 0 ? (
+                              currentResult.messages.map((m, i) => (
+                                <div key={i} className="text-foreground/80">
+                                  {m}
+                                </div>
+                              ))
+                            ) : (
+                              <div className="text-muted-foreground">
+                                No messages
+                              </div>
+                            )}
+                          </div>
+                        );
+                      }
+
+                      if (!currentResult) {
+                        console.log("🔧 No current result to display");
+                        return null;
+                      }
+
+                      const hasRows =
+                        currentResult.rows && currentResult.rows.length > 0;
+                      console.log("🔧 Rendering result check:", {
+                        hasCurrentResult: !!currentResult,
+                        rowsLength: currentResult.rows?.length,
+                        hasRows,
+                        columns: currentResult.columns,
+                      });
+
+                      if (!hasRows) {
+                        return (
+                          <div className="p-3 text-sm text-muted-foreground">
+                            No rows returned
+                          </div>
+                        );
+                      }
+
+                      return (
+                        <div className="flex flex-col h-full">
+                          {/* Multiple Results Navigation */}
+                          {activeTab.results &&
+                            activeTab.results.length > 1 && (
+                              <div className="flex items-center gap-2 p-2 border-b border-border">
+                                <span className="text-xs text-muted-foreground">
+                                  Results:
+                                </span>
+                                {activeTab.results.map((result, index) => (
+                                  <button
+                                    key={index}
+                                    className={`px-2 py-1 text-xs rounded ${
+                                      activeResultIndex === index
+                                        ? "bg-primary text-primary-foreground"
+                                        : "bg-muted text-foreground hover:bg-accent"
+                                    }`}
+                                    onClick={() => {
+                                      console.log(
+                                        "🔧 Switching to result index:",
+                                        index
+                                      );
+                                      setActiveResultIndex(index);
                                     }}
                                   >
-                                    {c}
-                                    <span
-                                      className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-blue-500/40"
-                                      onMouseDown={e => startResize(c, e)}
-                                    />
-                                  </th>
+                                    Query {index + 1} ({result.rowCount || 0}{" "}
+                                    rows)
+                                  </button>
                                 ))}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {currentResult.rows.map((r, i) => (
-                                <tr key={i} className="odd:bg-muted/50">
-                                  {currentResult.columns.map((c, j) => (
-                                    <td
-                                      key={j}
-                                      className="px-2 py-1 align-top border-b border-border/60"
+                              </div>
+                            )}
+
+                          {/* Results Table */}
+                          <div
+                            className="w-full h-full overflow-auto"
+                            onContextMenu={e => {
+                              e.preventDefault();
+                              const result = getCurrentResult(activeTab);
+                              if (!result) return;
+                              setResultMenu({
+                                x: e.clientX,
+                                y: e.clientY,
+                                show: true,
+                              });
+                            }}
+                          >
+                            <table className="w-full text-xs">
+                              <thead className="sticky top-0 bg-muted">
+                                <tr>
+                                  {currentResult.columns.map((c, i) => (
+                                    <th
+                                      key={i}
+                                      ref={el => {
+                                        (headerRefs as any)[c] = el;
+                                      }}
+                                      className="text-left px-2 py-1 border-b border-border whitespace-nowrap relative"
                                       style={
                                         activeTab.columnWidths?.[c]
                                           ? { width: activeTab.columnWidths[c] }
-                                          : undefined
+                                          : { minWidth: "100px" }
                                       }
+                                      onContextMenu={e => {
+                                        e.preventDefault();
+                                        if (!activeTab?.connectionId) return;
+                                        setColumnMenu({
+                                          x: e.clientX,
+                                          y: e.clientY,
+                                          show: true,
+                                          column: c,
+                                        });
+                                      }}
                                     >
-                                      <pre className="whitespace-pre-wrap break-words text-[11px]">
-                                        {formatCell(r[c])}
-                                      </pre>
-                                    </td>
+                                      {c}
+                                      <span
+                                        className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-blue-500/40"
+                                        onMouseDown={e => startResize(c, e)}
+                                      />
+                                    </th>
                                   ))}
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
+                              </thead>
+                              <tbody>
+                                {currentResult.rows.map((r, i) => (
+                                  <tr key={i} className="odd:bg-muted/50">
+                                    {currentResult.columns.map((c, j) => {
+                                      const {
+                                        content,
+                                        shouldTruncate,
+                                        originalLength,
+                                      } = getTruncatedContent(r[c]);
+                                      return (
+                                        <td
+                                          key={j}
+                                          className="px-2 py-1 align-top border-b border-border/60"
+                                          style={
+                                            activeTab.columnWidths?.[c]
+                                              ? {
+                                                  width:
+                                                    activeTab.columnWidths[c],
+                                                }
+                                              : undefined
+                                          }
+                                        >
+                                          <div className="relative group">
+                                            <pre className="whitespace-pre-wrap break-words text-[11px]">
+                                              {content}
+                                            </pre>
+                                            {shouldTruncate && (
+                                              <button
+                                                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 bg-blue-600 text-white text-[9px] px-1 py-0.5 rounded text-nowrap hover:bg-blue-700 transition-opacity"
+                                                onClick={() => {
+                                                  const fullContent =
+                                                    formatCell(r[c]);
+                                                  const title = `${c} (${originalLength} chars)`;
+                                                  openContentTab(
+                                                    fullContent,
+                                                    title
+                                                  );
+                                                }}
+                                                title={`Show full content (${originalLength} characters)`}
+                                              >
+                                                📄 View All
+                                              </button>
+                                            )}
+                                          </div>
+                                        </td>
+                                      );
+                                    })}
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })()}
+                      );
+                    })()}
+                  </div>
+                  {/* Status Bar */}
+                  <StatusBar tab={activeTab} />
+                  {/* Context Menus */}
+                  {resultMenu.show && (
+                    <div
+                      className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
+                      style={{ left: resultMenu.x, top: resultMenu.y }}
+                      onMouseLeave={() =>
+                        setResultMenu(prev => ({ ...prev, show: false }))
+                      }
+                      onClick={() =>
+                        setResultMenu(prev => ({ ...prev, show: false }))
+                      }
+                    >
+                      <MenuItem
+                        label="Copy CSV"
+                        onClick={copyCSV}
+                        disabled={!getCurrentResult(activeTab)?.columns?.length}
+                      />
+                      <MenuItem
+                        label="Copy JSON"
+                        onClick={copyJSON}
+                        disabled={!getCurrentResult(activeTab)}
+                      />
+                      <div className="h-px bg-border mx-1" />
+                      <MenuItem
+                        label="Export CSV…"
+                        onClick={exportCSV}
+                        disabled={!getCurrentResult(activeTab)?.columns?.length}
+                      />
+                      <MenuItem
+                        label="Export JSON…"
+                        onClick={exportJSON}
+                        disabled={!getCurrentResult(activeTab)}
+                      />
+                    </div>
+                  )}
+                  {columnMenu.show && (
+                    <div
+                      className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
+                      style={{ left: columnMenu.x, top: columnMenu.y }}
+                      onMouseLeave={() =>
+                        setColumnMenu(prev => ({ ...prev, show: false }))
+                      }
+                    >
+                      <MenuItem
+                        label={`Order by ${columnMenu.column} ASC`}
+                        onClick={() => {
+                          setColumnMenu(prev => ({ ...prev, show: false }));
+                          applyOrderBy(columnMenu.column!, "ASC");
+                        }}
+                      />
+                      <MenuItem
+                        label={`Order by ${columnMenu.column} DESC`}
+                        onClick={() => {
+                          setColumnMenu(prev => ({ ...prev, show: false }));
+                          applyOrderBy(columnMenu.column!, "DESC");
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
-                {/* Status Bar */}
-                <StatusBar tab={activeTab} />
-                {/* Context Menus */}
-                {resultMenu.show && (
-                  <div
-                    className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
-                    style={{ left: resultMenu.x, top: resultMenu.y }}
-                    onMouseLeave={() =>
-                      setResultMenu(prev => ({ ...prev, show: false }))
-                    }
-                    onClick={() =>
-                      setResultMenu(prev => ({ ...prev, show: false }))
-                    }
-                  >
-                    <MenuItem
-                      label="Copy CSV"
-                      onClick={copyCSV}
-                      disabled={!getCurrentResult(activeTab)?.columns?.length}
-                    />
-                    <MenuItem
-                      label="Copy JSON"
-                      onClick={copyJSON}
-                      disabled={!getCurrentResult(activeTab)}
-                    />
-                    <div className="h-px bg-border mx-1" />
-                    <MenuItem
-                      label="Export CSV…"
-                      onClick={exportCSV}
-                      disabled={!getCurrentResult(activeTab)?.columns?.length}
-                    />
-                    <MenuItem
-                      label="Export JSON…"
-                      onClick={exportJSON}
-                      disabled={!getCurrentResult(activeTab)}
-                    />
-                  </div>
-                )}
-                {columnMenu.show && (
-                  <div
-                    className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
-                    style={{ left: columnMenu.x, top: columnMenu.y }}
-                    onMouseLeave={() =>
-                      setColumnMenu(prev => ({ ...prev, show: false }))
-                    }
-                  >
-                    <MenuItem
-                      label={`Order by ${columnMenu.column} ASC`}
-                      onClick={() => {
-                        setColumnMenu(prev => ({ ...prev, show: false }));
-                        applyOrderBy(columnMenu.column!, "ASC");
-                      }}
-                    />
-                    <MenuItem
-                      label={`Order by ${columnMenu.column} DESC`}
-                      onClick={() => {
-                        setColumnMenu(prev => ({ ...prev, show: false }));
-                        applyOrderBy(columnMenu.column!, "DESC");
-                      }}
-                    />
-                  </div>
-                )}
               </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )
       ) : (
         <div className="flex-1 min-h-0 flex items-center justify-center p-6">
           <div className="w-full max-w-2xl border border-border rounded-xl bg-card p-8 shadow-sm text-center">
@@ -1499,6 +2047,7 @@ export default function WorkArea() {
                   } else {
                     const newTab: Tab = {
                       id,
+                      type: "sql",
                       title,
                       sql: res.content || "",
                       filePath: res.filePath,
@@ -1537,10 +2086,55 @@ export default function WorkArea() {
   );
 }
 
-function formatCell(value: any) {
+function formatCell(value: unknown) {
   if (value === null || value === undefined) return "NULL";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+// Helper function to truncate content and determine if it should show an expand button
+function getTruncatedContent(value: unknown): {
+  content: string;
+  shouldTruncate: boolean;
+  originalLength: number;
+} {
+  const formatted = formatCell(value);
+  const lines = formatted.split("\n");
+  const maxLines = 3;
+  const maxCharsPerLine = 100;
+
+  // Check if content is long enough to truncate
+  const shouldTruncate =
+    lines.length > maxLines ||
+    lines.some(line => line.length > maxCharsPerLine);
+
+  if (!shouldTruncate) {
+    return {
+      content: formatted,
+      shouldTruncate: false,
+      originalLength: formatted.length,
+    };
+  }
+
+  // Truncate to first few lines and limit line length
+  const truncatedLines = lines
+    .slice(0, maxLines)
+    .map(line =>
+      line.length > maxCharsPerLine
+        ? line.substring(0, maxCharsPerLine) + "..."
+        : line
+    );
+
+  // Add "..." if we cut off lines
+  if (lines.length > maxLines) {
+    truncatedLines.push("...");
+  }
+
+  return {
+    content: truncatedLines.join("\n"),
+    shouldTruncate: true,
+    originalLength: formatted.length,
+  };
 }
 
 function injectOrderBy(sql: string, column: string, dir: "ASC" | "DESC") {

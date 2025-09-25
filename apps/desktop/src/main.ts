@@ -213,8 +213,9 @@ function createWindow(): void {
 
   // Load the app
   if (isDev) {
-    console.log("🌐 Loading development URL: http://localhost:5174");
-    mainWindow.loadURL("http://localhost:5174");
+    const rendererUrl = process.env.RENDERER_URL || "http://localhost:5173";
+    console.log(`🌐 Loading development URL: ${rendererUrl}`);
+    mainWindow.loadURL(rendererUrl);
   } else {
     console.log("📁 Loading production file");
     // Resolve renderer build index.html when running unpackaged
@@ -624,7 +625,8 @@ app.on("web-contents-created", (_: Event, contents: WebContents) => {
     const parsedUrl = new URL(navigationUrl);
 
     if (
-      parsedUrl.origin !== "http://localhost:5174" &&
+      parsedUrl.origin !==
+        (process.env.RENDERER_URL || "http://localhost:5173") &&
       parsedUrl.origin !== "file://"
     ) {
       event.preventDefault();

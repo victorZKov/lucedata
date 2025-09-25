@@ -1565,6 +1565,31 @@ export default function Explorer() {
               >
                 Open COUNT(*)
               </button>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                onClick={() => {
+                  if (
+                    !contextMenu.connId ||
+                    !contextMenu.schema ||
+                    !contextMenu.table
+                  )
+                    return;
+                  const detail = {
+                    connectionId: contextMenu.connId,
+                    connectionType: contextMenu.type,
+                    connectionName: contextMenu.connName,
+                    database: contextMenu.db,
+                    schema: contextMenu.schema,
+                    table: contextMenu.table,
+                  };
+                  document.dispatchEvent(
+                    new CustomEvent("open-edit-data-tab", { detail })
+                  );
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                Edit data
+              </button>
               <div className="h-px bg-border mx-1" />
               <button
                 className="block w-full text-left px-3 py-1 hover:bg-accent"

@@ -33,8 +33,26 @@ import {
   AIProvider,
 } from "@sqlhelper/ai-integration";
 
-// Set application name immediately
+// Set application name immediately and comprehensively
 app.setName("SQL Helper");
+
+// On macOS, also set the app user model ID which can affect the display name
+if (process.platform === "darwin") {
+  app.setAppUserModelId("com.sqlhelper.desktop");
+
+  // In development mode, try to override Electron's default name
+  if (process.env.NODE_ENV === "development") {
+    // This is a workaround for development mode on macOS
+    process.title = "SQL Helper";
+
+    // Try to set the process name (this affects some system dialogs)
+    try {
+      process.argv[0] = "SQL Helper";
+    } catch (_error) {
+      // Ignore if we can't set it
+    }
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -181,6 +199,7 @@ function createWindow(): void {
     height,
     minWidth: 800,
     minHeight: 600,
+    title: "SQL Helper",
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -547,6 +566,20 @@ function createMenu(): void {
         label: "Window",
         submenu: [{ role: "minimize" }, { role: "close" }],
       },
+      {
+        label: "Help",
+        submenu: [
+          {
+            label: "About...",
+            click: () => {
+              console.log("About clicked from menu");
+              if (mainWindow) {
+                mainWindow.webContents.send("menu-action", "show-version");
+              }
+            },
+          },
+        ],
+      },
     ];
 
     // macOS specific menu adjustments
@@ -554,7 +587,15 @@ function createMenu(): void {
       template.unshift({
         label: app.getName(),
         submenu: [
-          { role: "about" },
+          {
+            label: "About SQL Helper",
+            click: () => {
+              console.log("About SQL Helper clicked from app menu");
+              if (mainWindow) {
+                mainWindow.webContents.send("menu-action", "show-version");
+              }
+            },
+          },
           { type: "separator" },
           { role: "hide" },
           { role: "hideOthers" },
@@ -584,14 +625,25 @@ function createMenu(): void {
 
 // App event handlers
 app.whenReady().then(() => {
+  // Ensure app name is set when ready (try multiple approaches)
+  app.setName("SQL Helper");
+
+  // On macOS, try to set additional properties to ensure correct name display
+  if (process.platform === "darwin") {
+    // Force the app name in the dock and menu bar
+    try {
+      app.dock?.setIcon(path.join(__dirname, "../assets/icon.png"));
+    } catch (error) {
+      console.log("Could not set dock icon:", error);
+    }
+  }
+
   createWindow();
 
-  // Ensure menu is set on macOS
-  if (process.platform === "darwin") {
-    setTimeout(() => {
-      createMenu();
-    }, 100);
-  }
+  // Create menu on all platforms
+  setTimeout(() => {
+    createMenu();
+  }, 100);
 
   // macOS specific behavior
   app.on("activate", () => {

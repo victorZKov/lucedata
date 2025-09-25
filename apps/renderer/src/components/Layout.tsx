@@ -99,13 +99,18 @@ export default function Layout() {
     // Listen for menu events
     const handleToggleExplorer = () => toggleExplorer();
     const handleToggleChat = () => toggleChat();
+    const handleShowVersion = () => {
+      setDialogs(prev => ({ ...prev, versionDialog: true }));
+    };
 
     document.addEventListener("toggle-explorer", handleToggleExplorer);
     document.addEventListener("toggle-chat", handleToggleChat);
+    document.addEventListener("show-version", handleShowVersion);
 
     return () => {
       document.removeEventListener("toggle-explorer", handleToggleExplorer);
       document.removeEventListener("toggle-chat", handleToggleChat);
+      document.removeEventListener("show-version", handleShowVersion);
     };
   }, []);
 
@@ -267,15 +272,7 @@ export default function Layout() {
           >
             ◨
           </button>
-          <button
-            onClick={() =>
-              setDialogs(prev => ({ ...prev, versionDialog: true }))
-            }
-            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5"
-            title="About SQL Helper"
-          >
-            ℹ️
-          </button>
+
           <button
             onClick={toggleTheme}
             title={

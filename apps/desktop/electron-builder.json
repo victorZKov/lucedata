@@ -1,6 +1,6 @@
 {
   "appId": "dev.sqlhelper.app",
-  "productName": "SQLHelper",
+  "productName": "SQL Helper",
   "directories": {
     "output": "../../release",
     "buildResources": "assets"
@@ -42,8 +42,7 @@
         "arch": ["x64"]
       }
     ],
-    "icon": "assets/icon.ico",
-    "publisherName": "SQLHelper Team"
+    "icon": "assets/icon.ico"
   },
   "linux": {
     "target": [

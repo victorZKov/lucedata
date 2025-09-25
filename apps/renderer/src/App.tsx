@@ -93,6 +93,11 @@ function App() {
           // Handle comment toggle
           console.log("Toggling comment");
           break;
+        case "show-version":
+          // Handle version dialog
+          console.log("Opening version dialog");
+          document.dispatchEvent(new CustomEvent("show-version"));
+          break;
         default:
           console.log("Unhandled menu action:", action);
       }

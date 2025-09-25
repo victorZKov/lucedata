@@ -12,13 +12,13 @@
     "start": "electron dist/apps/desktop/src/main.js",
     "start:dev": "wait-on dist/apps/desktop/src/main.js && electron dist/apps/desktop/src/main.js --dev",
     "clean": "rimraf dist",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "dist": "electron-builder --mac --dir"
   },
   "dependencies": {
     "@sqlhelper/ai-integration": "workspace:*",
     "@sqlhelper/database-core": "workspace:*",
     "@sqlhelper/storage": "workspace:*",
-    "electron": "^38.1.2",
     "electron-store": "^10.1.0",
     "electron-updater": "^6.6.2",
     "keytar": "^7.9.0"
@@ -26,6 +26,7 @@
   "devDependencies": {
     "@types/node": "^24.5.2",
     "concurrently": "^9.2.1",
+    "electron": "^38.1.2",
     "electron-builder": "^26.0.12",
     "electron-rebuild": "^3.2.9",
     "electron-reload": "^2.0.0-alpha.1",

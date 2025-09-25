@@ -6,11 +6,11 @@ interface VersionDialogProps {
 }
 
 // This will be populated at build time
-const VERSION_INFO = {
+export const VERSION_INFO = {
   major: 0,
   minor: 1,
-  build: 7,
-  version: "0.1.7",
+  build: 29,
+  version: "0.1.29",
   buildDate: "2025-09-25",
 };
 
@@ -19,7 +19,7 @@ export default function VersionDialog({ isOpen, onClose }: VersionDialogProps) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-background border border-border rounded-lg p-6 w-96 max-w-[90vw]">
+      <div className="bg-white dark:bg-gray-900 border border-border rounded-lg p-6 w-96 max-w-[90vw] shadow-xl">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-lg font-semibold text-foreground">
             About SQL Helper

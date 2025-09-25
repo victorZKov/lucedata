@@ -6,6 +6,7 @@ import { useTheme } from "../contexts/ThemeContext";
 
 import Resizer from "./Resizer";
 import EditableDataGrid from "./EditableDataGrid";
+import { VERSION_INFO } from "./VersionDialog";
 
 type QueryResult = {
   query: string;
@@ -2139,13 +2140,19 @@ export default function WorkArea() {
                 Setup AI Engines
               </button>
             </div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-xs text-muted-foreground mb-4">
               Tip: Press <span className="font-medium text-foreground">F5</span>{" "}
               or{" "}
               <span className="font-medium text-foreground">
                 Cmd/Ctrl+Enter
               </span>{" "}
               to run queries.
+            </div>
+            <div className="pt-4 border-t border-border">
+              <div className="text-xs text-muted-foreground text-center">
+                SQL Helper v{VERSION_INFO.version} • Build {VERSION_INFO.build}{" "}
+                • {VERSION_INFO.buildDate}
+              </div>
             </div>
           </div>
         </div>

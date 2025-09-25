@@ -1,5 +1,20 @@
-import { useState, useEffect } from "react";
-import { Plug, LogOut, Pencil, Trash2 } from "lucide-react";
+import { useState, useEffect, useRef } from "react";
+import {
+  Plug,
+  LogOut,
+  Pencil,
+  Trash2,
+  RefreshCw,
+  Plus,
+  FileText,
+  Database,
+  FolderTree,
+  Table,
+  Eye,
+  PlayCircle,
+  Sigma,
+  Folder,
+} from "lucide-react";
 
 import ConnectionDialog from "./ConnectionDialog";
 import CreateDatabaseDialog from "./CreateDatabaseDialog";
@@ -157,7 +172,17 @@ export default function Explorer() {
     x: number;
     y: number;
     visible: boolean;
-    mode?: "table" | "schema" | "routine" | "connection";
+    mode?:
+      | "table"
+      | "schema"
+      | "routine"
+      | "connection"
+      | "group"
+      | "column"
+      | "key"
+      | "constraint"
+      | "trigger"
+      | "index";
     connId?: string;
     schema?: string;
     table?: string;
@@ -166,7 +191,30 @@ export default function Explorer() {
     type?: string;
     connName?: string;
     db?: string;
+    groupType?: string;
+    itemName?: string;
+    itemData?: Record<string, unknown>;
+    nodeKey?: string;
   }>({ x: 0, y: 0, visible: false });
+
+  const [submenu, setSubmenu] = useState<{
+    visible: boolean;
+    type?: string;
+    x?: number;
+    y?: number;
+  }>({ visible: false });
+
+  // State to track the active (clicked) node
+  const [activeNodeKey, setActiveNodeKey] = useState<string | null>(null);
+
+  const submenuTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (submenuTimeoutRef.current) {
+        clearTimeout(submenuTimeoutRef.current);
+      }
+    };
+  }, []);
 
   // Check if we're in Electron environment
   useEffect(() => {
@@ -790,6 +838,125 @@ export default function Explorer() {
     }
   };
 
+  // Refresh function for different node types
+  const refreshNode = async (
+    connectionId: string,
+    nodeType: string,
+    nodeKey: string,
+    nodeData?: any
+  ) => {
+    const connectionState = connectionStates.get(connectionId);
+    if (!connectionState || !connectionState.isConnected) {
+      console.error("Connection not available for refresh");
+      return;
+    }
+
+    try {
+      console.log(`Refreshing ${nodeType} node: ${nodeKey}`);
+
+      switch (nodeType) {
+        case "connection": {
+          // Refresh the entire schema for the connection
+          const rawSchemaData =
+            await window.electronAPI.database.getSchema(connectionId);
+          const schemaData = processSchemaDataForSqlServer(
+            rawSchemaData,
+            connectionState.connection.type
+          );
+
+          setConnectionStates(prev => {
+            const newStates = new Map(prev);
+            const state = newStates.get(connectionId);
+            if (state) {
+              newStates.set(connectionId, {
+                ...state,
+                schemaData,
+                // Keep existing expanded nodes to maintain user's view state
+                expandedNodes: state.expandedNodes,
+              });
+            }
+            return newStates;
+          });
+          break;
+        }
+
+        case "database":
+        case "schema": {
+          // For database and schema nodes, refresh the entire schema
+          // The schema loading will include all databases and their contents
+          const rawSchemaData =
+            await window.electronAPI.database.getSchema(connectionId);
+          const schemaData = processSchemaDataForSqlServer(
+            rawSchemaData,
+            connectionState.connection.type
+          );
+
+          setConnectionStates(prev => {
+            const newStates = new Map(prev);
+            const state = newStates.get(connectionId);
+            if (state) {
+              newStates.set(connectionId, {
+                ...state,
+                schemaData,
+                expandedNodes: state.expandedNodes,
+              });
+            }
+            return newStates;
+          });
+          break;
+        }
+
+        case "table": {
+          // For table nodes, refresh metadata for all loaded groups
+          if (nodeData && nodeData.children) {
+            for (const group of nodeData.children) {
+              if (
+                group.type === "group" &&
+                group.children &&
+                group.children.length > 0
+              ) {
+                // If the group has been loaded, reload its metadata
+                await loadTableMetadata(nodeData, group.name, connectionId);
+              }
+            }
+          }
+          break;
+        }
+
+        case "group": {
+          // For group nodes, reload the specific metadata
+          const parts = nodeKey.split(":");
+          if (
+            parts.length >= 5 &&
+            parts[1] === "table" &&
+            parts[4] === "group"
+          ) {
+            const schema = parts[2];
+            const tableName = parts[3];
+            const groupName = parts[5];
+
+            // Create a minimal table node for the metadata loading
+            const tableNode: TableNode = {
+              name: tableName,
+              type: "table",
+              schema: schema,
+            };
+
+            await loadTableMetadata(tableNode, groupName, connectionId);
+          }
+          break;
+        }
+
+        default:
+          console.log(`Refresh not implemented for node type: ${nodeType}`);
+      }
+
+      console.log(`Successfully refreshed ${nodeType} node`);
+    } catch (error) {
+      console.error(`Failed to refresh ${nodeType} node:`, error);
+    }
+  };
+
   const handleSaveConnection = async (connectionData: any) => {
     try {
       console.log("🔄 handleSaveConnection: Starting save operation");
@@ -1213,6 +1380,175 @@ export default function Explorer() {
     }
   };
 
+  // Handle "New" action for nodes
+  const handleNewAction = (
+    node: any,
+    connectionId: string,
+    nodeKey: string
+  ) => {
+    const conn = connections.find(c => c.id === connectionId);
+
+    if (node.type === "database") {
+      // Handle "New Query" for database nodes
+      const detail = {
+        mode: "query" as const,
+        connId: connectionId,
+        type: conn?.type,
+        connName: conn?.name,
+        db: conn?.database,
+      };
+
+      // Dispatch the same event as the context menu "New Query" option
+      window.dispatchEvent(new CustomEvent("open-empty-sql-tab", { detail }));
+    } else if (node.type === "schema") {
+      // Handle schema nodes - default to "New Table" (since + button should be for primary action)
+      const sql = generateTableDDL(
+        conn?.type || "sqlserver",
+        "create",
+        node.name || "dbo"
+      );
+
+      const title = `${getDatabaseName(conn?.database, nodeKey)}.new_table`;
+
+      openDDLTab(
+        sql,
+        title,
+        connectionId,
+        conn?.type || "",
+        conn?.name || "",
+        conn?.database || ""
+      );
+    } else if (node.type === "group") {
+      // Handle "New {GroupType}" for group nodes
+      const parentTable = findParentTable(nodeKey);
+      const parentSchema = findParentSchema(nodeKey);
+
+      if (parentTable && parentSchema) {
+        let sql = "";
+        let title = "";
+        const groupType = node.name;
+
+        switch (groupType) {
+          case "Columns":
+            sql = generateColumnDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentTable,
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_column`;
+            break;
+          case "Keys":
+            sql = generateKeyDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentTable,
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_key`;
+            break;
+          case "Constraints":
+            sql = generateConstraintDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentTable,
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_constraint`;
+            break;
+          case "Triggers":
+            sql = generateTriggerDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentTable,
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_trigger`;
+            break;
+          case "Indexes":
+            sql = generateIndexDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentTable,
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_index`;
+            break;
+        }
+
+        if (sql) {
+          openDDLTab(
+            sql,
+            title,
+            connectionId,
+            conn?.type || "",
+            conn?.name || "",
+            conn?.database || ""
+          );
+        }
+      }
+    }
+  };
+
+  // Helper function to determine if a node can be refreshed
+  const canNodeBeRefreshed = (node: any): boolean => {
+    // Connection nodes always have refresh
+    if (node.type === "database") return true;
+
+    // Schema nodes have refresh
+    if (node.type === "schema") return true;
+
+    // Table nodes have refresh
+    if (node.type === "table") return true;
+
+    // Group nodes (columns, keys, etc.) have refresh
+    if (node.type === "group") return true;
+
+    return false;
+  };
+
+  // Helper function to determine if a node has "New" options
+  const canNodeHaveNewOptions = (node: any): boolean => {
+    // Database nodes have "New Query" option
+    if (node.type === "database") return true;
+
+    // Schema nodes (especially dbo) have "New Table" and "New Query" options
+    if (node.type === "schema") return true;
+
+    // Group nodes have "New {GroupType}" options (Columns, Keys, Constraints, Triggers, Indexes)
+    if (node.type === "group") return true;
+
+    return false;
+  };
+
+  // Helper function to determine if a node needs a "New Query" button
+  const canNodeHaveNewQueryOptions = (node: any): boolean => {
+    // Database nodes and Schema nodes have "New Query" option
+    if (node.type === "database" || node.type === "schema") return true;
+
+    return false;
+  };
+
+  // Handle "New Query" action for nodes
+  const handleNewQueryAction = (node: any, connectionId: string) => {
+    const conn = connections.find(c => c.id === connectionId);
+
+    const detail: any = {
+      mode: "query" as const,
+      connId: connectionId,
+      type: conn?.type,
+      connName: conn?.name,
+      db: conn?.database,
+    };
+
+    if (node.type === "schema") {
+      // For schema nodes, include schema information
+      detail.schema = node.name;
+    }
+
+    window.dispatchEvent(new CustomEvent("open-empty-sql-tab", { detail }));
+  };
+
   const renderTreeNode = (
     node:
       | DatabaseNode
@@ -1250,24 +1586,62 @@ export default function Explorer() {
           node.name === "Triggers" ||
           node.name === "Indexes"));
 
+    // Get color for different node types
+    const getNodeColor = () => {
+      // Detect if we're in dark mode by checking document class or CSS custom property
+      const isDarkMode =
+        document.documentElement.classList.contains("dark") ||
+        window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+      switch (node.type) {
+        case "database":
+          return isDarkMode ? "#2E3A59" : "#1E3A8A"; // Dark Navy / Navy Blue
+        case "schema":
+          return isDarkMode ? "#4C566A" : "#475569"; // Slate Gray / Slate Gray
+        case "group":
+          // Folders (Columns, Keys, Constraints, Triggers, Indexes)
+          return isDarkMode ? "#5E81AC" : "#2563EB"; // Steel Blue / Blue 600
+        case "table":
+          return isDarkMode ? "#D08770" : "#C2410C"; // Soft Terracotta / Rust Orange
+        case "view":
+          return isDarkMode ? "#5E81AC" : "#2563EB"; // Steel Blue / Blue 600
+        case "procedure":
+        case "function":
+          return isDarkMode ? "#5E81AC" : "#2563EB"; // Steel Blue / Blue 600
+        case "column": {
+          // Column colors based on properties
+          const columnNode = node as ColumnNode;
+          if (columnNode.isPrimaryKey) {
+            return isDarkMode ? "#BF616A" : "#B91C1C"; // Muted Red / Deep Red
+          } else if (!columnNode.nullable) {
+            return isDarkMode ? "#EBCB8B" : "#B45309"; // Amber/Gold / Dark Amber
+          } else {
+            return isDarkMode ? "#A3BE8C" : "#15803D"; // Greenish tone / Deep Green
+          }
+        }
+        default:
+          return isDarkMode ? "#2E3440" : "#111827"; // Near Black / Almost Black
+      }
+    };
+
     const getIcon = () => {
       switch (node.type as any) {
         case "database":
-          return "🗄️";
+          return <Database size={16} />;
         case "schema":
-          return "📁";
+          return <FolderTree size={16} />;
         case "table":
-          return "📋";
+          return <Table size={16} />;
         case "view":
-          return "👁️";
+          return <Eye size={16} />;
         case "procedure":
-          return "⚙️";
+          return <PlayCircle size={16} />;
         case "function":
-          return "🔧";
+          return <Sigma size={16} />;
         case "group":
-          return "📂";
+          return <Folder size={16} />;
         default:
-          return "📄";
+          return <FileText size={16} />;
       }
     };
 
@@ -1387,10 +1761,11 @@ export default function Explorer() {
     };
 
     const handleContextMenu = (e: React.MouseEvent) => {
+      e.preventDefault();
+      const connState = connectionStates.get(connectionId);
+      const conn = connState?.connection;
+
       if (node.type === "table") {
-        e.preventDefault();
-        const connState = connectionStates.get(connectionId);
-        const conn = connState?.connection;
         setContextMenu({
           x: e.clientX,
           y: e.clientY,
@@ -1401,12 +1776,10 @@ export default function Explorer() {
           table: node.name,
           type: conn?.type,
           connName: conn?.name,
-          db: conn?.database,
+          db: getDatabaseNameForConnection(connectionId),
+          nodeKey,
         });
       } else if (node.type === "schema") {
-        e.preventDefault();
-        const connState = connectionStates.get(connectionId);
-        const conn = connState?.connection;
         setContextMenu({
           x: e.clientX,
           y: e.clientY,
@@ -1416,12 +1789,10 @@ export default function Explorer() {
           schema: node.name,
           type: conn?.type,
           connName: conn?.name,
-          db: conn?.database,
+          db: getDatabaseNameForConnection(connectionId),
+          nodeKey,
         });
       } else if (node.type === "procedure" || node.type === "function") {
-        e.preventDefault();
-        const connState = connectionStates.get(connectionId);
-        const conn = connState?.connection;
         setContextMenu({
           x: e.clientX,
           y: e.clientY,
@@ -1434,18 +1805,129 @@ export default function Explorer() {
           type: conn?.type,
           connName: conn?.name,
           db: conn?.database,
+          nodeKey,
         });
+      } else if (node.type === "trigger") {
+        // Handle trigger nodes directly
+        const triggerNode = node as TriggerNode;
+        const parentTable = findParentTable(nodeKey);
+        const parentSchema = findParentSchema(nodeKey);
+
+        if (parentTable && parentSchema) {
+          setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            visible: true,
+            mode: "trigger",
+            connId: connectionId,
+            schema: parentSchema,
+            table: parentTable,
+            itemName: triggerNode.name,
+            itemData: triggerNode as unknown as Record<string, unknown>,
+            type: conn?.type,
+            connName: conn?.name,
+            db: conn?.database,
+            nodeKey,
+          });
+        }
+      } else if (node.type === "group") {
+        // Handle group nodes (Columns, Keys, Constraints, Triggers, Indexes)
+        const groupNode = node as GroupNode;
+        const parentTable = findParentTable(nodeKey);
+        const parentSchema = findParentSchema(nodeKey);
+
+        if (parentTable && parentSchema) {
+          setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            visible: true,
+            mode: "group",
+            connId: connectionId,
+            schema: parentSchema,
+            table: parentTable,
+            groupType: groupNode.name,
+            type: conn?.type,
+            connName: conn?.name,
+            db: conn?.database,
+            nodeKey,
+          });
+        }
+      } else if (node.name && typeof node.name === "string") {
+        // Handle individual items (columns, keys, constraints, triggers, indexes)
+        const parentTable = findParentTable(nodeKey);
+        const parentSchema = findParentSchema(nodeKey);
+        const groupType = findParentGroupType(nodeKey);
+
+        if (parentTable && parentSchema && groupType) {
+          let mode: "column" | "key" | "constraint" | "trigger" | "index";
+
+          if (groupType === "Columns") mode = "column";
+          else if (groupType === "Keys") mode = "key";
+          else if (groupType === "Constraints") mode = "constraint";
+          else if (groupType === "Triggers") mode = "trigger";
+          else if (groupType === "Indexes") mode = "index";
+          else return; // Unknown group type
+
+          setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            visible: true,
+            mode,
+            connId: connectionId,
+            schema: parentSchema,
+            table: parentTable,
+            itemName: node.name,
+            itemData: node as unknown as Record<string, unknown>,
+            type: conn?.type,
+            connName: conn?.name,
+            db: conn?.database,
+            nodeKey,
+          });
+        }
       }
     };
 
     return (
       <div key={nodeKey}>
         <div
-          className={`flex items-center px-2 py-1 text-sm hover:bg-accent cursor-pointer text-foreground`}
-          style={{ paddingLeft: `${(level + 1) * 16 + 8}px` }}
-          onClick={() =>
-            hasChildren && toggleNodeExpansion(connectionId, nodeKey, node)
-          }
+          className={`flex items-center px-2 py-1 text-sm cursor-pointer group transition-colors duration-150 ${
+            activeNodeKey === nodeKey
+              ? "" // Remove default text color classes when active
+              : "hover:bg-gray-50/70 dark:hover:bg-indigo-950/30"
+          }`}
+          style={{
+            paddingLeft: `${(level + 1) * 16 + 8}px`,
+            backgroundColor:
+              activeNodeKey === nodeKey
+                ? document.documentElement.classList.contains("dark") ||
+                  window.matchMedia("(prefers-color-scheme: dark)").matches
+                  ? "#88C0D0" // Cool Cyan for dark mode
+                  : "#E0F2FE" // Light cyan for light mode
+                : "transparent",
+            color:
+              activeNodeKey === nodeKey
+                ? document.documentElement.classList.contains("dark") ||
+                  window.matchMedia("(prefers-color-scheme: dark)").matches
+                  ? "white" // White text for dark mode selection
+                  : "#0C4A6E" // Teal 900 for light mode selection
+                : getNodeColor(),
+          }}
+          onClick={e => {
+            // Handle refresh icon click
+            if ((e.target as HTMLElement).closest(".refresh-icon")) {
+              e.stopPropagation();
+              refreshNode(connectionId, node.type, nodeKey, node);
+              return;
+            }
+
+            // Set active node for background
+            setActiveNodeKey(nodeKey);
+
+            // Handle expand/collapse
+            if (hasChildren) {
+              toggleNodeExpansion(connectionId, nodeKey, node);
+            }
+          }}
           onDoubleClick={handleDoubleClick}
           onContextMenu={handleContextMenu}
         >
@@ -1457,6 +1939,84 @@ export default function Explorer() {
           <span className="flex-1 truncate" title={getDisplayText()}>
             {getDisplayText()}
           </span>
+
+          {/* Plus icon for nodes that have "New" options */}
+          {canNodeHaveNewOptions(node) && (
+            <button
+              className={`new-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-2 transition-opacity duration-150 ${
+                activeNodeKey === nodeKey
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100"
+              }`}
+              onClick={e => {
+                e.stopPropagation();
+                handleNewAction(node, connectionId, nodeKey);
+              }}
+              title={
+                node.type === "database"
+                  ? "New Query"
+                  : node.type === "schema"
+                    ? "New Table"
+                    : `New ${node.name?.slice(0, -1) || "Item"}`
+              }
+            >
+              <Plus
+                className={`w-3 h-3 ${
+                  activeNodeKey === nodeKey
+                    ? "text-gray-800 dark:text-gray-300"
+                    : "text-gray-600 dark:text-gray-400 hover:text-white"
+                }`}
+              />
+            </button>
+          )}
+
+          {/* New Query icon for schema nodes */}
+          {canNodeHaveNewQueryOptions(node) && node.type === "schema" && (
+            <button
+              className={`new-query-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 ${
+                activeNodeKey === nodeKey
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100"
+              }`}
+              onClick={e => {
+                e.stopPropagation();
+                handleNewQueryAction(node, connectionId);
+              }}
+              title="New Query"
+            >
+              <FileText
+                className={`w-3 h-3 ${
+                  activeNodeKey === nodeKey
+                    ? "text-gray-800 dark:text-gray-300"
+                    : "text-gray-600 dark:text-gray-400 hover:text-white"
+                }`}
+              />
+            </button>
+          )}
+
+          {/* Refresh icon for nodes that can be refreshed - always last */}
+          {canNodeBeRefreshed(node) && (
+            <button
+              className={`refresh-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 ${
+                activeNodeKey === nodeKey
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100"
+              }`}
+              onClick={e => {
+                e.stopPropagation();
+                refreshNode(connectionId, node.type, nodeKey, node);
+              }}
+              title="Refresh"
+            >
+              <RefreshCw
+                className={`w-3 h-3 ${
+                  activeNodeKey === nodeKey
+                    ? "text-gray-800 dark:text-gray-300"
+                    : "text-gray-600 dark:text-gray-400 hover:text-white"
+                }`}
+              />
+            </button>
+          )}
         </div>
         {hasChildren && isExpanded && "children" in node && node.children && (
           <div>
@@ -1660,19 +2220,415 @@ export default function Explorer() {
     );
   };
 
+  // Helper functions to find parent elements from nodeKey
+  const findParentTable = (nodeKey: string): string | null => {
+    const parts = nodeKey.split(":");
+    // nodeKey format: connectionId:database:schema:table:group:item
+    return parts.length >= 4 ? parts[3] : null;
+  };
+
+  const findParentSchema = (nodeKey: string): string | null => {
+    const parts = nodeKey.split(":");
+    // nodeKey format: connectionId:database:schema:table:group:item
+    return parts.length >= 3 ? parts[2] : null;
+  };
+
+  // Helper to get database name for a specific connection
+  const getDatabaseNameForConnection = (connectionId: string): string => {
+    const connState = connectionStates.get(connectionId);
+    const conn = connState?.connection;
+
+    if (conn?.database) {
+      return conn.database;
+    }
+
+    if (conn?.connectionString) {
+      const match = conn.connectionString.match(/Initial Catalog=([^;]+)/i);
+      if (match) {
+        return match[1];
+      }
+
+      const dbMatch = conn.connectionString.match(/Database=([^;]+)/i);
+      if (dbMatch) {
+        return dbMatch[1];
+      }
+    }
+
+    return "database";
+  };
+
+  const getDatabaseName = (db?: string, nodeKey?: string): string => {
+    console.log("getDatabaseName called with:", {
+      db,
+      nodeKey,
+      contextConnId: contextMenu.connId,
+    });
+
+    // Try to get database name from various sources
+    if (db) {
+      console.log("Using explicit db:", db);
+      return db;
+    }
+
+    // Try to get from connection state first (nodeKey doesn't contain database name)
+    const contextConnId = contextMenu.connId;
+    if (contextConnId) {
+      const connState = connectionStates.get(contextConnId);
+      const conn = connState?.connection;
+      console.log("Connection state:", {
+        contextConnId,
+        conn: conn
+          ? {
+              id: conn.id,
+              name: conn.name,
+              database: conn.database,
+              connectionString: conn.connectionString?.substring(0, 50) + "...",
+            }
+          : null,
+      });
+
+      // If connection has explicit database, use it
+      if (conn?.database) {
+        console.log("Using conn.database:", conn.database);
+        return conn.database;
+      }
+
+      // Try to extract from connection string
+      if (conn?.connectionString) {
+        const match = conn.connectionString.match(/Initial Catalog=([^;]+)/i);
+        if (match) {
+          console.log("Extracted from Initial Catalog:", match[1]);
+          return match[1];
+        }
+
+        const dbMatch = conn.connectionString.match(/Database=([^;]+)/i);
+        if (dbMatch) {
+          console.log("Extracted from Database=:", dbMatch[1]);
+          return dbMatch[1];
+        }
+      }
+    }
+
+    console.log('Falling back to "database"');
+    return "database";
+  };
+
+  const findParentGroupType = (nodeKey: string): string | null => {
+    const parts = nodeKey.split(":");
+    // nodeKey format: connectionId:database:schema:table:group:item
+    return parts.length >= 5 ? parts[4] : null;
+  };
+
+  // DDL Generation Functions
+  const generateColumnDDL = (
+    connectionType: string,
+    action: "create" | "drop" | "update",
+    tableName: string,
+    schemaName: string,
+    columnData?: Record<string, unknown>
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+    const qualified = `${ident(schemaName)}.${ident(tableName)}`;
+
+    switch (action) {
+      case "create":
+        return `-- Add new column to ${qualified}
+ALTER TABLE ${qualified}
+ADD [NewColumnName] NVARCHAR(255) NULL;`;
+
+      case "drop":
+        if (!columnData?.name) return "-- Column name required";
+        return `-- Drop column ${columnData.name} from ${qualified}
+ALTER TABLE ${qualified}
+DROP COLUMN ${ident(columnData.name as string)};`;
+
+      case "update":
+        if (!columnData?.name) return "-- Column name required";
+        return `-- Modify column ${columnData.name} in ${qualified}
+ALTER TABLE ${qualified}
+ALTER COLUMN ${ident(columnData.name as string)} NVARCHAR(255) NULL;`;
+
+      default:
+        return "-- Invalid action";
+    }
+  };
+
+  const generateKeyDDL = (
+    connectionType: string,
+    action: "create" | "drop" | "update",
+    tableName: string,
+    schemaName: string,
+    keyData?: Record<string, unknown>
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+    const qualified = `${ident(schemaName)}.${ident(tableName)}`;
+
+    switch (action) {
+      case "create":
+        return `-- Add new primary key to ${qualified}
+ALTER TABLE ${qualified}
+ADD CONSTRAINT [PK_${tableName}_NewKey] PRIMARY KEY ([ColumnName]);`;
+
+      case "drop":
+        if (!keyData?.name) return "-- Key name required";
+        return `-- Drop constraint ${keyData.name} from ${qualified}
+ALTER TABLE ${qualified}
+DROP CONSTRAINT ${ident(keyData.name as string)};`;
+
+      case "update":
+        if (!keyData?.name) return "-- Key name required";
+        return `-- Update constraint ${keyData.name} in ${qualified}
+-- First drop the existing constraint
+ALTER TABLE ${qualified}
+DROP CONSTRAINT ${ident(keyData.name as string)};
+
+-- Then recreate with new definition
+ALTER TABLE ${qualified}
+ADD CONSTRAINT ${ident(keyData.name as string)} PRIMARY KEY ([ColumnName]);`;
+
+      default:
+        return "-- Invalid action";
+    }
+  };
+
+  const generateConstraintDDL = (
+    connectionType: string,
+    action: "create" | "drop" | "update",
+    tableName: string,
+    schemaName: string,
+    constraintData?: Record<string, unknown>
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+    const qualified = `${ident(schemaName)}.${ident(tableName)}`;
+
+    switch (action) {
+      case "create":
+        return `-- Add new check constraint to ${qualified}
+ALTER TABLE ${qualified}
+ADD CONSTRAINT [CK_${tableName}_NewConstraint] CHECK ([ColumnName] IS NOT NULL);`;
+
+      case "drop":
+        if (!constraintData?.name) return "-- Constraint name required";
+        return `-- Drop constraint ${constraintData.name} from ${qualified}
+ALTER TABLE ${qualified}
+DROP CONSTRAINT ${ident(constraintData.name as string)};`;
+
+      case "update":
+        if (!constraintData?.name) return "-- Constraint name required";
+        return `-- Update constraint ${constraintData.name} in ${qualified}
+-- First drop the existing constraint
+ALTER TABLE ${qualified}
+DROP CONSTRAINT ${ident(constraintData.name as string)};
+
+-- Then recreate with new definition
+ALTER TABLE ${qualified}
+ADD CONSTRAINT ${ident(constraintData.name as string)} CHECK ([ColumnName] IS NOT NULL);`;
+
+      default:
+        return "-- Invalid action";
+    }
+  };
+
+  const generateTriggerDDL = (
+    connectionType: string,
+    action: "create" | "drop" | "update",
+    tableName: string,
+    schemaName: string,
+    triggerData?: Record<string, unknown>
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+    const qualified = `${ident(schemaName)}.${ident(tableName)}`;
+
+    switch (action) {
+      case "create":
+        return `-- Create new trigger on ${qualified}
+CREATE TRIGGER ${ident(`${schemaName}.TR_${tableName}_NewTrigger`)}
+ON ${qualified}
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    -- Add trigger logic here
+    PRINT 'Trigger executed';
+END;`;
+
+      case "drop":
+        if (!triggerData?.name) return "-- Trigger name required";
+        return `-- Drop trigger ${triggerData.name}
+DROP TRIGGER ${ident(`${schemaName}.${triggerData.name as string}`)};`;
+
+      case "update":
+        if (!triggerData?.name) return "-- Trigger name required";
+        return `-- Update trigger ${triggerData.name}
+-- First drop the existing trigger
+DROP TRIGGER ${ident(`${schemaName}.${triggerData.name as string}`)};
+
+-- Then recreate with new definition
+CREATE TRIGGER ${ident(`${schemaName}.${triggerData.name as string}`)}
+ON ${qualified}
+AFTER INSERT, UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    -- Add updated trigger logic here
+    PRINT 'Updated trigger executed';
+END;`;
+
+      default:
+        return "-- Invalid action";
+    }
+  };
+
+  const generateIndexDDL = (
+    connectionType: string,
+    action: "create" | "drop" | "update",
+    tableName: string,
+    schemaName: string,
+    indexData?: Record<string, unknown>
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+    const qualified = `${ident(schemaName)}.${ident(tableName)}`;
+
+    switch (action) {
+      case "create":
+        return `-- Create new index on ${qualified}
+CREATE NONCLUSTERED INDEX [IX_${tableName}_NewIndex]
+ON ${qualified} ([ColumnName] ASC);`;
+
+      case "drop":
+        if (!indexData?.name) return "-- Index name required";
+        return `-- Drop index ${indexData.name} from ${qualified}
+DROP INDEX ${ident(indexData.name as string)} ON ${qualified};`;
+
+      case "update":
+        if (!indexData?.name) return "-- Index name required";
+        return `-- Update index ${indexData.name} on ${qualified}
+-- First drop the existing index
+DROP INDEX ${ident(indexData.name as string)} ON ${qualified};
+
+-- Then recreate with new definition
+CREATE NONCLUSTERED INDEX ${ident(indexData.name as string)}
+ON ${qualified} ([ColumnName] ASC);`;
+
+      default:
+        return "-- Invalid action";
+    }
+  };
+
+  const generateTableDDL = (
+    connectionType: string,
+    action: "create" | "drop" | "update",
+    schemaName: string,
+    tableName?: string
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+
+    switch (action) {
+      case "create": {
+        const newTableName = tableName || "NewTable";
+        const qualified = `${ident(schemaName)}.${ident(newTableName)}`;
+        return `-- Create new table ${qualified}
+CREATE TABLE ${qualified} (
+    [Id] INT IDENTITY(1,1) NOT NULL,
+    [Name] NVARCHAR(255) NOT NULL,
+    [CreatedDate] DATETIME2 NOT NULL DEFAULT GETDATE(),
+    
+    CONSTRAINT [PK_${newTableName}] PRIMARY KEY CLUSTERED ([Id])
+);
+
+-- Add sample data (optional)
+-- INSERT INTO ${qualified} ([Name]) VALUES ('Sample Record');`;
+      }
+
+      case "drop": {
+        if (!tableName) return "-- Table name required";
+        const qualifiedDrop = `${ident(schemaName)}.${ident(tableName)}`;
+        return `-- Drop table ${qualifiedDrop}
+DROP TABLE ${qualifiedDrop};`;
+      }
+
+      default:
+        return `-- Unsupported action: ${action}`;
+    }
+  };
+
+  const openDDLTab = (
+    sql: string,
+    title: string,
+    connectionId: string,
+    connectionType: string,
+    connectionName: string,
+    database: string
+  ) => {
+    console.log("openDDLTab called with:", {
+      title,
+      database,
+      connectionId,
+      connectionName,
+    });
+    // Make the title unique by adding timestamp
+    const uniqueTitle = `${title}_${Date.now()}`;
+    console.log("Final uniqueTitle:", uniqueTitle);
+    const detail = {
+      connectionId,
+      connectionType,
+      connectionName,
+      database,
+      sql: sql,
+      title: uniqueTitle,
+    };
+    console.log("Event detail:", detail);
+    document.dispatchEvent(new CustomEvent("open-sql-script", { detail }));
+  };
+
   return (
     <div className="h-full flex flex-col bg-background text-foreground min-h-0">
       {/* Context Menu */}
       {contextMenu.visible && (
         <div
-          className="fixed z-50 border border-border rounded shadow-md text-sm isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
+          className="fixed z-50 border border-border rounded-lg shadow-lg text-sm isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
           style={{ top: contextMenu.y, left: contextMenu.x }}
-          onMouseLeave={() => setContextMenu(c => ({ ...c, visible: false }))}
+          onMouseLeave={() => {
+            // Add a small delay to allow moving to submenu
+            submenuTimeoutRef.current = setTimeout(() => {
+              setContextMenu(c => ({ ...c, visible: false }));
+              setSubmenu({ visible: false });
+            }, 150);
+          }}
+          onMouseEnter={() => {
+            // Cancel timeout when mouse re-enters main menu
+            if (submenuTimeoutRef.current) {
+              clearTimeout(submenuTimeoutRef.current);
+              submenuTimeoutRef.current = null;
+            }
+          }}
         >
           {contextMenu.mode === "table" && (
             <>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={async () => {
+                  if (!contextMenu.connId) return;
+                  // Pass the node data for table refresh
+                  await refreshNode(
+                    contextMenu.connId,
+                    "table",
+                    contextMenu.nodeKey || "",
+                    contextMenu
+                  );
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                Refresh
+              </button>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
                   if (
                     !contextMenu.connId ||
@@ -1697,7 +2653,7 @@ export default function Explorer() {
                 Open first 100 rows
               </button>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
                   if (
                     !contextMenu.connId ||
@@ -1730,7 +2686,7 @@ export default function Explorer() {
                 Open COUNT(*)
               </button>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
                   if (
                     !contextMenu.connId ||
@@ -1755,8 +2711,38 @@ export default function Explorer() {
                 Edit data
               </button>
               <div className="h-px bg-border mx-1" />
+
+              {/* New submenu for DDL Generation Options */}
+              <div className="relative">
+                <button
+                  className="flex items-center justify-between w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                  onMouseEnter={e => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setSubmenu({
+                      visible: true,
+                      type: "new",
+                      x: rect.right - 1, // Overlap by 1px to avoid gap
+                      y: rect.top,
+                    });
+                  }}
+                  onClick={e => {
+                    const rect = e.currentTarget.getBoundingClientRect();
+                    setSubmenu({
+                      visible: true,
+                      type: "new",
+                      x: rect.right - 1, // Overlap by 1px to avoid gap
+                      y: rect.top,
+                    });
+                  }}
+                >
+                  <span>New</span>
+                  <span className="text-xs">▶</span>
+                </button>
+              </div>
+
+              <div className="h-px bg-border mx-1" />
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={async () => {
                   if (
                     !contextMenu.connId ||
@@ -1773,7 +2759,7 @@ export default function Explorer() {
                 Script CREATE
               </button>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
                   if (
                     !contextMenu.connId ||
@@ -1800,7 +2786,21 @@ export default function Explorer() {
           {contextMenu.mode === "schema" && (
             <>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={async () => {
+                  if (!contextMenu.connId) return;
+                  await refreshNode(
+                    contextMenu.connId,
+                    "schema",
+                    contextMenu.nodeKey || ""
+                  );
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                Refresh
+              </button>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
                   if (!contextMenu.connId || !contextMenu.schema) return;
                   const detail = {
@@ -1818,12 +2818,40 @@ export default function Explorer() {
               >
                 New Query
               </button>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={() => {
+                  if (!contextMenu.connId || !contextMenu.schema) return;
+
+                  // Generate table DDL template
+                  const sql = generateTableDDL(
+                    contextMenu.type || "sqlserver",
+                    "create",
+                    contextMenu.schema
+                  );
+
+                  const title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_table`;
+
+                  openDDLTab(
+                    sql,
+                    title,
+                    contextMenu.connId,
+                    contextMenu.type || "",
+                    contextMenu.connName || "",
+                    contextMenu.db || ""
+                  );
+
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                New Table
+              </button>
             </>
           )}
           {contextMenu.mode === "routine" && (
             <>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={async () => {
                   if (
                     !contextMenu.connId ||
@@ -1843,7 +2871,7 @@ export default function Explorer() {
                 Edit
               </button>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={async () => {
                   if (
                     !contextMenu.connId ||
@@ -1863,7 +2891,7 @@ export default function Explorer() {
                 Script as Create
               </button>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
                   if (
                     !contextMenu.connId ||
@@ -1890,7 +2918,21 @@ export default function Explorer() {
           {contextMenu.mode === "connection" && (
             <>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-accent"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={async () => {
+                  if (!contextMenu.connId) return;
+                  await refreshNode(
+                    contextMenu.connId,
+                    "connection",
+                    contextMenu.nodeKey || ""
+                  );
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                Refresh
+              </button>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
                   if (
                     !contextMenu.connId ||
@@ -1924,14 +2966,471 @@ export default function Explorer() {
               </button>
             </>
           )}
+
+          {/* New DDL Generation Context Menus */}
+          {contextMenu.mode === "group" && (
+            <>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={async () => {
+                  if (!contextMenu.connId) return;
+                  await refreshNode(
+                    contextMenu.connId,
+                    "group",
+                    contextMenu.nodeKey || ""
+                  );
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                Refresh
+              </button>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={() => {
+                  if (
+                    !contextMenu.connId ||
+                    !contextMenu.schema ||
+                    !contextMenu.table ||
+                    !contextMenu.groupType
+                  )
+                    return;
+
+                  let sql = "";
+                  let title = "";
+
+                  switch (contextMenu.groupType) {
+                    case "Columns":
+                      sql = generateColumnDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.table,
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_column`;
+                      break;
+                    case "Keys":
+                      sql = generateKeyDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.table,
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_key`;
+                      break;
+                    case "Constraints":
+                      sql = generateConstraintDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.table,
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_constraint`;
+                      break;
+                    case "Triggers":
+                      sql = generateTriggerDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.table,
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_trigger`;
+                      break;
+                    case "Indexes":
+                      sql = generateIndexDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.table,
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_index`;
+                      break;
+                  }
+
+                  if (sql) {
+                    openDDLTab(
+                      sql,
+                      title,
+                      contextMenu.connId,
+                      contextMenu.type || "",
+                      contextMenu.connName || "",
+                      contextMenu.db || ""
+                    );
+                  }
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                New {contextMenu.groupType?.slice(0, -1)}
+              </button>
+            </>
+          )}
+
+          {(contextMenu.mode === "column" ||
+            contextMenu.mode === "key" ||
+            contextMenu.mode === "constraint" ||
+            contextMenu.mode === "trigger" ||
+            contextMenu.mode === "index") && (
+            <>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={() => {
+                  if (
+                    !contextMenu.connId ||
+                    !contextMenu.schema ||
+                    !contextMenu.table ||
+                    !contextMenu.itemName
+                  )
+                    return;
+
+                  let sql = "";
+                  let title = "";
+
+                  switch (contextMenu.mode) {
+                    case "column":
+                      sql = generateColumnDDL(
+                        contextMenu.type || "sqlserver",
+                        "drop",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.drop_column`;
+                      break;
+                    case "key":
+                      sql = generateKeyDDL(
+                        contextMenu.type || "sqlserver",
+                        "drop",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.drop_key`;
+                      break;
+                    case "constraint":
+                      sql = generateConstraintDDL(
+                        contextMenu.type || "sqlserver",
+                        "drop",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.drop_constraint`;
+                      break;
+                    case "trigger":
+                      sql = generateTriggerDDL(
+                        contextMenu.type || "sqlserver",
+                        "drop",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.drop_trigger`;
+                      break;
+                    case "index":
+                      sql = generateIndexDDL(
+                        contextMenu.type || "sqlserver",
+                        "drop",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.drop_index`;
+                      break;
+                  }
+
+                  if (sql) {
+                    openDDLTab(
+                      sql,
+                      title,
+                      contextMenu.connId,
+                      contextMenu.type || "",
+                      contextMenu.connName || "",
+                      contextMenu.db || ""
+                    );
+                  }
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                Drop {contextMenu.mode}
+              </button>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={() => {
+                  if (
+                    !contextMenu.connId ||
+                    !contextMenu.schema ||
+                    !contextMenu.table ||
+                    !contextMenu.itemName
+                  )
+                    return;
+
+                  let sql = "";
+                  let title = "";
+
+                  switch (contextMenu.mode) {
+                    case "column":
+                      sql = generateColumnDDL(
+                        contextMenu.type || "sqlserver",
+                        "update",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.modify_column`;
+                      break;
+                    case "key":
+                      sql = generateKeyDDL(
+                        contextMenu.type || "sqlserver",
+                        "update",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.modify_key`;
+                      break;
+                    case "constraint":
+                      sql = generateConstraintDDL(
+                        contextMenu.type || "sqlserver",
+                        "update",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.modify_constraint`;
+                      break;
+                    case "trigger":
+                      sql = generateTriggerDDL(
+                        contextMenu.type || "sqlserver",
+                        "update",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.modify_trigger`;
+                      break;
+                    case "index":
+                      sql = generateIndexDDL(
+                        contextMenu.type || "sqlserver",
+                        "update",
+                        contextMenu.table,
+                        contextMenu.schema,
+                        contextMenu.itemData
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.modify_index`;
+                      break;
+                  }
+
+                  if (sql) {
+                    openDDLTab(
+                      sql,
+                      title,
+                      contextMenu.connId,
+                      contextMenu.type || "",
+                      contextMenu.connName || "",
+                      contextMenu.db || ""
+                    );
+                  }
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                Modify {contextMenu.mode}
+              </button>
+            </>
+          )}
+
           <button
-            className="block w-full text-left px-3 py-1 hover:bg-accent"
+            className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
             onClick={() => setContextMenu(c => ({ ...c, visible: false }))}
           >
             Cancel
           </button>
         </div>
       )}
+
+      {/* Submenu */}
+      {submenu.visible && submenu.type === "new" && (
+        <div
+          className="fixed z-[60] border border-border rounded-lg shadow-lg text-sm bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))] min-w-[120px]"
+          style={{ top: submenu.y, left: submenu.x }}
+          onMouseEnter={() => {
+            // Cancel timeout when mouse enters submenu
+            if (submenuTimeoutRef.current) {
+              clearTimeout(submenuTimeoutRef.current);
+              submenuTimeoutRef.current = null;
+            }
+          }}
+          onMouseLeave={() => {
+            setContextMenu(c => ({ ...c, visible: false }));
+            setSubmenu({ visible: false });
+          }}
+        >
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+            onClick={() => {
+              if (
+                !contextMenu.connId ||
+                !contextMenu.schema ||
+                !contextMenu.table
+              )
+                return;
+              console.log("Submenu Column clicked - contextMenu state:", {
+                db: contextMenu.db,
+                nodeKey: contextMenu.nodeKey,
+                connId: contextMenu.connId,
+                schema: contextMenu.schema,
+                table: contextMenu.table,
+              });
+
+              const sql = generateColumnDDL(
+                contextMenu.type || "sqlserver",
+                "create",
+                contextMenu.table,
+                contextMenu.schema
+              );
+              const dbName = getDatabaseName(
+                contextMenu.db,
+                contextMenu.nodeKey
+              );
+              console.log("Database name resolved to:", dbName);
+              const title = `${dbName}.new_column`;
+              console.log("Title constructed as:", title);
+
+              openDDLTab(
+                sql,
+                title,
+                contextMenu.connId,
+                contextMenu.type || "",
+                contextMenu.connName || "",
+                dbName
+              );
+              setContextMenu(c => ({ ...c, visible: false }));
+              setSubmenu({ visible: false });
+            }}
+          >
+            Column
+          </button>
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+            onClick={() => {
+              if (
+                !contextMenu.connId ||
+                !contextMenu.schema ||
+                !contextMenu.table
+              )
+                return;
+              const sql = generateKeyDDL(
+                contextMenu.type || "sqlserver",
+                "create",
+                contextMenu.table,
+                contextMenu.schema
+              );
+              const title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_key`;
+              openDDLTab(
+                sql,
+                title,
+                contextMenu.connId,
+                contextMenu.type || "",
+                contextMenu.connName || "",
+                getDatabaseName(contextMenu.db, contextMenu.nodeKey)
+              );
+              setContextMenu(c => ({ ...c, visible: false }));
+              setSubmenu({ visible: false });
+            }}
+          >
+            Key
+          </button>
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+            onClick={() => {
+              if (
+                !contextMenu.connId ||
+                !contextMenu.schema ||
+                !contextMenu.table
+              )
+                return;
+              const sql = generateConstraintDDL(
+                contextMenu.type || "sqlserver",
+                "create",
+                contextMenu.table,
+                contextMenu.schema
+              );
+              const title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_constraint`;
+              openDDLTab(
+                sql,
+                title,
+                contextMenu.connId,
+                contextMenu.type || "",
+                contextMenu.connName || "",
+                getDatabaseName(contextMenu.db, contextMenu.nodeKey)
+              );
+              setContextMenu(c => ({ ...c, visible: false }));
+              setSubmenu({ visible: false });
+            }}
+          >
+            Constraint
+          </button>
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+            onClick={() => {
+              if (
+                !contextMenu.connId ||
+                !contextMenu.schema ||
+                !contextMenu.table
+              )
+                return;
+              const sql = generateTriggerDDL(
+                contextMenu.type || "sqlserver",
+                "create",
+                contextMenu.table,
+                contextMenu.schema
+              );
+              const title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_trigger`;
+              openDDLTab(
+                sql,
+                title,
+                contextMenu.connId,
+                contextMenu.type || "",
+                contextMenu.connName || "",
+                getDatabaseName(contextMenu.db, contextMenu.nodeKey)
+              );
+              setContextMenu(c => ({ ...c, visible: false }));
+              setSubmenu({ visible: false });
+            }}
+          >
+            Trigger
+          </button>
+          <button
+            className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+            onClick={() => {
+              if (
+                !contextMenu.connId ||
+                !contextMenu.schema ||
+                !contextMenu.table
+              )
+                return;
+              const sql = generateIndexDDL(
+                contextMenu.type || "sqlserver",
+                "create",
+                contextMenu.table,
+                contextMenu.schema
+              );
+              const title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_index`;
+              openDDLTab(
+                sql,
+                title,
+                contextMenu.connId,
+                contextMenu.type || "",
+                contextMenu.connName || "",
+                getDatabaseName(contextMenu.db, contextMenu.nodeKey)
+              );
+              setContextMenu(c => ({ ...c, visible: false }));
+              setSubmenu({ visible: false });
+            }}
+          >
+            Index
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 p-3 overflow-y-auto">
         <div className="space-y-2">
           {!isElectronEnv ? (
@@ -1969,7 +3468,7 @@ export default function Explorer() {
                 console.log("Force enabling API for debugging");
                 setApiReady(true);
               }}
-              className="w-full text-left px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-accent rounded"
+              className="w-full text-left px-3 py-2 text-xs text-red-600 dark:text-red-400 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150 rounded"
             >
               🐛 Debug: Force Enable API
             </button>

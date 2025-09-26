@@ -40,8 +40,8 @@ const customStyles = `
 `;
 
 // Inject styles
-if (typeof document !== 'undefined') {
-  const styleElement = document.createElement('style');
+if (typeof document !== "undefined") {
+  const styleElement = document.createElement("style");
   styleElement.textContent = customStyles;
   document.head.appendChild(styleElement);
 }
@@ -176,7 +176,9 @@ export default function WorkArea() {
   const [isExplainLoading, setIsExplainLoading] = useState(false);
   const [isRunLoading, setIsRunLoading] = useState(false);
   const [isFormatLoading, setIsFormatLoading] = useState(false);
-  const [sortFields, setSortFields] = useState<Array<{column: string; direction: 'asc' | 'desc'}>>([]);
+  const [sortFields, setSortFields] = useState<
+    Array<{ column: string; direction: "asc" | "desc" }>
+  >([]);
   const [showSortManager, setShowSortManager] = useState(false);
   const headerRefs = useMemo(
     () => ({}) as Record<string, HTMLTableCellElement | null>,
@@ -214,7 +216,9 @@ export default function WorkArea() {
             connType = parsed.type;
             dbName = parsed.database;
           }
-        } catch {}
+        } catch {
+          // Failed to parse connection string - will use default values
+        }
         const newTab: Tab = {
           id,
           type: "sql",
@@ -229,7 +233,9 @@ export default function WorkArea() {
         setTabs([newTab]);
         setActiveTabId(id);
       }
-    } catch {}
+    } catch {
+      // Failed to load saved tabs - continue with default state
+    }
   }, []);
 
   // Persist tabs and active tab
@@ -239,7 +245,9 @@ export default function WorkArea() {
       localStorage.setItem("sqlhelper-tabs", JSON.stringify(toSave));
       if (activeTabId)
         localStorage.setItem("sqlhelper-active-tab", activeTabId);
-    } catch {}
+    } catch {
+      // Failed to persist tabs to localStorage - continue normally
+    }
   }, [tabs, activeTabId]);
   const [sqlHeight, setSqlHeight] = useState(() => {
     const saved = localStorage.getItem("sqlhelper-sql-height");
@@ -926,7 +934,7 @@ export default function WorkArea() {
       updateActiveTab({ status: "running", startedAt: Date.now() });
 
       const results: QueryResult[] = [];
-      let totalExecutionTime = 0;
+      let _totalExecutionTime = 0;
 
       for (let i = 0; i < queries.length; i++) {
         const query = queries[i];
@@ -940,7 +948,7 @@ export default function WorkArea() {
 
           const endTime = Date.now();
           const executionTime = endTime - startTime;
-          totalExecutionTime += executionTime;
+          _totalExecutionTime += executionTime;
 
           const columns =
             res.columns?.map(c => c.name) ||
@@ -1014,38 +1022,46 @@ export default function WorkArea() {
 
   const explainQuery = async () => {
     if (!activeTab || !activeTab.connectionId) return;
-    
+
     let query = activeTab.sql.trim();
     if (!query) return;
-    
+
     try {
       setIsExplainLoading(true);
       updateActiveTab({ status: "running", startedAt: Date.now() });
-      
+
       let res: any;
       let actualQuery: string;
-      
+
       if (activeTab.connectionType === "sqlserver") {
         // For SQL Server, try to get XML execution plan for better visualization
         actualQuery = `-- Execution Plan Analysis: ${query}`;
-        
+
         try {
           // All SHOWPLAN_XML approaches fail due to Node.js mssql driver limitations
           // Let's use SQL Server's query execution plan cache instead
-          console.log("🔍 Attempting to get execution plan using plan cache approach for query:", query.substring(0, 100));
-          
+          console.log(
+            "🔍 Attempting to get execution plan using plan cache approach for query:",
+            query.substring(0, 100)
+          );
+
           // Create a unique query ID to identify our execution
           const timestamp = Date.now();
           const queryId = `/* EXPLAIN_QUERY_${timestamp} */ ${query}`;
-          
+
           console.log("🔍 Step 1: Execute query to populate plan cache");
           // First execute the query normally to get it in the plan cache
-          await window.electronAPI.database.executeQuery(activeTab.connectionId!, queryId);
-          console.log("🔍 Normal execution completed, now fetching plan from cache");
-          
+          await window.electronAPI.database.executeQuery(
+            activeTab.connectionId!,
+            queryId
+          );
+          console.log(
+            "🔍 Normal execution completed, now fetching plan from cache"
+          );
+
           // Wait a moment to ensure the plan is in cache
           await new Promise(resolve => setTimeout(resolve, 1000));
-          
+
           // Now query the plan cache to get the XML execution plan
           const planCacheQuery = `
             SELECT 
@@ -1059,10 +1075,13 @@ export default function WorkArea() {
               AND qp.query_plan IS NOT NULL
             ORDER BY cp.usecounts DESC
           `;
-          
+
           console.log("🔍 Step 2: Querying plan cache for execution plan");
-          let xmlResult = await window.electronAPI.database.executeQuery(activeTab.connectionId!, planCacheQuery);
-          
+          let xmlResult = await window.electronAPI.database.executeQuery(
+            activeTab.connectionId!,
+            planCacheQuery
+          );
+
           // Extract XML plan from result - check all possible locations
           let xmlPlan: string | null = null;
           console.log("🔍 Plan cache query result structure:", {
@@ -1074,13 +1093,15 @@ export default function WorkArea() {
             hasMessages: xmlResult?.messages ? xmlResult.messages.length : 0,
             messages: xmlResult?.messages,
             allKeys: xmlResult ? Object.keys(xmlResult) : [],
-            columnNames: xmlResult?.columns?.map((c: any) => c.name) || []
+            columnNames: xmlResult?.columns?.map((c: any) => c.name) || [],
           });
-          
+
           // If we got 0 rows, the plan cache query didn't find our query
           if (xmlResult?.rows && xmlResult.rows.length === 0) {
-            console.log("🔍 Plan cache query returned 0 rows - our query may not be in cache or timestamp mismatch");
-            
+            console.log(
+              "🔍 Plan cache query returned 0 rows - our query may not be in cache or timestamp mismatch"
+            );
+
             // Try a broader search without timestamp
             const broadQuery = `
               SELECT TOP 5
@@ -1096,21 +1117,27 @@ export default function WorkArea() {
                 AND qp.query_plan IS NOT NULL
               ORDER BY cp.usecounts DESC
             `;
-            
+
             console.log("🔍 Trying broader plan cache search...");
-            xmlResult = await window.electronAPI.database.executeQuery(activeTab.connectionId!, broadQuery);
+            xmlResult = await window.electronAPI.database.executeQuery(
+              activeTab.connectionId!,
+              broadQuery
+            );
             console.log("🔍 Broader search result:", {
               hasRows: xmlResult?.rows ? xmlResult.rows.length : 0,
-              columnNames: xmlResult?.columns?.map((c: any) => c.name) || []
+              columnNames: xmlResult?.columns?.map((c: any) => c.name) || [],
             });
           }
-          
+
           // First check if the entire result is XML (common with SHOWPLAN_XML)
-          if (typeof xmlResult === 'string' && (xmlResult as string).trim().startsWith('<')) {
+          if (
+            typeof xmlResult === "string" &&
+            (xmlResult as string).trim().startsWith("<")
+          ) {
             console.log("🔍 Entire result is XML string");
             xmlPlan = xmlResult as string;
           }
-          
+
           // Check messages array for XML content
           if (!xmlPlan && xmlResult?.messages) {
             console.log("🔍 Checking messages array for XML content");
@@ -1118,20 +1145,27 @@ export default function WorkArea() {
               const message = xmlResult.messages[i];
               console.log(`🔍 Message ${i}:`, {
                 type: typeof message,
-                length: typeof message === 'string' ? message.length : 'N/A',
-                startsWithXml: typeof message === 'string' && message.trim().startsWith('<'),
-                content: typeof message === 'string' ? message.substring(0, 500) : message
+                length: typeof message === "string" ? message.length : "N/A",
+                startsWithXml:
+                  typeof message === "string" && message.trim().startsWith("<"),
+                content:
+                  typeof message === "string"
+                    ? message.substring(0, 500)
+                    : message,
               });
-              
-              if (typeof message === 'string' && message.trim().startsWith('<') && 
-                  (message.includes('ShowPlan') || message.includes('QueryPlan'))) {
+
+              if (
+                typeof message === "string" &&
+                message.trim().startsWith("<") &&
+                (message.includes("ShowPlan") || message.includes("QueryPlan"))
+              ) {
                 xmlPlan = message;
                 console.log(`✅ Found XML plan in messages[${i}]`);
                 break;
               }
             }
           }
-          
+
           // STATISTICS XML returns multiple result sets, check if we have an array
           let resultsToCheck = [];
           if (Array.isArray(xmlResult)) {
@@ -1141,47 +1175,53 @@ export default function WorkArea() {
             resultsToCheck = [xmlResult];
             console.log("🔍 Single result set found");
           }
-          
+
           // Look for XML content in all result sets
           for (let i = 0; i < resultsToCheck.length; i++) {
             const result = resultsToCheck[i];
             console.log(`🔍 Checking result set ${i}:`, {
               hasRows: result?.rows?.length || 0,
               hasColumns: result?.columns?.length || 0,
-              columnNames: result?.columns?.map((c: any) => c.name) || []
+              columnNames: result?.columns?.map((c: any) => c.name) || [],
             });
-            
+
             if (result?.rows && result.rows.length > 0) {
               const firstRow = result.rows[0];
               console.log(`🔍 Result set ${i} first row content:`, firstRow);
-              
+
               // Look specifically for ExecutionPlanXML field from plan cache query
               for (const [key, value] of Object.entries(firstRow)) {
-                const isString = typeof value === 'string';
-                const startsWithXml = isString && value.trim().startsWith('<');
-                const containsShowPlan = isString && (
-                  value.includes('ShowPlan') || 
-                  value.includes('<ShowPlanXML') ||
-                  value.includes('QueryPlan') ||
-                  value.includes('StatisticsProfile') ||
-                  value.includes('<RelOp') ||
-                  value.includes('ExecutionPlan')
-                );
-                
+                const isString = typeof value === "string";
+                const startsWithXml = isString && value.trim().startsWith("<");
+                const containsShowPlan =
+                  isString &&
+                  (value.includes("ShowPlan") ||
+                    value.includes("<ShowPlanXML") ||
+                    value.includes("QueryPlan") ||
+                    value.includes("StatisticsProfile") ||
+                    value.includes("<RelOp") ||
+                    value.includes("ExecutionPlan"));
+
                 // Special handling for ExecutionPlanXML field
-                if (key === 'ExecutionPlanXML' || key === 'query_plan') {
+                if (key === "ExecutionPlanXML" || key === "query_plan") {
                   console.log(`🔍 Found plan cache field '${key}':`, {
                     type: typeof value,
                     isString,
-                    length: isString ? value.length : 'N/A',
+                    length: isString ? value.length : "N/A",
                     startsWithXml,
                     containsShowPlan,
-                    preview: isString ? value.substring(0, 500) + (value.length > 500 ? '...' : '') : value
+                    preview: isString
+                      ? value.substring(0, 500) +
+                        (value.length > 500 ? "..." : "")
+                      : value,
                   });
-                  
+
                   if (isString && startsWithXml && value.length > 50) {
                     xmlPlan = value;
-                    console.log(`✅ Found XML execution plan in plan cache field:`, key);
+                    console.log(
+                      `✅ Found XML execution plan in plan cache field:`,
+                      key
+                    );
                     break;
                   }
                 } else {
@@ -1189,32 +1229,43 @@ export default function WorkArea() {
                   console.log(`🔍 Field '${key}' analysis:`, {
                     type: typeof value,
                     isString,
-                    length: isString ? value.length : 'N/A',
+                    length: isString ? value.length : "N/A",
                     startsWithXml,
                     containsShowPlan,
-                    preview: isString ? value.substring(0, 200) + (value.length > 200 ? '...' : '') : value
+                    preview: isString
+                      ? value.substring(0, 200) +
+                        (value.length > 200 ? "..." : "")
+                      : value,
                   });
-                  
+
                   // Fallback: accept any XML-like content
-                  if (!xmlPlan && isString && startsWithXml && containsShowPlan) {
+                  if (
+                    !xmlPlan &&
+                    isString &&
+                    startsWithXml &&
+                    containsShowPlan
+                  ) {
                     xmlPlan = value;
-                    console.log(`✅ Found XML plan in result set ${i}, field:`, key);
+                    console.log(
+                      `✅ Found XML plan in result set ${i}, field:`,
+                      key
+                    );
                     break;
                   }
                 }
               }
-              
+
               if (xmlPlan) break;
             }
           }
-          
+
           console.log("🔍 XML Plan result:", {
             hasXmlPlan: !!xmlPlan,
             xmlLength: xmlPlan?.length,
-            startsWithXml: xmlPlan?.startsWith('<'),
-            containsShowPlan: xmlPlan?.includes('<ShowPlanXML')
+            startsWithXml: xmlPlan?.startsWith("<"),
+            containsShowPlan: xmlPlan?.includes("<ShowPlanXML"),
           });
-          
+
           if (xmlPlan) {
             // Create a mock result with the XML plan
             res = {
@@ -1224,22 +1275,26 @@ export default function WorkArea() {
               executionTime: 0,
               messages: [
                 "📊 SQL Server XML Execution Plan",
-                "=" .repeat(50),
+                "=".repeat(50),
                 "",
                 "✅ XML Execution Plan Generated Successfully",
                 `📄 Plan Size: ${xmlPlan.length} characters`,
                 "",
-                "💡 Use the tree view below to explore the execution plan graphically"
+                "💡 Use the tree view below to explore the execution plan graphically",
               ],
-              xmlExecutionPlan: xmlPlan
+              xmlExecutionPlan: xmlPlan,
             };
             actualQuery = `-- XML Execution Plan: ${query}`;
-            console.log("✅ Successfully set XML execution plan on result object");
+            console.log(
+              "✅ Successfully set XML execution plan on result object"
+            );
           } else {
             throw new Error("No XML execution plan returned");
           }
         } catch (_xmlError) {
-          console.log("❌ XML execution plan failed, falling back to text plan");
+          console.log(
+            "❌ XML execution plan failed, falling back to text plan"
+          );
           console.error("XML Error:", _xmlError);
           // Fall back to text execution plan
           try {
@@ -1248,17 +1303,17 @@ export default function WorkArea() {
               activeTab.connectionId!,
               `SET SHOWPLAN_TEXT ON`
             );
-            
+
             res = await window.electronAPI.database.executeQuery(
               activeTab.connectionId!,
               query
             );
-            
+
             await window.electronAPI.database.executeQuery(
               activeTab.connectionId!,
               `SET SHOWPLAN_TEXT OFF`
             );
-            
+
             actualQuery = `-- Text Execution Plan: ${query}`;
           } catch (_textError) {
             // Final fallback: statistics only
@@ -1273,7 +1328,7 @@ export default function WorkArea() {
               res = {
                 rows: [],
                 messages: [`Unable to generate execution plan for: ${query}`],
-                executionTime: 0
+                executionTime: 0,
               };
               actualQuery = `-- Query Analysis (Plan Unavailable): ${query}`;
             }
@@ -1281,86 +1336,107 @@ export default function WorkArea() {
         }
       } else {
         // For PostgreSQL and other databases, use standard EXPLAIN
-        const prefix = activeTab.connectionType === "postgresql" ? "EXPLAIN ANALYZE " : "EXPLAIN ";
+        const prefix =
+          activeTab.connectionType === "postgresql"
+            ? "EXPLAIN ANALYZE "
+            : "EXPLAIN ";
         actualQuery = prefix + query;
         res = await window.electronAPI.database.executeQuery(
           activeTab.connectionId!,
           actualQuery
         );
       }
-      
+
       const columns =
         res.columns?.map((c: { name: string }) => c.name) ||
         (res.rows?.[0] ? Object.keys(res.rows[0]) : []);
-        
+
       // For explain queries, we want to show the plan in Messages tab
       // Create formatted messages that include the execution plan
       const planMessages = [];
-      
+
       if (activeTab.connectionType === "sqlserver") {
         // Check if we have XML execution plan
         if ((res as any).xmlExecutionPlan) {
           planMessages.push("📊 SQL Server XML Execution Plan");
-          planMessages.push("=" .repeat(50));
+          planMessages.push("=".repeat(50));
           planMessages.push("");
           planMessages.push("✅ XML Execution Plan Generated Successfully");
           planMessages.push("");
-          
+
           const xmlContent = (res as any).xmlExecutionPlan;
-          
+
           // Extract useful information from XML
-          if (xmlContent.includes('StatementSubTreeCost')) {
-            const costMatch = xmlContent.match(/StatementSubTreeCost="([^"]+)"/);
+          if (xmlContent.includes("StatementSubTreeCost")) {
+            const costMatch = xmlContent.match(
+              /StatementSubTreeCost="([^"]+)"/
+            );
             if (costMatch) {
               planMessages.push(`💰 Estimated Cost: ${costMatch[1]}`);
             }
           }
-          
-          if (xmlContent.includes('PhysicalOp')) {
+
+          if (xmlContent.includes("PhysicalOp")) {
             const operations = xmlContent.match(/PhysicalOp="([^"]+)"/g);
             if (operations) {
               planMessages.push("");
               planMessages.push("🔧 Physical Operations:");
-              const uniqueOps = [...new Set(operations.map((op: string) => op.match(/"([^"]+)"/)?.[1]).filter(Boolean))] as string[];
-              uniqueOps.slice(0, 8).forEach((op) => {
+              const uniqueOps = [
+                ...new Set(
+                  operations
+                    .map((op: string) => op.match(/"([^"]+)"/)?.[1])
+                    .filter(Boolean)
+                ),
+              ] as string[];
+              uniqueOps.slice(0, 8).forEach(op => {
                 planMessages.push(`   • ${op}`);
               });
               if (uniqueOps.length > 8) {
-                planMessages.push(`   • ... and ${uniqueOps.length - 8} more operations`);
+                planMessages.push(
+                  `   • ... and ${uniqueOps.length - 8} more operations`
+                );
               }
             }
           }
-          
+
           planMessages.push("");
           planMessages.push("💡 Tips for Graphical Visualization:");
-          planMessages.push("   • Copy this XML to SQL Server Management Studio");
-          planMessages.push("   • Use 'Display Estimated Execution Plan' (Ctrl+L)");
+          planMessages.push(
+            "   • Copy this XML to SQL Server Management Studio"
+          );
+          planMessages.push(
+            "   • Use 'Display Estimated Execution Plan' (Ctrl+L)"
+          );
           planMessages.push("   • Save as .sqlplan file for sharing");
           planMessages.push("");
           planMessages.push("📄 Raw XML Plan:");
           planMessages.push("-".repeat(30));
           planMessages.push(xmlContent);
-          
         } else {
           planMessages.push("📊 SQL Server Execution Plan Analysis");
-          planMessages.push("=" .repeat(50));
-          
+          planMessages.push("=".repeat(50));
+
           if (res.messages && res.messages.length > 0) {
             planMessages.push(...res.messages);
           }
-          
+
           // If we have execution plan data in rows, format it nicely
           if (res.rows && res.rows.length > 0) {
             planMessages.push("");
             planMessages.push("🔍 Execution Plan Details:");
             planMessages.push("-".repeat(30));
-            
+
             res.rows.forEach((row: any, index: number) => {
               Object.entries(row).forEach(([key, value]) => {
                 if (String(value).trim()) {
                   // Handle SHOWPLAN_TEXT output specially
-                  if (key.toLowerCase().includes('showplan') || key.toLowerCase().includes('plan')) {
-                    const lines = String(value).split('\n').filter(line => line.trim());
+                  if (
+                    key.toLowerCase().includes("showplan") ||
+                    key.toLowerCase().includes("plan")
+                  ) {
+                    const lines = String(value)
+                      .split("\n")
+                      .filter(line => line.trim());
                     lines.forEach(line => planMessages.push(line));
                   } else {
                     planMessages.push(`${key}: ${value}`);
@@ -1370,17 +1446,19 @@ export default function WorkArea() {
               if (index < res.rows.length - 1) planMessages.push("");
             });
           }
-          
+
           planMessages.push("");
-          planMessages.push("💡 Tip: For graphical plans, use SQL Server Management Studio");
+          planMessages.push(
+            "💡 Tip: For graphical plans, use SQL Server Management Studio"
+          );
         }
       } else {
         planMessages.push("📊 Query Execution Plan");
-        planMessages.push("=" .repeat(30));
-        
+        planMessages.push("=".repeat(30));
+
         if (res.rows && res.rows.length > 0) {
           res.rows.forEach((row: any) => {
-            if (typeof row === 'object') {
+            if (typeof row === "object") {
               Object.entries(row).forEach(([key, value]) => {
                 planMessages.push(`${key}: ${value}`);
               });
@@ -1389,7 +1467,7 @@ export default function WorkArea() {
             }
           });
         }
-        
+
         if (res.messages && res.messages.length > 0) {
           planMessages.push("");
           planMessages.push("Additional Information:");
@@ -1426,8 +1504,8 @@ export default function WorkArea() {
           startTime: Date.now(),
           endTime: Date.now(),
         },
-        status: "error", 
-        activeResultTab: "messages"
+        status: "error",
+        activeResultTab: "messages",
       });
     } finally {
       setIsExplainLoading(false);
@@ -1464,31 +1542,31 @@ export default function WorkArea() {
     try {
       // Simple XML formatting
       const formatted = xmlContent
-        .replace(/></g, '>\n<')
-        .replace(/^\s*\n/gm, '')
-        .split('\n')
+        .replace(/></g, ">\n<")
+        .replace(/^\s*\n/gm, "")
+        .split("\n")
         .map((line, index, arr) => {
           const trimmed = line.trim();
-          if (!trimmed) return '';
-          
+          if (!trimmed) return "";
+
           let depth = 0;
           // Count opening tags before this line
           for (let i = 0; i < index; i++) {
             const prevLine = arr[i].trim();
-            const openTags = (prevLine.match(/<[^\/!][^>]*>/g) || []).length;
+            const openTags = (prevLine.match(/<[^/!][^>]*>/g) || []).length;
             const closeTags = (prevLine.match(/<\/[^>]*>/g) || []).length;
             depth += openTags - closeTags;
           }
-          
+
           // Adjust depth for current line
-          if (trimmed.startsWith('</')) {
+          if (trimmed.startsWith("</")) {
             depth = Math.max(0, depth - 1);
           }
-          
-          return '  '.repeat(depth) + trimmed;
+
+          return "  ".repeat(depth) + trimmed;
         })
         .filter(line => line.trim())
-        .join('\n');
+        .join("\n");
 
       // Create a new tab with formatted XML
       const timestamp = new Date().toLocaleString();
@@ -1506,32 +1584,34 @@ export default function WorkArea() {
 
       setTabs(prev => [...prev, newTab]);
       setActiveTabId(newTab.id);
-      
     } catch (error) {
-      console.error('Error formatting XML:', error);
-      alert('Error formatting XML execution plan');
+      console.error("Error formatting XML:", error);
+      alert("Error formatting XML execution plan");
     }
   };
 
   // Function to save XML execution plan as .sqlplan file
   const saveAsSqlPlan = (xmlContent: string) => {
     try {
-      const blob = new Blob([xmlContent], { type: 'application/xml' });
+      const blob = new Blob([xmlContent], { type: "application/xml" });
       const url = URL.createObjectURL(blob);
-      const link = document.createElement('a');
+      const link = document.createElement("a");
       link.href = url;
-      
+
       // Generate filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const timestamp = new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")
+        .slice(0, 19);
       link.download = `execution-plan-${timestamp}.sqlplan`;
-      
+
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
     } catch (error) {
-      console.error('Error saving SQLPlan file:', error);
-      alert('Error saving execution plan file');
+      console.error("Error saving SQLPlan file:", error);
+      alert("Error saving execution plan file");
     }
   };
 
@@ -1697,7 +1777,10 @@ export default function WorkArea() {
     await execQueryWithSql(newSql);
   };
 
-  const handleColumnHeaderClick = async (column: string, event?: React.MouseEvent) => {
+  const handleColumnHeaderClick = async (
+    column: string,
+    event?: React.MouseEvent
+  ) => {
     if (!activeTab?.connectionId) return;
 
     // Check if Ctrl/Cmd key is held for multi-field sorting
@@ -1727,18 +1810,23 @@ export default function WorkArea() {
       if (existingIndex >= 0) {
         // Toggle direction if column already exists
         const updated = [...prev];
-        updated[existingIndex].direction = updated[existingIndex].direction === 'asc' ? 'desc' : 'asc';
+        updated[existingIndex].direction =
+          updated[existingIndex].direction === "asc" ? "desc" : "asc";
         return updated;
       } else {
         // Add new column to sort
-        return [...prev, { column, direction: 'asc' as const }];
+        return [...prev, { column, direction: "asc" as const }];
       }
     });
   };
 
   const applyMultiSort = async () => {
     if (!activeTab || sortFields.length === 0) return;
-    const newSql = injectMultiOrderBy(activeTab.sql, sortFields, activeResultIndex);
+    const newSql = injectMultiOrderBy(
+      activeTab.sql,
+      sortFields,
+      activeResultIndex
+    );
     await execQueryWithSql(newSql);
     setCurrentSort(null); // Clear single sort when using multi-sort
   };
@@ -1746,8 +1834,6 @@ export default function WorkArea() {
   const removeSortField = (column: string) => {
     setSortFields(prev => prev.filter(field => field.column !== column));
   };
-
-
 
   const clearAllSorts = () => {
     setSortFields([]);
@@ -1906,20 +1992,22 @@ export default function WorkArea() {
         }
         case "file-save": {
           if (!activeTab) break;
-          
+
           // Determine content and extension based on tab type
           const isContentViewer = activeTab.type === "content-viewer";
-          const content = isContentViewer ? (activeTab.content || "") : activeTab.sql;
-          const extension = isContentViewer ? (activeTab.contentType || "txt") : "sql";
-          
+          const content = isContentViewer
+            ? activeTab.content || ""
+            : activeTab.sql;
+          const extension = isContentViewer
+            ? activeTab.contentType || "txt"
+            : "sql";
+
           if (activeTab.filePath) {
-            await window.electronAPI?.files?.write(
-              activeTab.filePath,
-              content
-            );
+            await window.electronAPI?.files?.write(activeTab.filePath, content);
           } else {
             const suggested =
-              (activeTab.title?.replace(/\s+/g, "_") || "query") + `.${extension}`;
+              (activeTab.title?.replace(/\s+/g, "_") || "query") +
+              `.${extension}`;
             const res = await window.electronAPI?.files?.saveDialog({
               defaultPath: suggested,
             });
@@ -1941,14 +2029,19 @@ export default function WorkArea() {
         }
         case "file-save-as": {
           if (!activeTab) break;
-          
+
           // Determine content and extension based on tab type
           const isContentViewer = activeTab.type === "content-viewer";
-          const content = isContentViewer ? (activeTab.content || "") : activeTab.sql;
-          const extension = isContentViewer ? (activeTab.contentType || "txt") : "sql";
-          
+          const content = isContentViewer
+            ? activeTab.content || ""
+            : activeTab.sql;
+          const extension = isContentViewer
+            ? activeTab.contentType || "txt"
+            : "sql";
+
           const suggested =
-            (activeTab.title?.replace(/\s+/g, "_") || "query") + `.${extension}`;
+            (activeTab.title?.replace(/\s+/g, "_") || "query") +
+            `.${extension}`;
           const res = await window.electronAPI?.files?.saveDialog({
             defaultPath: activeTab.filePath || suggested,
           });
@@ -2239,13 +2332,16 @@ export default function WorkArea() {
                 Format
               </button>
             </div>
-            <div className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-xs" title={
-              activeTab?.connectionName || activeTab?.database
-                ? [activeTab.connectionName, activeTab.database]
-                    .filter(Boolean)
-                    .join(" • ")
-                : "No database selected"
-            }>
+            <div
+              className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-xs"
+              title={
+                activeTab?.connectionName || activeTab?.database
+                  ? [activeTab.connectionName, activeTab.database]
+                      .filter(Boolean)
+                      .join(" • ")
+                  : "No database selected"
+              }
+            >
               {activeTab?.connectionName || activeTab?.database
                 ? [activeTab.connectionName, activeTab.database]
                     .filter(Boolean)
@@ -2432,45 +2528,57 @@ export default function WorkArea() {
                         fontSize: 13,
                         wordWrap: "on",
                       }}
-                      theme={theme === "dark" ? "sql-custom-dark" : "sql-custom-light"}
+                      theme={
+                        theme === "dark"
+                          ? "sql-custom-dark"
+                          : "sql-custom-light"
+                      }
                       onMount={(editor, monaco) => {
                         // Store editor and monaco references for highlighting
                         monacoEditorRef.current = editor;
                         monacoRef.current = monaco;
 
                         // Define simplified SQL syntax highlighting themes - following style3.txt
-                        monaco.editor.defineTheme('sql-custom-light', {
-                          base: 'vs',
+                        monaco.editor.defineTheme("sql-custom-light", {
+                          base: "vs",
                           inherit: true,
                           rules: [
-                            { token: 'keyword.sql', foreground: '2563EB' }, // Keywords - blue
-                            { token: 'string.sql', foreground: '059669' }, // Strings - green  
-                            { token: 'comment.sql', foreground: '6B7280', fontStyle: 'italic' }, // Comments - gray
+                            { token: "keyword.sql", foreground: "2563EB" }, // Keywords - blue
+                            { token: "string.sql", foreground: "059669" }, // Strings - green
+                            {
+                              token: "comment.sql",
+                              foreground: "6B7280",
+                              fontStyle: "italic",
+                            }, // Comments - gray
                           ],
                           colors: {
-                            'editor.background': '#FFFFFF',
-                            'editor.foreground': '#000000', // Pure black for light mode
-                            'editorLineNumber.foreground': '#6B7280',
-                            'editor.selectionBackground': '#DBEAFE',
-                            'editor.lineHighlightBackground': '#F8FAFC',
-                          }
+                            "editor.background": "#FFFFFF",
+                            "editor.foreground": "#000000", // Pure black for light mode
+                            "editorLineNumber.foreground": "#6B7280",
+                            "editor.selectionBackground": "#DBEAFE",
+                            "editor.lineHighlightBackground": "#F8FAFC",
+                          },
                         });
 
-                        monaco.editor.defineTheme('sql-custom-dark', {
-                          base: 'vs-dark',
+                        monaco.editor.defineTheme("sql-custom-dark", {
+                          base: "vs-dark",
                           inherit: true,
                           rules: [
-                            { token: 'keyword.sql', foreground: '60A5FA' }, // Keywords - blue
-                            { token: 'string.sql', foreground: '10B981' }, // Strings - green
-                            { token: 'comment.sql', foreground: '9CA3AF', fontStyle: 'italic' }, // Comments - gray
+                            { token: "keyword.sql", foreground: "60A5FA" }, // Keywords - blue
+                            { token: "string.sql", foreground: "10B981" }, // Strings - green
+                            {
+                              token: "comment.sql",
+                              foreground: "9CA3AF",
+                              fontStyle: "italic",
+                            }, // Comments - gray
                           ],
                           colors: {
-                            'editor.background': '#1F2937',
-                            'editor.foreground': '#FFFFFF', // Pure white for dark mode
-                            'editorLineNumber.foreground': '#9CA3AF',
-                            'editor.selectionBackground': '#243B66',
-                            'editor.lineHighlightBackground': '#374151',
-                          }
+                            "editor.background": "#1F2937",
+                            "editor.foreground": "#FFFFFF", // Pure white for dark mode
+                            "editorLineNumber.foreground": "#9CA3AF",
+                            "editor.selectionBackground": "#243B66",
+                            "editor.lineHighlightBackground": "#374151",
+                          },
                         });
 
                         editor.addCommand(
@@ -2550,8 +2658,8 @@ export default function WorkArea() {
                     <div className="flex items-center gap-1">
                       <button
                         className={`h-8 px-2.5 rounded font-medium ${
-                          (activeTab.activeResultTab ?? "results") === "results" 
-                            ? "bg-accent text-accent-foreground" 
+                          (activeTab.activeResultTab ?? "results") === "results"
+                            ? "bg-accent text-accent-foreground"
                             : "text-muted-foreground hover:bg-accent hover:text-foreground"
                         }`}
                         onClick={() =>
@@ -2562,8 +2670,9 @@ export default function WorkArea() {
                       </button>
                       <button
                         className={`h-8 px-2.5 rounded font-medium ${
-                          (activeTab.activeResultTab ?? "results") === "messages" 
-                            ? "bg-accent text-accent-foreground" 
+                          (activeTab.activeResultTab ?? "results") ===
+                          "messages"
+                            ? "bg-accent text-accent-foreground"
                             : "text-muted-foreground hover:bg-accent hover:text-foreground"
                         }`}
                         onClick={() =>
@@ -2578,7 +2687,7 @@ export default function WorkArea() {
                         <button
                           className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium transition-colors duration-150 shadow-sm text-xs"
                           onClick={() => setShowSortManager(true)}
-                          title={`Manage ${sortFields.length} sort field${sortFields.length > 1 ? 's' : ''}`}
+                          title={`Manage ${sortFields.length} sort field${sortFields.length > 1 ? "s" : ""}`}
                         >
                           📊 Sort ({sortFields.length})
                         </button>
@@ -2623,40 +2732,59 @@ export default function WorkArea() {
                           hasCurrentResult: !!currentResult,
                           hasXmlPlan: !!hasXmlPlan,
                           xmlPlanType: typeof currentResult?.xmlExecutionPlan,
-                          xmlPlanLength: currentResult?.xmlExecutionPlan?.length,
+                          xmlPlanLength:
+                            currentResult?.xmlExecutionPlan?.length,
                         });
-                        
+
                         return (
                           <div className="p-3 space-y-4">
                             {/* Show ExecutionPlanViewer if we have XML plan data */}
                             {hasXmlPlan && currentResult.xmlExecutionPlan && (
                               <div>
-                                <div className="text-sm text-green-600 mb-2">🌳 SQL Server Execution Plan</div>
-                                <ExecutionPlanViewer 
+                                <div className="text-sm text-green-600 mb-2">
+                                  🌳 SQL Server Execution Plan
+                                </div>
+                                <ExecutionPlanViewer
                                   xmlContent={currentResult.xmlExecutionPlan}
-                                  onFormatXml={() => currentResult.xmlExecutionPlan && formatXmlPlan(currentResult.xmlExecutionPlan)}
-                                  onSaveAsSqlPlan={() => currentResult.xmlExecutionPlan && saveAsSqlPlan(currentResult.xmlExecutionPlan)}
+                                  onFormatXml={() =>
+                                    currentResult.xmlExecutionPlan &&
+                                    formatXmlPlan(
+                                      currentResult.xmlExecutionPlan
+                                    )
+                                  }
+                                  onSaveAsSqlPlan={() =>
+                                    currentResult.xmlExecutionPlan &&
+                                    saveAsSqlPlan(
+                                      currentResult.xmlExecutionPlan
+                                    )
+                                  }
                                 />
                               </div>
                             )}
-                            
+
                             {/* Show regular messages */}
                             <div className="text-xs space-y-1">
                               {currentResult?.messages &&
                               currentResult.messages.length > 0 ? (
                                 (() => {
                                   let filteredMessages = currentResult.messages;
-                                  
+
                                   // If we have XML execution plan, filter out the raw XML section
                                   if (hasXmlPlan) {
-                                    const rawXmlStart = filteredMessages.findIndex(msg => 
-                                      msg.includes("📄 Raw XML Plan:") || msg.includes("Raw XML Plan")
-                                    );
+                                    const rawXmlStart =
+                                      filteredMessages.findIndex(
+                                        msg =>
+                                          msg.includes("📄 Raw XML Plan:") ||
+                                          msg.includes("Raw XML Plan")
+                                      );
                                     if (rawXmlStart !== -1) {
-                                      filteredMessages = filteredMessages.slice(0, rawXmlStart);
+                                      filteredMessages = filteredMessages.slice(
+                                        0,
+                                        rawXmlStart
+                                      );
                                     }
                                   }
-                                  
+
                                   return filteredMessages.map((m, i) => (
                                     <div key={i} className="text-foreground/80">
                                       {m}
@@ -2828,7 +2956,9 @@ export default function WorkArea() {
                                           ? { width: activeTab.columnWidths[c] }
                                           : { minWidth: "120px" }
                                       }
-                                      onClick={(e) => handleColumnHeaderClick(c, e)}
+                                      onClick={e =>
+                                        handleColumnHeaderClick(c, e)
+                                      }
                                       onContextMenu={e => {
                                         e.preventDefault();
                                         if (!activeTab?.connectionId) return;
@@ -2841,7 +2971,9 @@ export default function WorkArea() {
                                       }}
                                     >
                                       <div className="flex items-center justify-between">
-                                        <span className="text-sm font-bold">{c}</span>
+                                        <span className="text-sm font-bold">
+                                          {c}
+                                        </span>
                                         {currentSort?.column === c && (
                                           <span className="ml-2 text-sm">
                                             {currentSort.direction === "ASC"
@@ -2860,11 +2992,11 @@ export default function WorkArea() {
                               </thead>
                               <tbody>
                                 {currentResult.rows.map((r, i) => (
-                                  <tr 
-                                    key={i} 
+                                  <tr
+                                    key={i}
                                     className={`hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-                                      i % 2 === 0 
-                                        ? "bg-white dark:bg-gray-800" 
+                                      i % 2 === 0
+                                        ? "bg-white dark:bg-gray-800"
                                         : "bg-gray-50 dark:bg-gray-750"
                                     }`}
                                   >
@@ -2890,13 +3022,15 @@ export default function WorkArea() {
                                           <div className="relative group">
                                             {(() => {
                                               const cellValue = r[c];
-                                              const isUrl = typeof cellValue === 'string' && /^https?:\/\//.test(cellValue);
-                                              
+                                              const isUrl =
+                                                typeof cellValue === "string" &&
+                                                /^https?:\/\//.test(cellValue);
+
                                               if (isUrl) {
                                                 return (
-                                                  <a 
-                                                    href={cellValue} 
-                                                    target="_blank" 
+                                                  <a
+                                                    href={cellValue}
+                                                    target="_blank"
                                                     rel="noopener noreferrer"
                                                     className="text-blue-600 dark:text-blue-400 hover:underline break-words text-sm"
                                                   >
@@ -2905,9 +3039,13 @@ export default function WorkArea() {
                                                 );
                                               } else {
                                                 return (
-                                                  <span 
+                                                  <span
                                                     className="text-sm text-black dark:text-white break-words"
-                                                    title={shouldTruncate ? String(cellValue) : undefined}
+                                                    title={
+                                                      shouldTruncate
+                                                        ? String(cellValue)
+                                                        : undefined
+                                                    }
                                                   >
                                                     {content}
                                                   </span>
@@ -3009,13 +3147,21 @@ export default function WorkArea() {
                         onClick={() => {
                           setColumnMenu(prev => ({ ...prev, show: false }));
                           setSortFields(prev => {
-                            const existingIndex = prev.findIndex(field => field.column === columnMenu.column);
+                            const existingIndex = prev.findIndex(
+                              field => field.column === columnMenu.column
+                            );
                             if (existingIndex >= 0) {
                               const updated = [...prev];
-                              updated[existingIndex].direction = 'asc';
+                              updated[existingIndex].direction = "asc";
                               return updated;
                             } else {
-                              return [...prev, { column: columnMenu.column!, direction: 'asc' }];
+                              return [
+                                ...prev,
+                                {
+                                  column: columnMenu.column!,
+                                  direction: "asc",
+                                },
+                              ];
                             }
                           });
                         }}
@@ -3025,13 +3171,21 @@ export default function WorkArea() {
                         onClick={() => {
                           setColumnMenu(prev => ({ ...prev, show: false }));
                           setSortFields(prev => {
-                            const existingIndex = prev.findIndex(field => field.column === columnMenu.column);
+                            const existingIndex = prev.findIndex(
+                              field => field.column === columnMenu.column
+                            );
                             if (existingIndex >= 0) {
                               const updated = [...prev];
-                              updated[existingIndex].direction = 'desc';
+                              updated[existingIndex].direction = "desc";
                               return updated;
                             } else {
-                              return [...prev, { column: columnMenu.column!, direction: 'desc' }];
+                              return [
+                                ...prev,
+                                {
+                                  column: columnMenu.column!,
+                                  direction: "desc",
+                                },
+                              ];
                             }
                           });
                         }}
@@ -3050,14 +3204,16 @@ export default function WorkArea() {
                       )}
                     </div>
                   )}
-                  
+
                   {/* Sort Manager Dialog */}
                   {showSortManager && (
                     <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
                       <div className="bg-white dark:bg-gray-800 border border-border rounded-lg shadow-xl w-96 max-h-[80vh] overflow-hidden">
                         <div className="px-4 py-3 border-b border-border bg-gray-50 dark:bg-gray-700">
                           <div className="flex items-center justify-between">
-                            <h3 className="font-semibold text-sm">Sort Order Manager</h3>
+                            <h3 className="font-semibold text-sm">
+                              Sort Order Manager
+                            </h3>
                             <button
                               onClick={() => setShowSortManager(false)}
                               className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
@@ -3066,19 +3222,22 @@ export default function WorkArea() {
                             </button>
                           </div>
                         </div>
-                        
+
                         <div className="p-4">
                           {sortFields.length === 0 ? (
                             <div className="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
-                              No sort fields configured.<br/>
-                              Right-click on column headers to add fields to sort.
+                              No sort fields configured.
+                              <br />
+                              Right-click on column headers to add fields to
+                              sort.
                             </div>
                           ) : (
                             <div className="space-y-2">
                               <div className="text-xs text-gray-600 dark:text-gray-400 mb-3">
-                                Drag to reorder • Click direction to toggle • Click × to remove
+                                Drag to reorder • Click direction to toggle •
+                                Click × to remove
                               </div>
-                              
+
                               {sortFields.map((field, index) => (
                                 <div
                                   key={`${field.column}-${index}`}
@@ -3091,7 +3250,10 @@ export default function WorkArea() {
                                     onClick={() => {
                                       setSortFields(prev => {
                                         const updated = [...prev];
-                                        updated[index].direction = updated[index].direction === 'asc' ? 'desc' : 'asc';
+                                        updated[index].direction =
+                                          updated[index].direction === "asc"
+                                            ? "desc"
+                                            : "asc";
                                         return updated;
                                       });
                                     }}
@@ -3100,7 +3262,9 @@ export default function WorkArea() {
                                     {field.direction.toUpperCase()}
                                   </button>
                                   <button
-                                    onClick={() => removeSortField(field.column)}
+                                    onClick={() =>
+                                      removeSortField(field.column)
+                                    }
                                     className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
                                   >
                                     ×
@@ -3110,7 +3274,7 @@ export default function WorkArea() {
                             </div>
                           )}
                         </div>
-                        
+
                         <div className="px-4 py-3 border-t border-border bg-gray-50 dark:bg-gray-700 flex gap-2">
                           <button
                             onClick={applyMultiSort}
@@ -3318,7 +3482,7 @@ function injectOrderBy(
 
 function injectMultiOrderBy(
   sql: string,
-  sortFields: Array<{column: string; direction: 'asc' | 'desc'}>,
+  sortFields: Array<{ column: string; direction: "asc" | "desc" }>,
   queryIndex: number = 0
 ) {
   // Parse SQL into individual queries
@@ -3333,7 +3497,7 @@ function injectMultiOrderBy(
   // Create ORDER BY clause from multiple fields
   const orderByClause = sortFields
     .map(field => `${wrapIdent(field.column)} ${field.direction.toUpperCase()}`)
-    .join(', ');
+    .join(", ");
 
   // Apply ORDER BY to the target query
   const hasOrder = /order\s+by/gi.test(targetQuery);
@@ -3346,10 +3510,7 @@ function injectMultiOrderBy(
     );
   } else {
     // Remove trailing semicolon if present, add ORDER BY, then add semicolon back
-    modifiedQuery = targetQuery.replace(
-      /;?\s*$/,
-      ` ORDER BY ${orderByClause}`
-    );
+    modifiedQuery = targetQuery.replace(/;?\s*$/, ` ORDER BY ${orderByClause}`);
   }
 
   // Replace the target query in the array

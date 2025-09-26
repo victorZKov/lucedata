@@ -245,6 +245,52 @@ export class SqlServerProvider implements IDatabaseProvider {
     }
   }
 
+  async getXmlExecutionPlan(query: string): Promise<string | null> {
+    if (!this.pool) {
+      throw new Error("Not connected to database");
+    }
+
+    try {
+      // Use a transaction to ensure commands stay together
+      const transaction = new sql.Transaction(this.pool);
+      await transaction.begin();
+      
+      try {
+        const transactionRequest = new sql.Request(transaction);
+        
+        // Enable XML execution plan
+        await transactionRequest.query("SET SHOWPLAN_XML ON");
+        
+        // Execute the query (this should return XML plan)
+        const planResult = await transactionRequest.query(query);
+        
+        // Disable XML execution plan
+        await transactionRequest.query("SET SHOWPLAN_XML OFF");
+        
+        await transaction.commit();
+        
+        // Extract XML from the result
+        if (planResult.recordset && planResult.recordset.length > 0) {
+          const firstRow = planResult.recordset[0];
+          const xmlContent = Object.values(firstRow)[0] as string;
+          
+          if (xmlContent && typeof xmlContent === 'string' && xmlContent.includes('<ShowPlanXML')) {
+            return xmlContent;
+          }
+        }
+        
+        return null;
+      } catch (error) {
+        await transaction.rollback();
+        throw error;
+      }
+    } catch (error) {
+      throw new Error(
+        `Failed to get XML execution plan: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
   async getSchemas(): Promise<string[]> {
     const result = await this.executeQuery(`
       SELECT DISTINCT schema_name 

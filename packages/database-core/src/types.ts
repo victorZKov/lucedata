@@ -48,6 +48,7 @@ export interface QueryResult {
   rowCount: number;
   executionTime: number;
   messages?: string[];
+  xmlExecutionPlan?: string; // SQL Server XML execution plan data
 }
 
 export interface SchemaInfo {
@@ -139,6 +140,7 @@ export interface IDatabaseProvider {
   executeQuery(query: string, params?: unknown[]): Promise<QueryResult>;
   executeNonQuery(query: string, params?: unknown[]): Promise<number>;
   getExecutionPlan(query: string): Promise<ExecutionPlan>;
+  getXmlExecutionPlan?(query: string): Promise<string | null>;
 
   // Schema introspection
   getSchemas(): Promise<string[]>;

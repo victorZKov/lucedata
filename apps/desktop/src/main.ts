@@ -1002,6 +1002,29 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  "database-get-xml-execution-plan",
+  async (_: IpcMainInvokeEvent, connectionId: string, query: string) => {
+    try {
+      const provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        throw new Error(`No active connection found for id '${connectionId}'`);
+      }
+
+      // Check if provider supports XML execution plans
+      if (provider.getXmlExecutionPlan) {
+        const xmlPlan = await provider.getXmlExecutionPlan(query);
+        return xmlPlan;
+      } else {
+        throw new Error("XML execution plans not supported for this database type");
+      }
+    } catch (error) {
+      console.error("Error getting XML execution plan:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
   "database-get-table-data",
   async (
     _: IpcMainInvokeEvent,

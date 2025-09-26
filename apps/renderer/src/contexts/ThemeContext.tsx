@@ -22,9 +22,25 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       ? (stored as any)
       : "system";
   });
-  const [theme, setTheme] = useState<"light" | "dark">(() =>
-    mode === "system" ? getSystemTheme() : mode
-  );
+
+  const [theme, setTheme] = useState<"light" | "dark">(() => {
+    const storedMode = localStorage.getItem("themeMode") as "system" | "light" | "dark" | null;
+    const effectiveMode = storedMode || "system";
+    const initialTheme = effectiveMode === "system" ? getSystemTheme() : effectiveMode;
+    
+    // Apply theme immediately to prevent flash
+    const root = document.documentElement;
+    const body = document.body;
+    if (initialTheme === "dark") {
+      root.classList.add("dark");
+      body.classList.add("dark");
+    } else {
+      root.classList.remove("dark");
+      body.classList.remove("dark");
+    }
+    
+    return initialTheme;
+  });
 
   const applyDomClass = (t: "light" | "dark") => {
     const root = document.documentElement;

@@ -71,6 +71,10 @@ try {
           query
         );
       },
+      testMethod: () => {
+        console.log("test method works");
+        return "test";
+      },
       getTableData: (
         connectionId: string,
         tableName: string,

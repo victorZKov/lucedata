@@ -1,0 +1,155 @@
+GLOBAL
+	•	Use a single design scale:
+	•	Corner radius: 8 px (buttons, inputs, tabs, table, search).
+	•	Spacing: 6 / 10 / 14 px (tight / default / comfy).
+	•	Font family: system UI; base size 13 px; headers 14 px (semibold).
+	•	Iconography: use one professional set (e.g., Lucide). Size 16 px in tree, 14 px in table headers/cells. Icons are monochrome; color comes from text, not the glyph.
+	•	Focus states: always visible. Use a 2 px outline with the primary accent color and 2 px inner padding (don’t rely on box shadow only).
+	•	Scrollbars: thin, track matches panel background, thumb uses muted slate; hover slightly brightens.
+	•	Motion: keep to 150–200 ms ease-in-out for hover/selection changes. No bounce.
+
+⸻
+
+PALETTES
+
+Use these exact hex values as tokens. Copilot should create variables and apply them across components.
+
+Light
+	•	Background: #FFFFFF
+	•	Panel / muted bg (inputs, zebra even): #F9FAFB
+	•	Subtle bg (headers, tab bar): #F3F4F6
+	•	Border: #E5E7EB
+	•	Text primary: #111827
+	•	Text muted: #6B7280
+	•	Primary blue (actions, active tabs, links): #2563EB
+	•	Primary blue soft (selected/hover bg): #E0F2FE
+	•	Success green (Explain): #059669
+	•	Amber (Format / required fields): #D97706
+	•	Error red (PK, errors): #B91C1C
+	•	Selected row background (stronger than hover): #DBEAFE
+
+Dark (Nord-ish, but higher contrast)
+	•	App background: #111827
+	•	Panel / muted bg: #0F172A
+	•	Subtle bg (headers, tab bar): #1F2937
+	•	Border: #374151
+	•	Text primary: #E5E7EB
+	•	Text muted: #9CA3AF
+	•	Primary blue: #60A5FA
+	•	Primary blue soft (selected/hover bg): #1E3A8A @ 28% opacity (Copilot: calculate solid color if opacity not available → #243C6A feel)
+	•	Success green: #34D399
+	•	Amber: #F59E0B
+	•	Error red: #F87171
+	•	Selected row background: #0B2A55 (solid, readable over dark)
+
+⸻
+
+COMPONENT-LEVEL CHANGES
+
+1) Action Bar (Run / Explain / Format + DB badge)
+	•	Button sizes: 28–32 px height; horizontal padding 12 px; radius 8 px; font weight 500.
+	•	Colors:
+	•	Run: Light → #2563EB bg, white text. Dark → #60A5FA bg, near-black text #0B1220 or white (whichever meets contrast).
+	•	Explain: Light #059669, Dark #34D399 (contrast-checked).
+	•	Format: Light #D97706, Dark #F59E0B.
+	•	Hover: elevate by +5% brightness; Active: -5% brightness; Disabled: 50% opacity.
+	•	DB/connection label: muted text; truncate with tooltip.
+
+2) Editor (Monaco)
+	•	Match SQL token colors to the tree scheme:
+	•	Keywords (SELECT, FROM): Light #2563EB, Dark #60A5FA.
+	•	Identifiers (schemas/tables): Light #B45309 (amber-700), Dark #F59E0B.
+	•	Strings: Light #15803D, Dark #34D399.
+	•	Functions: Light #0D9488, Dark #2DD4BF.
+	•	Comments: Light #9CA3AF, Dark #6B7280 italic.
+	•	Editor background: Light #FFFFFF, Dark #0F172A.
+	•	Current line highlight: Light #E0F2FE, Dark #1F2937.
+	•	Selection: Light #DBEAFE, Dark #243B66.
+	•	Error squiggle: red #B91C1C (light) / #F87171 (dark).
+
+3) Results/Messages top tabs
+	•	Height 32 px; radius 8 px; 10 px horizontal padding.
+	•	Active tab:
+	•	Light: background #E0F2FE, text #2563EB, bottom border #2563EB 2 px.
+	•	Dark: background #1F2937, text #60A5FA, bottom border #60A5FA 2 px.
+	•	Inactive tab:
+	•	Light: transparent background, text #6B7280; bottom border #E5E7EB 1 px across the bar.
+	•	Dark: transparent background, text #9CA3AF; bottom border #374151 1 px.
+
+4) Query tabs (Query 1, Query 2…)
+	•	Use the same visual rules as Results/Messages for consistency.
+	•	Close “x” icon appears on hover; uses accent color when active.
+
+5) Search bar row (filters + search input + row count)
+	•	Row height 40 px; inner elements 32 px height.
+	•	Inputs:
+	•	Light: background #F9FAFB, border #D1D5DB, text #111827, placeholder #9CA3AF.
+	•	Dark: background #1F2937, border #374151, text #E5E7EB, placeholder #9CA3AF.
+	•	Icons in inputs: muted color (#6B7280 light / #9CA3AF dark).
+	•	On focus: border switches to primary blue (light #2563EB, dark #60A5FA) with 2 px outline.
+
+6) Results table
+
+Headers
+	•	Height 36–40 px, semibold 600.
+	•	Light: background #F3F4F6, text #374151, bottom border #E5E7EB.
+	•	Dark: background #1F2937, text #E5E7EB, bottom border #374151.
+
+Rows
+	•	Default background:
+	•	Light: white.
+	•	Dark: #0F172A.
+	•	Zebra striping:
+	•	Light: even rows #F9FAFB.
+	•	Dark: even rows #131C2A (slightly lighter than base to avoid “barcode” effect).
+	•	Hover:
+	•	Light: #E0F2FE.
+	•	Dark: #1E3A8A at ~18–22% opacity (or solid #152949).
+	•	Selected row (e.g., via keyboard or click):
+	•	Light: #DBEAFE with bold text in the first cell.
+	•	Dark: #0B2A55 with bold text in the first cell.
+	•	Cell padding: 10 px (horizontal & vertical). Truncate long content with ellipsis; full text on tooltip.
+	•	Links: Light #2563EB, Dark #60A5FA; underline on hover only.
+	•	Boolean rendering:
+	•	true → small capsule badge (8 px radius, 18 px height) with white text:
+	•	Light bg #10B981.
+	•	Dark bg #34D399.
+	•	false → badge with white text:
+	•	Light bg #B91C1C.
+	•	Dark bg #F87171.
+	•	Numbers: right-align.
+	•	Datetimes: monospace subset optional for alignment; muted secondary meta (e.g., timezone) in text-muted color.
+	•	Avoid heavy outer borders; keep row dividers only.
+
+7) Status bar
+	•	Height 26–28 px.
+	•	Light: background #F3F4F6, text #374151.
+	•	Dark: background #1F2937, text #E5E7EB.
+	•	Emphasize dynamic values (row count, duration) with primary blue.
+
+8) Panels/containers
+	•	Card panels around editor and results:
+	•	Light: subtle border #E5E7EB; background #FFFFFF.
+	•	Dark: border #374151; background #0F172A.
+	•	Shadow only on modals/menus; elevation level 2 (very soft).
+
+9) Tree view (to keep alignment with the rest)
+	•	Keep your approved mapping:
+	•	Connections: cyan/blue headline.
+	•	Folders: steel blue.
+	•	Tables: warm amber/rust.
+	•	Columns: semantic colors → PK red, NOT NULL amber, NULL green.
+	•	Selected item:
+	•	Light #E0F2FE / text #0C4A6E.
+	•	Dark #1F2937 / text #E5E7EB.
+
+⸻
+
+ACCESSIBILITY & QA CHECKS
+	•	Minimum contrast: WCAG AA for normal text (4.5:1). Verify:
+	•	Light: text #111827 on #FFFFFF = pass.
+	•	Dark: text #E5E7EB on #111827 = pass.
+	•	Primary blue text on selected backgrounds also meets AA.
+	•	Hit targets: all interactive elements ≥ 36×36 px.
+	•	Keyboard: tab order logical; arrow key navigation in table; focus visible on tabs, search inputs, and table rows.
+	•	High-density mode (optional): reduce row height to 32 px but keep padding ≥ 8 px.

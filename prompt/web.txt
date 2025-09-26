@@ -1,0 +1,3 @@
+Prepare this electron application to work on the web. 
+The menu should show in a tab at the top of the page. 
+The data must be saved, currently we use sqlite, propose a solution for website

@@ -1,0 +1,16 @@
+Add authentication to the application. It will be using EntraId authentication. We can configure in a private file the data requred to connect to azure entra Id.
+
+Initially this values:
+CLIENT_ID=2c33e9e0-3295-4c14-a232-027ab5366d8d
+AUTHORITY=https://login.microsoftonline.com/cb40d1db-6342-4ccf-b6af-23848df0f8a2
+VITE_SCOPE=api://aiteammate/demo.app
+REDIRECT_URI=(not sure what to put here when we are in desktop electron)
+VITE_POST_LOGOUT_REDIRECT_URI=(not sure what to put here when we are in desktop electron)
+
+Think also that we will have a web application running as well.
+
+The user needs to be able to login only, it will be approved from use in their EntraId directory.
+
+The authentication is an feature for second level. The application will have a first level (Free), a second level (Individual Paid, TBD) and third level (Team paid, TBD)
+
+For now, the authentication will only do the login, but we will leave it open for keeping the user configuration in the cloud, to be reused in different computers. But as we still don't have a backend to support this features, and the Team features, we leave it as is.

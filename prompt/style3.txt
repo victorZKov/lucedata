@@ -1,0 +1,38 @@
+	•	Tree:
+	•	Text should always be neutral (black in light mode, white in dark mode).
+	•	Icons carry the semantic meaning and color (e.g., blue for tables, yellow for views, green for functions, etc.).
+	•	No extra coloring for text like PK red, NULL green — keep all text neutral for readability and consistency.
+	•	Selected node:
+	•	Background highlight is fine.
+	•	But in light mode, the icon needs a stronger/darker color so it doesn’t wash out (e.g., darker blue, darker orange).
+	•	In dark mode, the icon should be slightly brighter or desaturated so it doesn’t blend into the dark background.
+	•	This way the tree looks clean, but still expressive because of icons.
+
+⸻
+
+	•	Work area (editor + results):
+	•	Dark mode → already looks good, keep it as is.
+	•	Light mode → poor readability right now because:
+	•	Table rows have too much dark fill (heavy contrast, looks muddy).
+	•	Search bar row is too grey.
+	•	Fixes:
+	•	Table rows:
+	•	Keep white background.
+	•	Use light zebra striping (#F9FAFB) for even rows.
+	•	Hover state: pale blue highlight (#E0F2FE).
+	•	Selected row: soft blue (#DBEAFE).
+	•	Headers: light grey background (#F3F4F6) with bold black text (#111827).
+	•	Search/filter bar: subtle border, white background for inputs, not grey.
+
+⸻
+
+Instruction summary for Copilot
+	•	Tree:
+	•	Use one neutral text color: black (light), white (dark).
+	•	Icons are colored, not text.
+	•	Selected node: keep highlight background, but ensure icon color contrasts (darker tone in light, brighter tone in dark).
+	•	Work area (Light mode fixes):
+	•	Results table rows: white background, light grey striping, soft blue hover/selection.
+	•	Results table headers: light grey background, bold black text.
+	•	Search bar + filters: white background, subtle border, black text.
+	•	Work area (Dark mode): keep current style, maybe only slightly brighten icons on selection.

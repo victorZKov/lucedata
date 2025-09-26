@@ -221,7 +221,7 @@ export default function Layout() {
   const titleBarPadding = isMac ? "pl-[96px] pr-4" : "px-4"; // slightly closer to traffic lights
 
   return (
-    <div className="flex h-full">
+    <div className="flex h-full bg-background text-foreground">
       {/* Title Bar */}
       <div
         className={`fixed top-0 left-0 right-0 ${titleBarHeight} flex items-center justify-between ${titleBarPadding} z-50 select-none rounded-t-xl`}

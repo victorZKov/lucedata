@@ -1,0 +1,69 @@
+1. Top Bar (Run / Explain / Format + DB name)
+	•	Dark Mode: keep the buttons bright (blue/green) against the dark background so they are clearly actionable.
+	•	Light Mode: use filled buttons with strong contrast instead of subtle outlines (to avoid them blending into the background).
+	•	Add slight spacing between Run/Explain/Format to reduce visual density.
+
+👉 Suggestion:
+	•	Run: #2563EB (blue)
+	•	Explain: #16A34A (green)
+	•	Format: #F59E0B (amber)
+
+That mirrors the tree’s semantic coloring and gives users quick recognition.
+
+⸻
+
+2. Monaco Editor
+	•	Match syntax highlighting to the palette of your tree:
+	•	Keywords (SELECT, FROM): blue (#2563EB)
+	•	Identifiers (tables, schemas): amber (#EBCB8B)
+	•	Strings: green (#A3BE8C)
+	•	Functions: teal (#0D9488)
+
+👉 This keeps editor and tree visually linked.
+
+⸻
+
+3. Results / Messages Tabs
+	•	Current tabs look a bit “flat”. You could:
+	•	Use accent colors for the active tab (#2563EB in light, #81A1C1 in dark).
+	•	Keep inactive tabs slate gray (#6B7280 light / #9CA3AF dark).
+	•	Add slight underline or border on the active tab for clarity.
+
+⸻
+
+4. Query Tabs (Query 1, Query 2…)
+	•	Same treatment as Results/Messages:
+	•	Active: blue accent background, white text.
+	•	Inactive: gray text, transparent background.
+
+👉 Helps distinguish quickly which result is being inspected.
+
+⸻
+
+5. Search Bar
+	•	Dark mode: #1E293B background, rounded corners, input text #E2E8F0.
+	•	Light mode: #F1F5F9 background, border #CBD5E1, input text #111827.
+
+👉 Keeps it consistent with the “folders” look in your tree.
+
+⸻
+
+6. Table with Results
+	•	Headers: medium bold, background tint (light blue in light mode, slate in dark mode).
+	•	Rows: zebra-striping with very subtle difference (#F9FAFB / #F1F5F9 in light, #1E293B / #111827 in dark).
+	•	Hover row: soft highlight (#E0F2FE in light, #374151 in dark).
+	•	Primary Key column(s): optional accent (deep red text or slight background tint).
+
+⸻
+
+7. General Layout
+	•	Increase padding inside cells and bars by 2–4px → improves readability.
+	•	Maintain same corner radius (rounded-md 6px or 8px) across buttons, search bar, and results table.
+	•	Use consistent shadows: very soft drop shadow for modals/panels only, not for every bar.
+
+⸻
+
+✅ In short:
+	•	Tree = structure colors (blue, amber, red, green).
+	•	Editor = syntax mirrors tree palette.
+	•	Results = functional clarity (tabs, zebra rows, search bar with consistent style).

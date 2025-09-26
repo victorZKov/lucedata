@@ -7,7 +7,44 @@ import { useTheme } from "../contexts/ThemeContext";
 
 import Resizer from "./Resizer";
 import EditableDataGrid from "./EditableDataGrid";
+import ExecutionPlanViewer from "./ExecutionPlanViewer";
 import { VERSION_INFO } from "./VersionDialog";
+
+// Simplified Design System - following style3.txt specifications
+
+// Add custom CSS for query highlighting and global styles
+const customStyles = `
+  .highlighted-query {
+    background-color: rgba(37, 99, 235, 0.1) !important;
+    border-left: 3px solid #2563EB !important;
+  }
+  .highlighted-query-text {
+    background-color: rgba(37, 99, 235, 0.05) !important;
+  }
+  
+  /* Simplified scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #9CA3AF;
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #6B7280;
+  }
+`;
+
+// Inject styles
+if (typeof document !== 'undefined') {
+  const styleElement = document.createElement('style');
+  styleElement.textContent = customStyles;
+  document.head.appendChild(styleElement);
+}
 
 type QueryResult = {
   query: string;
@@ -19,6 +56,7 @@ type QueryResult = {
   error?: string;
   startTime: number;
   endTime: number;
+  xmlExecutionPlan?: string; // SQL Server XML execution plan data
 };
 
 type Tab = {
@@ -135,6 +173,11 @@ export default function WorkArea() {
 
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const [isExplainLoading, setIsExplainLoading] = useState(false);
+  const [isRunLoading, setIsRunLoading] = useState(false);
+  const [isFormatLoading, setIsFormatLoading] = useState(false);
+  const [sortFields, setSortFields] = useState<Array<{column: string; direction: 'asc' | 'desc'}>>([]);
+  const [showSortManager, setShowSortManager] = useState(false);
   const headerRefs = useMemo(
     () => ({}) as Record<string, HTMLTableCellElement | null>,
     []
@@ -879,6 +922,7 @@ export default function WorkArea() {
     if (queries.length === 0) return;
 
     try {
+      setIsRunLoading(true);
       updateActiveTab({ status: "running", startedAt: Date.now() });
 
       const results: QueryResult[] = [];
@@ -963,74 +1007,437 @@ export default function WorkArea() {
         status: "error",
         activeResultTab: "messages",
       });
+    } finally {
+      setIsRunLoading(false);
     }
   };
 
   const explainQuery = async () => {
     if (!activeTab || !activeTab.connectionId) return;
-    const prefix = (() => {
-      switch (activeTab.connectionType) {
-        case "postgresql":
-          return "EXPLAIN ";
-        case "sqlserver":
-          return "SET SHOWPLAN_ALL ON; ";
-        default:
-          return "EXPLAIN ";
-      }
-    })();
-    let query = activeTab.sql;
+    
+    let query = activeTab.sql.trim();
+    if (!query) return;
+    
     try {
+      setIsExplainLoading(true);
       updateActiveTab({ status: "running", startedAt: Date.now() });
-      const res = await window.electronAPI.database.executeQuery(
-        activeTab.connectionId!,
-        prefix + query
-      );
+      
+      let res: any;
+      let actualQuery: string;
+      
+      if (activeTab.connectionType === "sqlserver") {
+        // For SQL Server, try to get XML execution plan for better visualization
+        actualQuery = `-- Execution Plan Analysis: ${query}`;
+        
+        try {
+          // All SHOWPLAN_XML approaches fail due to Node.js mssql driver limitations
+          // Let's use SQL Server's query execution plan cache instead
+          console.log("🔍 Attempting to get execution plan using plan cache approach for query:", query.substring(0, 100));
+          
+          // Create a unique query ID to identify our execution
+          const timestamp = Date.now();
+          const queryId = `/* EXPLAIN_QUERY_${timestamp} */ ${query}`;
+          
+          console.log("🔍 Step 1: Execute query to populate plan cache");
+          // First execute the query normally to get it in the plan cache
+          await window.electronAPI.database.executeQuery(activeTab.connectionId!, queryId);
+          console.log("🔍 Normal execution completed, now fetching plan from cache");
+          
+          // Wait a moment to ensure the plan is in cache
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          // Now query the plan cache to get the XML execution plan
+          const planCacheQuery = `
+            SELECT 
+              qp.query_plan as ExecutionPlanXML,
+              qt.text as QueryText
+            FROM sys.dm_exec_cached_plans cp
+            CROSS APPLY sys.dm_exec_query_plan(cp.plan_handle) qp
+            CROSS APPLY sys.dm_exec_sql_text(cp.plan_handle) qt
+            WHERE qt.text LIKE '%EXPLAIN_QUERY_${timestamp}%'
+              AND qt.text NOT LIKE '%sys.dm_exec_cached_plans%'
+              AND qp.query_plan IS NOT NULL
+            ORDER BY cp.usecounts DESC
+          `;
+          
+          console.log("🔍 Step 2: Querying plan cache for execution plan");
+          let xmlResult = await window.electronAPI.database.executeQuery(activeTab.connectionId!, planCacheQuery);
+          
+          // Extract XML plan from result - check all possible locations
+          let xmlPlan: string | null = null;
+          console.log("🔍 Plan cache query result structure:", {
+            hasResult: !!xmlResult,
+            isArray: Array.isArray(xmlResult),
+            resultType: typeof xmlResult,
+            hasRows: xmlResult?.rows ? xmlResult.rows.length : 0,
+            hasColumns: xmlResult?.columns ? xmlResult.columns.length : 0,
+            hasMessages: xmlResult?.messages ? xmlResult.messages.length : 0,
+            messages: xmlResult?.messages,
+            allKeys: xmlResult ? Object.keys(xmlResult) : [],
+            columnNames: xmlResult?.columns?.map((c: any) => c.name) || []
+          });
+          
+          // If we got 0 rows, the plan cache query didn't find our query
+          if (xmlResult?.rows && xmlResult.rows.length === 0) {
+            console.log("🔍 Plan cache query returned 0 rows - our query may not be in cache or timestamp mismatch");
+            
+            // Try a broader search without timestamp
+            const broadQuery = `
+              SELECT TOP 5
+                qp.query_plan as ExecutionPlanXML,
+                qt.text as QueryText,
+                cp.usecounts,
+                cp.size_in_bytes
+              FROM sys.dm_exec_cached_plans cp
+              CROSS APPLY sys.dm_exec_query_plan(cp.plan_handle) qp
+              CROSS APPLY sys.dm_exec_sql_text(cp.plan_handle) qt
+              WHERE qt.text LIKE '%${query.substring(20, 50).trim()}%'
+                AND qt.text NOT LIKE '%sys.dm_exec_cached_plans%'
+                AND qp.query_plan IS NOT NULL
+              ORDER BY cp.usecounts DESC
+            `;
+            
+            console.log("🔍 Trying broader plan cache search...");
+            xmlResult = await window.electronAPI.database.executeQuery(activeTab.connectionId!, broadQuery);
+            console.log("🔍 Broader search result:", {
+              hasRows: xmlResult?.rows ? xmlResult.rows.length : 0,
+              columnNames: xmlResult?.columns?.map((c: any) => c.name) || []
+            });
+          }
+          
+          // First check if the entire result is XML (common with SHOWPLAN_XML)
+          if (typeof xmlResult === 'string' && (xmlResult as string).trim().startsWith('<')) {
+            console.log("🔍 Entire result is XML string");
+            xmlPlan = xmlResult as string;
+          }
+          
+          // Check messages array for XML content
+          if (!xmlPlan && xmlResult?.messages) {
+            console.log("🔍 Checking messages array for XML content");
+            for (let i = 0; i < xmlResult.messages.length; i++) {
+              const message = xmlResult.messages[i];
+              console.log(`🔍 Message ${i}:`, {
+                type: typeof message,
+                length: typeof message === 'string' ? message.length : 'N/A',
+                startsWithXml: typeof message === 'string' && message.trim().startsWith('<'),
+                content: typeof message === 'string' ? message.substring(0, 500) : message
+              });
+              
+              if (typeof message === 'string' && message.trim().startsWith('<') && 
+                  (message.includes('ShowPlan') || message.includes('QueryPlan'))) {
+                xmlPlan = message;
+                console.log(`✅ Found XML plan in messages[${i}]`);
+                break;
+              }
+            }
+          }
+          
+          // STATISTICS XML returns multiple result sets, check if we have an array
+          let resultsToCheck = [];
+          if (Array.isArray(xmlResult)) {
+            resultsToCheck = xmlResult;
+            console.log("🔍 Multiple result sets found:", xmlResult.length);
+          } else {
+            resultsToCheck = [xmlResult];
+            console.log("🔍 Single result set found");
+          }
+          
+          // Look for XML content in all result sets
+          for (let i = 0; i < resultsToCheck.length; i++) {
+            const result = resultsToCheck[i];
+            console.log(`🔍 Checking result set ${i}:`, {
+              hasRows: result?.rows?.length || 0,
+              hasColumns: result?.columns?.length || 0,
+              columnNames: result?.columns?.map((c: any) => c.name) || []
+            });
+            
+            if (result?.rows && result.rows.length > 0) {
+              const firstRow = result.rows[0];
+              console.log(`🔍 Result set ${i} first row content:`, firstRow);
+              
+              // Look specifically for ExecutionPlanXML field from plan cache query
+              for (const [key, value] of Object.entries(firstRow)) {
+                const isString = typeof value === 'string';
+                const startsWithXml = isString && value.trim().startsWith('<');
+                const containsShowPlan = isString && (
+                  value.includes('ShowPlan') || 
+                  value.includes('<ShowPlanXML') ||
+                  value.includes('QueryPlan') ||
+                  value.includes('StatisticsProfile') ||
+                  value.includes('<RelOp') ||
+                  value.includes('ExecutionPlan')
+                );
+                
+                // Special handling for ExecutionPlanXML field
+                if (key === 'ExecutionPlanXML' || key === 'query_plan') {
+                  console.log(`🔍 Found plan cache field '${key}':`, {
+                    type: typeof value,
+                    isString,
+                    length: isString ? value.length : 'N/A',
+                    startsWithXml,
+                    containsShowPlan,
+                    preview: isString ? value.substring(0, 500) + (value.length > 500 ? '...' : '') : value
+                  });
+                  
+                  if (isString && startsWithXml && value.length > 50) {
+                    xmlPlan = value;
+                    console.log(`✅ Found XML execution plan in plan cache field:`, key);
+                    break;
+                  }
+                } else {
+                  // Log other fields for debugging
+                  console.log(`🔍 Field '${key}' analysis:`, {
+                    type: typeof value,
+                    isString,
+                    length: isString ? value.length : 'N/A',
+                    startsWithXml,
+                    containsShowPlan,
+                    preview: isString ? value.substring(0, 200) + (value.length > 200 ? '...' : '') : value
+                  });
+                  
+                  // Fallback: accept any XML-like content
+                  if (!xmlPlan && isString && startsWithXml && containsShowPlan) {
+                    xmlPlan = value;
+                    console.log(`✅ Found XML plan in result set ${i}, field:`, key);
+                    break;
+                  }
+                }
+              }
+              
+              if (xmlPlan) break;
+            }
+          }
+          
+          console.log("🔍 XML Plan result:", {
+            hasXmlPlan: !!xmlPlan,
+            xmlLength: xmlPlan?.length,
+            startsWithXml: xmlPlan?.startsWith('<'),
+            containsShowPlan: xmlPlan?.includes('<ShowPlanXML')
+          });
+          
+          if (xmlPlan) {
+            // Create a mock result with the XML plan
+            res = {
+              columns: [],
+              rows: [],
+              rowCount: 0,
+              executionTime: 0,
+              messages: [
+                "📊 SQL Server XML Execution Plan",
+                "=" .repeat(50),
+                "",
+                "✅ XML Execution Plan Generated Successfully",
+                `📄 Plan Size: ${xmlPlan.length} characters`,
+                "",
+                "💡 Use the tree view below to explore the execution plan graphically"
+              ],
+              xmlExecutionPlan: xmlPlan
+            };
+            actualQuery = `-- XML Execution Plan: ${query}`;
+            console.log("✅ Successfully set XML execution plan on result object");
+          } else {
+            throw new Error("No XML execution plan returned");
+          }
+        } catch (_xmlError) {
+          console.log("❌ XML execution plan failed, falling back to text plan");
+          console.error("XML Error:", _xmlError);
+          // Fall back to text execution plan
+          try {
+            // Also use separate batches for SHOWPLAN_TEXT
+            await window.electronAPI.database.executeQuery(
+              activeTab.connectionId!,
+              `SET SHOWPLAN_TEXT ON`
+            );
+            
+            res = await window.electronAPI.database.executeQuery(
+              activeTab.connectionId!,
+              query
+            );
+            
+            await window.electronAPI.database.executeQuery(
+              activeTab.connectionId!,
+              `SET SHOWPLAN_TEXT OFF`
+            );
+            
+            actualQuery = `-- Text Execution Plan: ${query}`;
+          } catch (_textError) {
+            // Final fallback: statistics only
+            try {
+              res = await window.electronAPI.database.executeQuery(
+                activeTab.connectionId!,
+                `SET STATISTICS IO ON;\nSET STATISTICS TIME ON;\n${query}`
+              );
+              actualQuery = `-- Query with Performance Statistics: ${query}`;
+            } catch (_statsError) {
+              // Ultimate fallback: just analyze the query structure
+              res = {
+                rows: [],
+                messages: [`Unable to generate execution plan for: ${query}`],
+                executionTime: 0
+              };
+              actualQuery = `-- Query Analysis (Plan Unavailable): ${query}`;
+            }
+          }
+        }
+      } else {
+        // For PostgreSQL and other databases, use standard EXPLAIN
+        const prefix = activeTab.connectionType === "postgresql" ? "EXPLAIN ANALYZE " : "EXPLAIN ";
+        actualQuery = prefix + query;
+        res = await window.electronAPI.database.executeQuery(
+          activeTab.connectionId!,
+          actualQuery
+        );
+      }
+      
       const columns =
-        res.columns?.map(c => c.name) ||
-        (res.rows[0] ? Object.keys(res.rows[0]) : []);
+        res.columns?.map((c: { name: string }) => c.name) ||
+        (res.rows?.[0] ? Object.keys(res.rows[0]) : []);
+        
+      // For explain queries, we want to show the plan in Messages tab
+      // Create formatted messages that include the execution plan
+      const planMessages = [];
+      
+      if (activeTab.connectionType === "sqlserver") {
+        // Check if we have XML execution plan
+        if ((res as any).xmlExecutionPlan) {
+          planMessages.push("📊 SQL Server XML Execution Plan");
+          planMessages.push("=" .repeat(50));
+          planMessages.push("");
+          planMessages.push("✅ XML Execution Plan Generated Successfully");
+          planMessages.push("");
+          
+          const xmlContent = (res as any).xmlExecutionPlan;
+          
+          // Extract useful information from XML
+          if (xmlContent.includes('StatementSubTreeCost')) {
+            const costMatch = xmlContent.match(/StatementSubTreeCost="([^"]+)"/);
+            if (costMatch) {
+              planMessages.push(`💰 Estimated Cost: ${costMatch[1]}`);
+            }
+          }
+          
+          if (xmlContent.includes('PhysicalOp')) {
+            const operations = xmlContent.match(/PhysicalOp="([^"]+)"/g);
+            if (operations) {
+              planMessages.push("");
+              planMessages.push("🔧 Physical Operations:");
+              const uniqueOps = [...new Set(operations.map((op: string) => op.match(/"([^"]+)"/)?.[1]).filter(Boolean))] as string[];
+              uniqueOps.slice(0, 8).forEach((op) => {
+                planMessages.push(`   • ${op}`);
+              });
+              if (uniqueOps.length > 8) {
+                planMessages.push(`   • ... and ${uniqueOps.length - 8} more operations`);
+              }
+            }
+          }
+          
+          planMessages.push("");
+          planMessages.push("💡 Tips for Graphical Visualization:");
+          planMessages.push("   • Copy this XML to SQL Server Management Studio");
+          planMessages.push("   • Use 'Display Estimated Execution Plan' (Ctrl+L)");
+          planMessages.push("   • Save as .sqlplan file for sharing");
+          planMessages.push("");
+          planMessages.push("📄 Raw XML Plan:");
+          planMessages.push("-".repeat(30));
+          planMessages.push(xmlContent);
+          
+        } else {
+          planMessages.push("📊 SQL Server Execution Plan Analysis");
+          planMessages.push("=" .repeat(50));
+          
+          if (res.messages && res.messages.length > 0) {
+            planMessages.push(...res.messages);
+          }
+          
+          // If we have execution plan data in rows, format it nicely
+          if (res.rows && res.rows.length > 0) {
+            planMessages.push("");
+            planMessages.push("🔍 Execution Plan Details:");
+            planMessages.push("-".repeat(30));
+            
+            res.rows.forEach((row: any, index: number) => {
+              Object.entries(row).forEach(([key, value]) => {
+                if (String(value).trim()) {
+                  // Handle SHOWPLAN_TEXT output specially
+                  if (key.toLowerCase().includes('showplan') || key.toLowerCase().includes('plan')) {
+                    const lines = String(value).split('\n').filter(line => line.trim());
+                    lines.forEach(line => planMessages.push(line));
+                  } else {
+                    planMessages.push(`${key}: ${value}`);
+                  }
+                }
+              });
+              if (index < res.rows.length - 1) planMessages.push("");
+            });
+          }
+          
+          planMessages.push("");
+          planMessages.push("💡 Tip: For graphical plans, use SQL Server Management Studio");
+        }
+      } else {
+        planMessages.push("📊 Query Execution Plan");
+        planMessages.push("=" .repeat(30));
+        
+        if (res.rows && res.rows.length > 0) {
+          res.rows.forEach((row: any) => {
+            if (typeof row === 'object') {
+              Object.entries(row).forEach(([key, value]) => {
+                planMessages.push(`${key}: ${value}`);
+              });
+            } else {
+              planMessages.push(String(row));
+            }
+          });
+        }
+        
+        if (res.messages && res.messages.length > 0) {
+          planMessages.push("");
+          planMessages.push("Additional Information:");
+          planMessages.push(...res.messages);
+        }
+      }
+
       updateActiveTab({
         result: {
-          query: prefix + query,
+          query: actualQuery,
           columns,
           rows: res.rows || [],
           rowCount: res.rowCount || res.rows?.length || 0,
           executionTime: res.executionTime || 0,
-          messages: res.messages || [],
+          messages: planMessages,
           startTime: Date.now() - (res.executionTime || 0),
           endTime: Date.now(),
+          xmlExecutionPlan: (res as any).xmlExecutionPlan, // Pass through XML plan data
         },
+        status: "idle",
+        activeResultTab: "messages", // Automatically switch to Messages tab
       });
-      updateActiveTab({ status: "idle" });
       setShowResults(true);
-    } catch (err: any) {
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
       updateActiveTab({
         result: {
-          query: prefix + query,
+          query: `EXPLAIN: ${query}`,
           columns: [],
           rows: [],
           rowCount: 0,
           executionTime: 0,
-          error: err?.message || String(err),
+          error: errorMessage,
           startTime: Date.now(),
           endTime: Date.now(),
         },
+        status: "error", 
+        activeResultTab: "messages"
       });
-      updateActiveTab({ status: "error", activeResultTab: "messages" });
     } finally {
-      if (activeTab.connectionType === "sqlserver") {
-        try {
-          await window.electronAPI.database.executeQuery(
-            activeTab.connectionId!,
-            "SET SHOWPLAN_ALL OFF;"
-          );
-        } catch {}
-      }
+      setIsExplainLoading(false);
     }
   };
 
   const formatSql = () => {
     if (!activeTab) return;
     try {
+      setIsFormatLoading(true);
       const dialect =
         activeTab.connectionType === "postgresql"
           ? "postgresql"
@@ -1039,13 +1446,93 @@ export default function WorkArea() {
             : "sql";
       const formatted = sqlFormat(activeTab.sql, { language: dialect as any });
       updateActiveTab({ sql: formatted });
-    } catch {}
+    } catch {
+      // Handle formatting errors silently
+    } finally {
+      setIsFormatLoading(false);
+    }
   };
 
   const updateActiveTab = (patch: Partial<Tab>) => {
     setTabs(prev =>
       prev.map(t => (t.id === activeTabId ? { ...t, ...patch } : t))
     );
+  };
+
+  // Function to format XML execution plan in a new tab
+  const formatXmlPlan = (xmlContent: string) => {
+    try {
+      // Simple XML formatting
+      const formatted = xmlContent
+        .replace(/></g, '>\n<')
+        .replace(/^\s*\n/gm, '')
+        .split('\n')
+        .map((line, index, arr) => {
+          const trimmed = line.trim();
+          if (!trimmed) return '';
+          
+          let depth = 0;
+          // Count opening tags before this line
+          for (let i = 0; i < index; i++) {
+            const prevLine = arr[i].trim();
+            const openTags = (prevLine.match(/<[^\/!][^>]*>/g) || []).length;
+            const closeTags = (prevLine.match(/<\/[^>]*>/g) || []).length;
+            depth += openTags - closeTags;
+          }
+          
+          // Adjust depth for current line
+          if (trimmed.startsWith('</')) {
+            depth = Math.max(0, depth - 1);
+          }
+          
+          return '  '.repeat(depth) + trimmed;
+        })
+        .filter(line => line.trim())
+        .join('\n');
+
+      // Create a new tab with formatted XML
+      const timestamp = new Date().toLocaleString();
+      const newTab: Tab = {
+        id: Date.now().toString(),
+        title: `Execution Plan XML - ${timestamp}`,
+        type: "content-viewer",
+        content: formatted,
+        contentType: "xml",
+        sql: "",
+        showFormatted: true,
+        status: "idle",
+        activeResultTab: "results",
+      };
+
+      setTabs(prev => [...prev, newTab]);
+      setActiveTabId(newTab.id);
+      
+    } catch (error) {
+      console.error('Error formatting XML:', error);
+      alert('Error formatting XML execution plan');
+    }
+  };
+
+  // Function to save XML execution plan as .sqlplan file
+  const saveAsSqlPlan = (xmlContent: string) => {
+    try {
+      const blob = new Blob([xmlContent], { type: 'application/xml' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      // Generate filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      link.download = `execution-plan-${timestamp}.sqlplan`;
+      
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Error saving SQLPlan file:', error);
+      alert('Error saving execution plan file');
+    }
   };
 
   // Function to clear all query highlighting
@@ -1210,16 +1697,61 @@ export default function WorkArea() {
     await execQueryWithSql(newSql);
   };
 
-  const handleColumnHeaderClick = async (column: string) => {
+  const handleColumnHeaderClick = async (column: string, event?: React.MouseEvent) => {
     if (!activeTab?.connectionId) return;
 
-    // Toggle sort direction: if same column, switch direction; if new column, start with ASC
-    let newDirection: "ASC" | "DESC" = "ASC";
-    if (currentSort?.column === column) {
-      newDirection = currentSort.direction === "ASC" ? "DESC" : "ASC";
-    }
+    // Check if Ctrl/Cmd key is held for multi-field sorting
+    const isMultiSort = event?.ctrlKey || event?.metaKey;
 
-    await applyOrderBy(column, newDirection);
+    if (isMultiSort) {
+      // Add to multi-sort fields
+      addToSortFields(column);
+    } else {
+      // Traditional single-column sort
+      // Toggle sort direction: if same column, switch direction; if new column, start with ASC
+      let newDirection: "ASC" | "DESC" = "ASC";
+      if (currentSort?.column === column) {
+        newDirection = currentSort.direction === "ASC" ? "DESC" : "ASC";
+      }
+
+      await applyOrderBy(column, newDirection);
+      // Clear multi-sort when doing single sort
+      setSortFields([]);
+    }
+  };
+
+  // Multi-field sorting functions
+  const addToSortFields = (column: string) => {
+    setSortFields(prev => {
+      const existingIndex = prev.findIndex(field => field.column === column);
+      if (existingIndex >= 0) {
+        // Toggle direction if column already exists
+        const updated = [...prev];
+        updated[existingIndex].direction = updated[existingIndex].direction === 'asc' ? 'desc' : 'asc';
+        return updated;
+      } else {
+        // Add new column to sort
+        return [...prev, { column, direction: 'asc' as const }];
+      }
+    });
+  };
+
+  const applyMultiSort = async () => {
+    if (!activeTab || sortFields.length === 0) return;
+    const newSql = injectMultiOrderBy(activeTab.sql, sortFields, activeResultIndex);
+    await execQueryWithSql(newSql);
+    setCurrentSort(null); // Clear single sort when using multi-sort
+  };
+
+  const removeSortField = (column: string) => {
+    setSortFields(prev => prev.filter(field => field.column !== column));
+  };
+
+
+
+  const clearAllSorts = () => {
+    setSortFields([]);
+    setCurrentSort(null);
   };
 
   // Clipboard helpers
@@ -1374,19 +1906,25 @@ export default function WorkArea() {
         }
         case "file-save": {
           if (!activeTab) break;
+          
+          // Determine content and extension based on tab type
+          const isContentViewer = activeTab.type === "content-viewer";
+          const content = isContentViewer ? (activeTab.content || "") : activeTab.sql;
+          const extension = isContentViewer ? (activeTab.contentType || "txt") : "sql";
+          
           if (activeTab.filePath) {
             await window.electronAPI?.files?.write(
               activeTab.filePath,
-              activeTab.sql
+              content
             );
           } else {
             const suggested =
-              (activeTab.title?.replace(/\s+/g, "_") || "query") + ".sql";
+              (activeTab.title?.replace(/\s+/g, "_") || "query") + `.${extension}`;
             const res = await window.electronAPI?.files?.saveDialog({
               defaultPath: suggested,
             });
             if (!res || res.canceled || !res.filePath) break;
-            await window.electronAPI?.files?.write(res.filePath, activeTab.sql);
+            await window.electronAPI?.files?.write(res.filePath, content);
             setTabs(prev =>
               prev.map(t =>
                 t.id === activeTab.id
@@ -1403,13 +1941,19 @@ export default function WorkArea() {
         }
         case "file-save-as": {
           if (!activeTab) break;
+          
+          // Determine content and extension based on tab type
+          const isContentViewer = activeTab.type === "content-viewer";
+          const content = isContentViewer ? (activeTab.content || "") : activeTab.sql;
+          const extension = isContentViewer ? (activeTab.contentType || "txt") : "sql";
+          
           const suggested =
-            (activeTab.title?.replace(/\s+/g, "_") || "query") + ".sql";
+            (activeTab.title?.replace(/\s+/g, "_") || "query") + `.${extension}`;
           const res = await window.electronAPI?.files?.saveDialog({
             defaultPath: activeTab.filePath || suggested,
           });
           if (!res || res.canceled || !res.filePath) break;
-          await window.electronAPI?.files?.write(res.filePath, activeTab.sql);
+          await window.electronAPI?.files?.write(res.filePath, content);
           setTabs(prev =>
             prev.map(t =>
               t.id === activeTab.id
@@ -1624,17 +2168,17 @@ export default function WorkArea() {
   return (
     <div className="h-full flex-1 flex flex-col bg-background text-foreground min-w-0">
       {/* Tabs Header */}
-      <div className="flex items-center overflow-x-auto border-b border-border bg-secondary min-w-0">
+      <div className="flex items-center overflow-x-auto border-b border-border bg-muted min-w-0">
         {tabs.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-muted-foreground"></div>
+          <div className="px-3 py-2 text-xs text-gray-500"></div>
         ) : (
           tabs.map(tab => (
             <div
               key={tab.id}
-              className={`flex items-center gap-2 px-3 py-2 text-sm cursor-pointer border-r border-border flex-shrink-0 border-t-2 ${
+              className={`flex items-center gap-2 h-8 px-2.5 text-sm cursor-pointer border-r border-border flex-shrink-0 ${
                 activeTabId === tab.id
-                  ? "bg-[hsl(var(--tab-active-bg))] text-secondary-foreground rounded-t-md border-t-accent"
-                  : "bg-muted text-muted-foreground hover:bg-accent border-t-transparent"
+                  ? "bg-background text-foreground"
+                  : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
               }`}
               onClick={() => setActiveTabId(tab.id)}
             >
@@ -1645,7 +2189,7 @@ export default function WorkArea() {
                 {tab.title}
               </span>
               <button
-                className="text-xs text-muted-foreground hover:text-foreground"
+                className="text-xs hover:text-red-500"
                 onClick={e => {
                   e.stopPropagation();
                   closeTab(tab.id);
@@ -1662,30 +2206,46 @@ export default function WorkArea() {
       {activeTab &&
         activeTab.type !== "edit-data" &&
         activeTab.type !== "content-viewer" && (
-          <div className="border-b border-border p-2 bg-secondary flex-shrink-0 flex items-center justify-between">
-            <div className="flex items-center gap-2">
+          <div className="border-b border-border px-4 py-3 bg-muted flex-shrink-0 flex items-center justify-between">
+            <div className="flex items-center gap-3">
               <button
                 onClick={runQuery}
-                disabled={!activeTab?.connectionId}
-                className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+                disabled={!activeTab?.connectionId || isRunLoading}
+                className="h-8 px-3 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
+                {isRunLoading && (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                )}
                 Run
               </button>
               <button
                 onClick={explainQuery}
-                disabled={!activeTab?.connectionId}
-                className="px-3 py-1 bg-muted text-foreground rounded text-sm hover:bg-accent disabled:opacity-50"
+                disabled={!activeTab?.connectionId || isExplainLoading}
+                className="h-8 px-3 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
+                {isExplainLoading && (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                )}
                 Explain
               </button>
               <button
                 onClick={formatSql}
-                className="px-3 py-1 bg-muted text-foreground rounded text-sm hover:bg-accent"
+                disabled={isFormatLoading}
+                className="h-8 px-3 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
+                {isFormatLoading && (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                )}
                 Format
               </button>
             </div>
-            <div className="text-xs text-muted-foreground">
+            <div className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-xs" title={
+              activeTab?.connectionName || activeTab?.database
+                ? [activeTab.connectionName, activeTab.database]
+                    .filter(Boolean)
+                    .join(" • ")
+                : "No database selected"
+            }>
               {activeTab?.connectionName || activeTab?.database
                 ? [activeTab.connectionName, activeTab.database]
                     .filter(Boolean)
@@ -1833,7 +2393,7 @@ export default function WorkArea() {
                           contextmenu: true,
                           selectOnLineNumbers: true,
                         }}
-                        theme="vs-dark"
+                        theme={theme === "dark" ? "vs-dark" : "vs"}
                       />
                     );
                   } else {
@@ -1861,7 +2421,7 @@ export default function WorkArea() {
                   }
                   style={resultsVisible ? { height: sqlHeight } : undefined}
                 >
-                  <div className="h-full border border-border rounded bg-card overflow-hidden min-w-0">
+                  <div className="h-full border border-border rounded bg-background overflow-hidden min-w-0">
                     <Editor
                       height="100%"
                       defaultLanguage="sql"
@@ -1872,24 +2432,71 @@ export default function WorkArea() {
                         fontSize: 13,
                         wordWrap: "on",
                       }}
-                      theme={theme === "dark" ? "vs-dark" : "light"}
+                      theme={theme === "dark" ? "sql-custom-dark" : "sql-custom-light"}
                       onMount={(editor, monaco) => {
                         // Store editor and monaco references for highlighting
                         monacoEditorRef.current = editor;
                         monacoRef.current = monaco;
 
+                        // Define simplified SQL syntax highlighting themes - following style3.txt
+                        monaco.editor.defineTheme('sql-custom-light', {
+                          base: 'vs',
+                          inherit: true,
+                          rules: [
+                            { token: 'keyword.sql', foreground: '2563EB' }, // Keywords - blue
+                            { token: 'string.sql', foreground: '059669' }, // Strings - green  
+                            { token: 'comment.sql', foreground: '6B7280', fontStyle: 'italic' }, // Comments - gray
+                          ],
+                          colors: {
+                            'editor.background': '#FFFFFF',
+                            'editor.foreground': '#000000', // Pure black for light mode
+                            'editorLineNumber.foreground': '#6B7280',
+                            'editor.selectionBackground': '#DBEAFE',
+                            'editor.lineHighlightBackground': '#F8FAFC',
+                          }
+                        });
+
+                        monaco.editor.defineTheme('sql-custom-dark', {
+                          base: 'vs-dark',
+                          inherit: true,
+                          rules: [
+                            { token: 'keyword.sql', foreground: '60A5FA' }, // Keywords - blue
+                            { token: 'string.sql', foreground: '10B981' }, // Strings - green
+                            { token: 'comment.sql', foreground: '9CA3AF', fontStyle: 'italic' }, // Comments - gray
+                          ],
+                          colors: {
+                            'editor.background': '#1F2937',
+                            'editor.foreground': '#FFFFFF', // Pure white for dark mode
+                            'editorLineNumber.foreground': '#9CA3AF',
+                            'editor.selectionBackground': '#243B66',
+                            'editor.lineHighlightBackground': '#374151',
+                          }
+                        });
+
                         editor.addCommand(
                           monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-                          () => runQuery()
+                          () => {
+                            if (!isRunLoading) {
+                              runQuery();
+                            }
+                          }
                         );
                         editor.addCommand(
                           monaco.KeyMod.CtrlCmd |
                             monaco.KeyMod.Shift |
                             monaco.KeyCode.Enter,
-                          () => explainQuery()
+                          () => {
+                            if (!isExplainLoading) {
+                              explainQuery();
+                            }
+                          }
                         );
                         // F5 to run query inside editor
-                        editor.addCommand(monaco.KeyCode.F5, () => runQuery());
+                        editor.addCommand(monaco.KeyCode.F5, () => {
+                          if (!isRunLoading) {
+                            runQuery();
+                          }
+                        });
                         editor.addCommand(
                           monaco.KeyMod.CtrlCmd |
                             monaco.KeyMod.Shift |
@@ -1938,11 +2545,15 @@ export default function WorkArea() {
 
             {showResults && !!getCurrentResult(activeTab) && (
               <div className="flex-1 min-h-[160px] bg-muted p-2 overflow-hidden">
-                <div className="h-full border border-border rounded bg-card flex flex-col min-w-0">
-                  <div className="flex items-center justify-between border-b border-border px-2 py-1 text-xs">
-                    <div className="flex items-center gap-2">
+                <div className="h-full border border-border rounded bg-background flex flex-col min-w-0">
+                  <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-3 py-2 text-sm">
+                    <div className="flex items-center gap-1">
                       <button
-                        className={`${(activeTab.activeResultTab ?? "results") === "results" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"} px-2 py-0.5 rounded hover:bg-accent`}
+                        className={`h-8 px-2.5 rounded font-medium ${
+                          (activeTab.activeResultTab ?? "results") === "results" 
+                            ? "bg-accent text-accent-foreground" 
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        }`}
                         onClick={() =>
                           updateActiveTab({ activeResultTab: "results" })
                         }
@@ -1950,7 +2561,11 @@ export default function WorkArea() {
                         Results
                       </button>
                       <button
-                        className={`${(activeTab.activeResultTab ?? "results") === "messages" ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground"} px-2 py-0.5 rounded hover:bg-accent`}
+                        className={`h-8 px-2.5 rounded font-medium ${
+                          (activeTab.activeResultTab ?? "results") === "messages" 
+                            ? "bg-accent text-accent-foreground" 
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground"
+                        }`}
                         onClick={() =>
                           updateActiveTab({ activeResultTab: "messages" })
                         }
@@ -1959,15 +2574,24 @@ export default function WorkArea() {
                       </button>
                     </div>
                     <div className="flex items-center gap-2">
+                      {sortFields.length > 0 && (
+                        <button
+                          className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium transition-colors duration-150 shadow-sm text-xs"
+                          onClick={() => setShowSortManager(true)}
+                          title={`Manage ${sortFields.length} sort field${sortFields.length > 1 ? 's' : ''}`}
+                        >
+                          📊 Sort ({sortFields.length})
+                        </button>
+                      )}
                       <button
-                        className="px-2 py-0.5 bg-muted text-foreground rounded hover:bg-accent"
+                        className="px-3 py-1.5 bg-muted text-foreground rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors duration-150 shadow-sm"
                         onClick={autoFitColumns}
                         disabled={!activeTab?.result?.columns?.length}
                       >
                         Auto-fit
                       </button>
                       <button
-                        className="px-2 py-0.5 bg-muted text-foreground rounded hover:bg-accent"
+                        className="px-3 py-1.5 bg-muted text-foreground rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors duration-150 shadow-sm"
                         onClick={resetColumnWidths}
                         disabled={!activeTab?.result?.columns?.length}
                       >
@@ -1993,20 +2617,58 @@ export default function WorkArea() {
                       if (
                         (activeTab.activeResultTab ?? "results") === "messages"
                       ) {
+                        // Check if we have XML execution plan data
+                        const hasXmlPlan = currentResult?.xmlExecutionPlan;
+                        console.log("🔍 Messages tab render check:", {
+                          hasCurrentResult: !!currentResult,
+                          hasXmlPlan: !!hasXmlPlan,
+                          xmlPlanType: typeof currentResult?.xmlExecutionPlan,
+                          xmlPlanLength: currentResult?.xmlExecutionPlan?.length,
+                        });
+                        
                         return (
-                          <div className="p-3 text-xs space-y-1">
-                            {currentResult?.messages &&
-                            currentResult.messages.length > 0 ? (
-                              currentResult.messages.map((m, i) => (
-                                <div key={i} className="text-foreground/80">
-                                  {m}
-                                </div>
-                              ))
-                            ) : (
-                              <div className="text-muted-foreground">
-                                No messages
+                          <div className="p-3 space-y-4">
+                            {/* Show ExecutionPlanViewer if we have XML plan data */}
+                            {hasXmlPlan && currentResult.xmlExecutionPlan && (
+                              <div>
+                                <div className="text-sm text-green-600 mb-2">🌳 SQL Server Execution Plan</div>
+                                <ExecutionPlanViewer 
+                                  xmlContent={currentResult.xmlExecutionPlan}
+                                  onFormatXml={() => currentResult.xmlExecutionPlan && formatXmlPlan(currentResult.xmlExecutionPlan)}
+                                  onSaveAsSqlPlan={() => currentResult.xmlExecutionPlan && saveAsSqlPlan(currentResult.xmlExecutionPlan)}
+                                />
                               </div>
                             )}
+                            
+                            {/* Show regular messages */}
+                            <div className="text-xs space-y-1">
+                              {currentResult?.messages &&
+                              currentResult.messages.length > 0 ? (
+                                (() => {
+                                  let filteredMessages = currentResult.messages;
+                                  
+                                  // If we have XML execution plan, filter out the raw XML section
+                                  if (hasXmlPlan) {
+                                    const rawXmlStart = filteredMessages.findIndex(msg => 
+                                      msg.includes("📄 Raw XML Plan:") || msg.includes("Raw XML Plan")
+                                    );
+                                    if (rawXmlStart !== -1) {
+                                      filteredMessages = filteredMessages.slice(0, rawXmlStart);
+                                    }
+                                  }
+                                  
+                                  return filteredMessages.map((m, i) => (
+                                    <div key={i} className="text-foreground/80">
+                                      {m}
+                                    </div>
+                                  ));
+                                })()
+                              ) : (
+                                <div className="text-muted-foreground">
+                                  No messages
+                                </div>
+                              )}
+                            </div>
                           </div>
                         );
                       }
@@ -2039,16 +2701,16 @@ export default function WorkArea() {
                           {activeTab.results &&
                             activeTab.results.length > 1 && (
                               <div className="flex items-center overflow-x-auto border-b border-border bg-secondary min-w-0">
-                                <span className="px-3 py-2 text-xs text-muted-foreground flex-shrink-0">
+                                <span className="px-3 py-2 text-sm text-muted-foreground flex-shrink-0 font-medium">
                                   Results:
                                 </span>
                                 {activeTab.results.map((result, index) => (
                                   <button
                                     key={index}
-                                    className={`px-3 py-2 text-xs border-r border-border flex-shrink-0 border-t-2 transition-colors ${
+                                    className={`h-8 px-2.5 text-sm border-r border-border flex-shrink-0 transition-colors duration-150 font-medium rounded-lg relative ${
                                       activeResultIndex === index
-                                        ? "bg-[hsl(var(--tab-active-bg))] text-secondary-foreground rounded-t-md border-t-accent"
-                                        : "bg-muted text-muted-foreground hover:bg-accent border-t-transparent"
+                                        ? "bg-[#E0F2FE] dark:bg-[#1F2937] text-[#2563EB] dark:text-[#60A5FA]"
+                                        : "bg-transparent text-[#6B7280] dark:text-[#9CA3AF] hover:bg-accent hover:text-foreground"
                                     }`}
                                     onClick={() => {
                                       console.log(
@@ -2070,19 +2732,22 @@ export default function WorkArea() {
                                   >
                                     Query {index + 1} ({result.rowCount || 0}{" "}
                                     rows)
+                                    {activeResultIndex === index && (
+                                      <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#2563EB] dark:bg-[#60A5FA] rounded-t"></div>
+                                    )}
                                   </button>
                                 ))}
                               </div>
                             )}
 
                           {/* Search/Filter Interface */}
-                          <div className="px-3 py-2 border-b border-border bg-slate-100 dark:bg-slate-800">
-                            <div className="flex items-center gap-2">
-                              <label className="text-xs text-muted-foreground font-medium">
+                          <div className="h-10 px-4 flex items-center border-b border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
+                            <div className="flex items-center gap-3 w-full">
+                              <label className="text-sm text-black dark:text-white font-medium flex-shrink-0">
                                 Search:
                               </label>
                               <select
-                                className="text-xs px-2 py-1 border border-border rounded bg-card text-foreground min-w-[120px]"
+                                className="h-8 text-sm px-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-black dark:text-white min-w-[140px] focus:outline-2 focus:outline-blue-500 focus:outline-offset-2"
                                 value={searchFilter.column}
                                 onChange={e =>
                                   setSearchFilter(prev => ({
@@ -2100,7 +2765,7 @@ export default function WorkArea() {
                               </select>
                               <input
                                 type="text"
-                                className="text-xs px-2 py-1 border border-border rounded bg-card text-foreground flex-1 min-w-[200px]"
+                                className="h-8 text-sm px-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-black dark:text-white flex-1 min-w-[200px] focus:outline-2 focus:outline-blue-500 focus:outline-offset-2 placeholder-gray-400"
                                 placeholder={
                                   searchFilter.column
                                     ? `Search in ${searchFilter.column}...`
@@ -2116,7 +2781,7 @@ export default function WorkArea() {
                               />
                               {searchFilter.value && (
                                 <button
-                                  className="text-xs px-2 py-1 bg-muted text-foreground rounded hover:bg-accent"
+                                  className="text-sm px-3 py-1 bg-gray-100 dark:bg-gray-800 text-black dark:text-white rounded hover:bg-gray-200 dark:hover:bg-gray-700"
                                   onClick={() =>
                                     setSearchFilter({ column: "", value: "" })
                                   }
@@ -2126,7 +2791,7 @@ export default function WorkArea() {
                                 </button>
                               )}
                               {/* Filter result count */}
-                              <span className="text-xs text-muted-foreground ml-2">
+                              <span className="text-sm text-[#6B7280] dark:text-[#9CA3AF] font-medium flex-shrink-0">
                                 {searchFilter.value
                                   ? `${currentResult.rows.length} of ${rawResult?.rows.length || 0} rows`
                                   : `${currentResult.rows.length} rows`}
@@ -2148,8 +2813,8 @@ export default function WorkArea() {
                               });
                             }}
                           >
-                            <table className="w-full text-xs">
-                              <thead className="sticky top-0 bg-muted">
+                            <table className="w-full text-sm">
+                              <thead className="sticky top-0 bg-white dark:bg-gray-800 z-10">
                                 <tr>
                                   {currentResult.columns.map((c, i) => (
                                     <th
@@ -2157,13 +2822,13 @@ export default function WorkArea() {
                                       ref={el => {
                                         (headerRefs as any)[c] = el;
                                       }}
-                                      className="text-left px-2 py-1 border-b border-border whitespace-nowrap relative cursor-pointer hover:bg-accent"
+                                      className="h-10 text-left px-2.5 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap relative cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 font-medium text-black dark:text-white"
                                       style={
                                         activeTab.columnWidths?.[c]
                                           ? { width: activeTab.columnWidths[c] }
-                                          : { minWidth: "100px" }
+                                          : { minWidth: "120px" }
                                       }
-                                      onClick={() => handleColumnHeaderClick(c)}
+                                      onClick={(e) => handleColumnHeaderClick(c, e)}
                                       onContextMenu={e => {
                                         e.preventDefault();
                                         if (!activeTab?.connectionId) return;
@@ -2176,9 +2841,9 @@ export default function WorkArea() {
                                       }}
                                     >
                                       <div className="flex items-center justify-between">
-                                        <span>{c}</span>
+                                        <span className="text-sm font-bold">{c}</span>
                                         {currentSort?.column === c && (
-                                          <span className="ml-1 text-xs opacity-70">
+                                          <span className="ml-2 text-sm">
                                             {currentSort.direction === "ASC"
                                               ? "↑"
                                               : "↓"}
@@ -2186,7 +2851,7 @@ export default function WorkArea() {
                                         )}
                                       </div>
                                       <span
-                                        className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-blue-500/40"
+                                        className="absolute right-0 top-0 h-full w-1 cursor-col-resize hover:bg-[#2563EB]/60"
                                         onMouseDown={e => startResize(c, e)}
                                       />
                                     </th>
@@ -2195,7 +2860,14 @@ export default function WorkArea() {
                               </thead>
                               <tbody>
                                 {currentResult.rows.map((r, i) => (
-                                  <tr key={i} className="odd:bg-muted/50">
+                                  <tr 
+                                    key={i} 
+                                    className={`hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
+                                      i % 2 === 0 
+                                        ? "bg-white dark:bg-gray-800" 
+                                        : "bg-gray-50 dark:bg-gray-750"
+                                    }`}
+                                  >
                                     {currentResult.columns.map((c, j) => {
                                       const {
                                         content,
@@ -2205,7 +2877,7 @@ export default function WorkArea() {
                                       return (
                                         <td
                                           key={j}
-                                          className="px-2 py-1 align-top border-b border-border/60"
+                                          className="px-2.5 py-2.5 align-top border-b border-gray-200 dark:border-gray-600"
                                           style={
                                             activeTab.columnWidths?.[c]
                                               ? {
@@ -2216,12 +2888,35 @@ export default function WorkArea() {
                                           }
                                         >
                                           <div className="relative group">
-                                            <pre className="whitespace-pre-wrap break-words text-[11px]">
-                                              {content}
-                                            </pre>
+                                            {(() => {
+                                              const cellValue = r[c];
+                                              const isUrl = typeof cellValue === 'string' && /^https?:\/\//.test(cellValue);
+                                              
+                                              if (isUrl) {
+                                                return (
+                                                  <a 
+                                                    href={cellValue} 
+                                                    target="_blank" 
+                                                    rel="noopener noreferrer"
+                                                    className="text-blue-600 dark:text-blue-400 hover:underline break-words text-sm"
+                                                  >
+                                                    {content}
+                                                  </a>
+                                                );
+                                              } else {
+                                                return (
+                                                  <span 
+                                                    className="text-sm text-black dark:text-white break-words"
+                                                    title={shouldTruncate ? String(cellValue) : undefined}
+                                                  >
+                                                    {content}
+                                                  </span>
+                                                );
+                                              }
+                                            })()}
                                             {shouldTruncate && (
                                               <button
-                                                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 bg-blue-600 text-white text-[9px] px-1 py-0.5 rounded text-nowrap hover:bg-blue-700 transition-opacity"
+                                                className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 bg-blue-600 text-white text-xs px-2 py-1 rounded hover:bg-blue-700"
                                                 onClick={() => {
                                                   const fullContent =
                                                     formatCell(r[c]);
@@ -2308,6 +3003,136 @@ export default function WorkArea() {
                           applyOrderBy(columnMenu.column!, "DESC");
                         }}
                       />
+                      <div className="border-t border-border my-1" />
+                      <MenuItem
+                        label={`Add ${columnMenu.column} to sort (ASC)`}
+                        onClick={() => {
+                          setColumnMenu(prev => ({ ...prev, show: false }));
+                          setSortFields(prev => {
+                            const existingIndex = prev.findIndex(field => field.column === columnMenu.column);
+                            if (existingIndex >= 0) {
+                              const updated = [...prev];
+                              updated[existingIndex].direction = 'asc';
+                              return updated;
+                            } else {
+                              return [...prev, { column: columnMenu.column!, direction: 'asc' }];
+                            }
+                          });
+                        }}
+                      />
+                      <MenuItem
+                        label={`Add ${columnMenu.column} to sort (DESC)`}
+                        onClick={() => {
+                          setColumnMenu(prev => ({ ...prev, show: false }));
+                          setSortFields(prev => {
+                            const existingIndex = prev.findIndex(field => field.column === columnMenu.column);
+                            if (existingIndex >= 0) {
+                              const updated = [...prev];
+                              updated[existingIndex].direction = 'desc';
+                              return updated;
+                            } else {
+                              return [...prev, { column: columnMenu.column!, direction: 'desc' }];
+                            }
+                          });
+                        }}
+                      />
+                      {sortFields.length > 0 && (
+                        <>
+                          <div className="border-t border-border my-1" />
+                          <MenuItem
+                            label="Manage Sort Order..."
+                            onClick={() => {
+                              setColumnMenu(prev => ({ ...prev, show: false }));
+                              setShowSortManager(true);
+                            }}
+                          />
+                        </>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Sort Manager Dialog */}
+                  {showSortManager && (
+                    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
+                      <div className="bg-white dark:bg-gray-800 border border-border rounded-lg shadow-xl w-96 max-h-[80vh] overflow-hidden">
+                        <div className="px-4 py-3 border-b border-border bg-gray-50 dark:bg-gray-700">
+                          <div className="flex items-center justify-between">
+                            <h3 className="font-semibold text-sm">Sort Order Manager</h3>
+                            <button
+                              onClick={() => setShowSortManager(false)}
+                              className="text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        </div>
+                        
+                        <div className="p-4">
+                          {sortFields.length === 0 ? (
+                            <div className="text-center py-8 text-gray-500 dark:text-gray-400 text-sm">
+                              No sort fields configured.<br/>
+                              Right-click on column headers to add fields to sort.
+                            </div>
+                          ) : (
+                            <div className="space-y-2">
+                              <div className="text-xs text-gray-600 dark:text-gray-400 mb-3">
+                                Drag to reorder • Click direction to toggle • Click × to remove
+                              </div>
+                              
+                              {sortFields.map((field, index) => (
+                                <div
+                                  key={`${field.column}-${index}`}
+                                  className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-700 rounded border"
+                                >
+                                  <div className="flex-1 text-sm font-medium">
+                                    {index + 1}. {field.column}
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setSortFields(prev => {
+                                        const updated = [...prev];
+                                        updated[index].direction = updated[index].direction === 'asc' ? 'desc' : 'asc';
+                                        return updated;
+                                      });
+                                    }}
+                                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                                  >
+                                    {field.direction.toUpperCase()}
+                                  </button>
+                                  <button
+                                    onClick={() => removeSortField(field.column)}
+                                    className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        
+                        <div className="px-4 py-3 border-t border-border bg-gray-50 dark:bg-gray-700 flex gap-2">
+                          <button
+                            onClick={applyMultiSort}
+                            disabled={sortFields.length === 0}
+                            className="flex-1 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Apply Sort ({sortFields.length} fields)
+                          </button>
+                          <button
+                            onClick={clearAllSorts}
+                            className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+                          >
+                            Clear All
+                          </button>
+                          <button
+                            onClick={() => setShowSortManager(false)}
+                            className="px-3 py-1 text-sm border border-border rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+                          >
+                            Close
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -2480,6 +3305,50 @@ function injectOrderBy(
     modifiedQuery = targetQuery.replace(
       /;?\s*$/,
       ` ORDER BY ${wrapIdent(column)} ${dir}`
+    );
+  }
+
+  // Replace the target query in the array
+  const modifiedQueries = [...queries];
+  modifiedQueries[targetIndex] = modifiedQuery;
+
+  // Rejoin the queries with semicolons
+  return modifiedQueries.map(q => q.trim()).join(";\n") + ";";
+}
+
+function injectMultiOrderBy(
+  sql: string,
+  sortFields: Array<{column: string; direction: 'asc' | 'desc'}>,
+  queryIndex: number = 0
+) {
+  // Parse SQL into individual queries
+  const queries = parseSQLQueries(sql);
+
+  if (queries.length === 0 || sortFields.length === 0) return sql;
+
+  // Make sure queryIndex is within bounds
+  const targetIndex = Math.min(queryIndex, queries.length - 1);
+  const targetQuery = queries[targetIndex];
+
+  // Create ORDER BY clause from multiple fields
+  const orderByClause = sortFields
+    .map(field => `${wrapIdent(field.column)} ${field.direction.toUpperCase()}`)
+    .join(', ');
+
+  // Apply ORDER BY to the target query
+  const hasOrder = /order\s+by/gi.test(targetQuery);
+  let modifiedQuery: string;
+
+  if (hasOrder) {
+    modifiedQuery = targetQuery.replace(
+      /order\s+by[\s\S]*?$/i,
+      `ORDER BY ${orderByClause}`
+    );
+  } else {
+    // Remove trailing semicolon if present, add ORDER BY, then add semicolon back
+    modifiedQuery = targetQuery.replace(
+      /;?\s*$/,
+      ` ORDER BY ${orderByClause}`
     );
   }
 

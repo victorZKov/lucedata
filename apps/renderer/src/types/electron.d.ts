@@ -62,6 +62,10 @@ declare global {
           executionTime: number;
           messages?: string[];
         }>;
+        getXmlExecutionPlan: (
+          connectionId: string,
+          query: string
+        ) => Promise<string | null>;
         getTableData: (
           connectionId: string,
           tableName: string,

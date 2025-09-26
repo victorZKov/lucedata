@@ -187,7 +187,7 @@ export default function Explorer() {
     schema?: string;
     table?: string;
     routine?: string;
-    routineKind?: "procedure" | "function";
+    routineKind?: "view" | "procedure" | "function";
     type?: string;
     connName?: string;
     db?: string;
@@ -1084,7 +1084,7 @@ export default function Explorer() {
     schema?: string;
     routine?: string;
     type?: string;
-    routineType?: "procedure" | "function" | "trigger";
+    routineType?: "view" | "procedure" | "function" | "trigger";
   }) => {
     if (!ctx.connId || !ctx.schema || !ctx.routine) return "-- Missing context";
     const ident = (n: string) =>
@@ -1116,6 +1116,12 @@ export default function Explorer() {
             // For triggers, we might want to show a DROP and CREATE pattern
             // since ALTER TRIGGER has limited functionality
             def = `-- To modify this trigger, drop and recreate it\n${def.replace(/^(\s*)CREATE(\s+)TRIGGER/im, `$1DROP TRIGGER ${qualified};\nGO\n\n$1CREATE$2TRIGGER`)}`;
+          } else if (ctx.routineType === "view") {
+            // Convert CREATE to ALTER for views
+            def = def.replace(
+              /^(\s*)CREATE(\s+)VIEW/im,
+              "$1ALTER$2VIEW"
+            );
           }
           return def;
         }
@@ -1422,11 +1428,66 @@ export default function Explorer() {
       // Handle "New {GroupType}" for group nodes
       const parentTable = findParentTable(nodeKey);
       const parentSchema = findParentSchema(nodeKey);
+      const groupType = node.name;
 
-      if (parentTable && parentSchema) {
+      // Schema-level groups (under Programmability)
+      const schemaLevelGroups = ["Stored Procedures", "Functions", "Types", "Sequences"];
+      const isSchemaLevel = schemaLevelGroups.includes(groupType);
+
+      if (isSchemaLevel && parentSchema) {
+        // Handle schema-level groups
         let sql = "";
         let title = "";
-        const groupType = node.name;
+
+        switch (groupType) {
+          case "Stored Procedures":
+            sql = generateStoredProcedureDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_stored_procedure`;
+            break;
+          case "Functions":
+            sql = generateFunctionDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_function`;
+            break;
+          case "Types":
+            sql = generateTypeDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_type`;
+            break;
+          case "Sequences":
+            sql = generateSequenceDDL(
+              conn?.type || "sqlserver",
+              "create",
+              parentSchema
+            );
+            title = `${getDatabaseName(conn?.database, nodeKey)}.new_sequence`;
+            break;
+        }
+
+        if (sql) {
+          openDDLTab(
+            sql,
+            title,
+            connectionId,
+            conn?.type || "",
+            conn?.name || "",
+            conn?.database || ""
+          );
+        }
+      } else if (parentTable && parentSchema) {
+        // Handle table-level groups
+        let sql = "";
+        let title = "";
 
         switch (groupType) {
           case "Columns":
@@ -1512,11 +1573,21 @@ export default function Explorer() {
     // Database nodes have "New Query" option
     if (node.type === "database") return true;
 
-    // Schema nodes (especially dbo) have "New Table" and "New Query" options
+    // Schema nodes (especially dbo) have "New Table", "New View" and "New Query" options
     if (node.type === "schema") return true;
 
-    // Group nodes have "New {GroupType}" options (Columns, Keys, Constraints, Triggers, Indexes)
-    if (node.type === "group") return true;
+    // Group nodes have "New {GroupType}" options, but exclude "Programmability" node
+    if (node.type === "group") {
+      // Exclude the Programmability parent node
+      if (node.name === "Programmability") return false;
+      
+      // Allow specific sub-groups under programmability and table groups
+      const allowedGroups = [
+        "Columns", "Keys", "Constraints", "Triggers", "Indexes", // Table groups
+        "Stored Procedures", "Functions", "Types", "Sequences"    // Schema groups
+      ];
+      return allowedGroups.includes(node.name);
+    }
 
     return false;
   };
@@ -1527,6 +1598,173 @@ export default function Explorer() {
     if (node.type === "database" || node.type === "schema") return true;
 
     return false;
+  };
+
+  // Helper function to determine if a node can be edited
+  const canNodeBeEdited = (node: any): boolean => {
+    // Tables have "Edit data" functionality
+    if (node.type === "table") return true;
+
+    // Individual schema objects have "Modify" functionality
+    if (node.type === "column" || 
+        node.type === "key" || 
+        node.type === "constraint" || 
+        node.type === "trigger" || 
+        node.type === "index") {
+      return true;
+    }
+
+    // Views, procedures, and functions have "Edit" functionality
+    if (node.type === "view" || 
+        node.type === "procedure" || 
+        node.type === "function") {
+      return true;
+    }
+
+    return false;
+  };
+
+  // Handle edit action for editable nodes
+  const handleEditAction = (node: any, connectionId: string, nodeKey: string) => {
+    const conn = connections.find(c => c.id === connectionId);
+    if (!conn) return;
+
+    // For tables, open edit data tab
+    if (node.type === "table") {
+      const detail = {
+        connectionId: connectionId,
+        connectionType: conn.type,
+        connectionName: conn.name,
+        database: getDatabaseNameForConnection(connectionId),
+        schema: (node as TableNode).schema,
+        table: node.name,
+      };
+      document.dispatchEvent(
+        new CustomEvent("open-edit-data-tab", { detail })
+      );
+      return;
+    }
+
+    // For schema objects (columns, keys, constraints, triggers, indexes), open modify DDL
+    if (node.type === "column" || 
+        node.type === "key" || 
+        node.type === "constraint" || 
+        node.type === "trigger" || 
+        node.type === "index") {
+      
+      // Extract parent table and schema information 
+      // First try the nodeKey format, then search through schema data
+      let parentTable = findParentTable(nodeKey);
+      let parentSchema = findParentSchema(nodeKey);
+      const database = getDatabaseNameForConnection(connectionId);
+      
+      // If nodeKey doesn't have the full hierarchy, search through expanded schema data
+      if (!parentTable || !parentSchema) {
+        const result = findParentTableFromSchemaData(connectionId, node.name, node.type);
+        if (result) {
+          parentTable = result.table;
+          parentSchema = result.schema;
+        }
+      }
+      
+      if (!parentTable || !parentSchema) {
+        console.error("Could not find parent table or schema for node:", nodeKey);
+        return;
+      }
+      
+      let sql = "";
+      let title = "";
+      
+      switch (node.type) {
+        case "column":
+          sql = generateColumnDDL(
+            conn.type || "sqlserver",
+            "update",
+            parentTable,
+            parentSchema,
+            node
+          );
+          title = `${database}.modify_column`;
+          break;
+        case "key":
+          sql = generateKeyDDL(
+            conn.type || "sqlserver", 
+            "update",
+            parentTable,
+            parentSchema,
+            node
+          );
+          title = `${database}.modify_key`;
+          break;
+        case "constraint":
+          sql = generateConstraintDDL(
+            conn.type || "sqlserver",
+            "update", 
+            parentTable,
+            parentSchema,
+            node
+          );
+          title = `${database}.modify_constraint`;
+          break;
+        case "trigger":
+          sql = generateTriggerDDL(
+            conn.type || "sqlserver",
+            "update",
+            parentTable,
+            parentSchema,
+            node
+          );
+          title = `${database}.modify_trigger`;
+          break;
+        case "index":
+          sql = generateIndexDDL(
+            conn.type || "sqlserver",
+            "update",
+            parentTable,
+            parentSchema, 
+            node
+          );
+          title = `${database}.modify_index`;
+          break;
+      }
+
+      if (sql) {
+        openDDLTab(
+          sql,
+          title,
+          connectionId,
+          conn.type || "",
+          conn.name || "",
+          database
+        );
+      }
+      return;
+    }
+
+    // For views, procedures, and functions, fetch definition and open script tab
+    if (node.type === "view" || node.type === "procedure" || node.type === "function") {
+      const routineNode = node as ViewNode | ProcedureNode | FunctionNode;
+      const database = getDatabaseNameForConnection(connectionId);
+      
+      const contextData = {
+        connId: connectionId,
+        schema: routineNode.schema,
+        routine: routineNode.name,
+        routineType: node.type === "view" ? "view" : node.type,
+        type: conn.type,
+        connName: conn.name,
+        db: database,
+      };
+
+      fetchRoutineDefinition(contextData).then(definition => {
+        if (definition) {
+          const title = `Edit ${node.type}: ${routineNode.schema}.${routineNode.name}`;
+          openScriptTab(contextData, title, definition);
+        }
+      }).catch(error => {
+        console.error("Failed to fetch routine definition:", error);
+      });
+    }
   };
 
   // Handle "New Query" action for nodes
@@ -1586,62 +1824,59 @@ export default function Explorer() {
           node.name === "Triggers" ||
           node.name === "Indexes"));
 
-    // Get color for different node types
-    const getNodeColor = () => {
-      // Detect if we're in dark mode by checking document class or CSS custom property
+
+
+    const getIcon = () => {
+      // Following style3.txt: Icons carry the semantic meaning and color
       const isDarkMode =
         document.documentElement.classList.contains("dark") ||
         window.matchMedia("(prefers-color-scheme: dark)").matches;
-
-      switch (node.type) {
-        case "database":
-          return isDarkMode ? "#2E3A59" : "#1E3A8A"; // Dark Navy / Navy Blue
-        case "schema":
-          return isDarkMode ? "#4C566A" : "#475569"; // Slate Gray / Slate Gray
-        case "group":
-          // Folders (Columns, Keys, Constraints, Triggers, Indexes)
-          return isDarkMode ? "#5E81AC" : "#2563EB"; // Steel Blue / Blue 600
-        case "table":
-          return isDarkMode ? "#D08770" : "#C2410C"; // Soft Terracotta / Rust Orange
-        case "view":
-          return isDarkMode ? "#5E81AC" : "#2563EB"; // Steel Blue / Blue 600
-        case "procedure":
-        case "function":
-          return isDarkMode ? "#5E81AC" : "#2563EB"; // Steel Blue / Blue 600
-        case "column": {
-          // Column colors based on properties
-          const columnNode = node as ColumnNode;
-          if (columnNode.isPrimaryKey) {
-            return isDarkMode ? "#BF616A" : "#B91C1C"; // Muted Red / Deep Red
-          } else if (!columnNode.nullable) {
-            return isDarkMode ? "#EBCB8B" : "#B45309"; // Amber/Gold / Dark Amber
-          } else {
-            return isDarkMode ? "#A3BE8C" : "#15803D"; // Greenish tone / Deep Green
-          }
+      
+      const isSelected = activeNodeKey === nodeKey;
+      
+      // Get semantic colors for different node types
+      const getIconColor = () => {
+        const baseColors = {
+          database: isDarkMode ? "#60A5FA" : "#1D4ED8", // Blue - stronger contrast when selected
+          schema: isDarkMode ? "#9CA3AF" : "#374151", // Gray
+          table: isDarkMode ? "#F59E0B" : "#B45309", // Orange/Amber - darker in light mode
+          view: isDarkMode ? "#10B981" : "#047857", // Green - darker in light mode  
+          procedure: isDarkMode ? "#8B5CF6" : "#6D28D9", // Purple - darker in light mode
+          function: isDarkMode ? "#F97316" : "#C2410C", // Orange - darker in light mode
+          group: isDarkMode ? "#06B6D4" : "#0E7490", // Cyan - darker in light mode
+          column: isDarkMode ? "#84CC16" : "#65A30D", // Lime - darker in light mode
+        };
+        
+        const color = baseColors[node.type as keyof typeof baseColors] || (isDarkMode ? "#9CA3AF" : "#6B7280");
+        
+        // For selected nodes, make icons more prominent
+        if (isSelected) {
+          return isDarkMode ? "#FFFFFF" : "#000000"; // High contrast for selected
         }
-        default:
-          return isDarkMode ? "#2E3440" : "#111827"; // Near Black / Almost Black
-      }
-    };
+        
+        return color;
+      };
 
-    const getIcon = () => {
+      const iconColor = getIconColor();
+      const iconProps = { size: 16, color: iconColor };
+
       switch (node.type as any) {
         case "database":
-          return <Database size={16} />;
+          return <Database {...iconProps} />;
         case "schema":
-          return <FolderTree size={16} />;
+          return <FolderTree {...iconProps} />;
         case "table":
-          return <Table size={16} />;
+          return <Table {...iconProps} />;
         case "view":
-          return <Eye size={16} />;
+          return <Eye {...iconProps} />;
         case "procedure":
-          return <PlayCircle size={16} />;
+          return <PlayCircle {...iconProps} />;
         case "function":
-          return <Sigma size={16} />;
+          return <Sigma {...iconProps} />;
         case "group":
-          return <Folder size={16} />;
+          return <Folder {...iconProps} />;
         default:
-          return <FileText size={16} />;
+          return <FileText {...iconProps} />;
       }
     };
 
@@ -1792,14 +2027,14 @@ export default function Explorer() {
           db: getDatabaseNameForConnection(connectionId),
           nodeKey,
         });
-      } else if (node.type === "procedure" || node.type === "function") {
+      } else if (node.type === "view" || node.type === "procedure" || node.type === "function") {
         setContextMenu({
           x: e.clientX,
           y: e.clientY,
           visible: true,
           mode: "routine",
           connId: connectionId,
-          schema: (node as ProcedureNode | FunctionNode).schema,
+          schema: (node as ViewNode | ProcedureNode | FunctionNode).schema,
           routine: node.name,
           routineKind: node.type,
           type: conn?.type,
@@ -1831,12 +2066,33 @@ export default function Explorer() {
           });
         }
       } else if (node.type === "group") {
-        // Handle group nodes (Columns, Keys, Constraints, Triggers, Indexes)
+        // Handle group nodes
         const groupNode = node as GroupNode;
         const parentTable = findParentTable(nodeKey);
         const parentSchema = findParentSchema(nodeKey);
 
-        if (parentTable && parentSchema) {
+        // Schema-level groups (under Programmability)
+        const schemaLevelGroups = ["Stored Procedures", "Functions", "Types", "Sequences"];
+        const isSchemaLevel = schemaLevelGroups.includes(groupNode.name);
+
+        if (isSchemaLevel && parentSchema) {
+          // Schema-level groups don't need a parent table
+          setContextMenu({
+            x: e.clientX,
+            y: e.clientY,
+            visible: true,
+            mode: "group",
+            connId: connectionId,
+            schema: parentSchema,
+            // table: undefined for schema-level groups
+            groupType: groupNode.name,
+            type: conn?.type,
+            connName: conn?.name,
+            db: conn?.database,
+            nodeKey,
+          });
+        } else if (parentTable && parentSchema) {
+          // Table-level groups need both parent table and schema
           setContextMenu({
             x: e.clientX,
             y: e.clientY,
@@ -1892,31 +2148,24 @@ export default function Explorer() {
         <div
           className={`flex items-center px-2 py-1 text-sm cursor-pointer group transition-colors duration-150 ${
             activeNodeKey === nodeKey
-              ? "" // Remove default text color classes when active
-              : "hover:bg-gray-50/70 dark:hover:bg-indigo-950/30"
+              ? "bg-blue-600 dark:bg-blue-600" // Selected state with strong blue background
+              : "hover:bg-gray-50/70 dark:hover:bg-gray-800/30" // Normal and hover states
           }`}
           style={{
             paddingLeft: `${(level + 1) * 16 + 8}px`,
-            backgroundColor:
-              activeNodeKey === nodeKey
-                ? document.documentElement.classList.contains("dark") ||
-                  window.matchMedia("(prefers-color-scheme: dark)").matches
-                  ? "#88C0D0" // Cool Cyan for dark mode
-                  : "#E0F2FE" // Light cyan for light mode
-                : "transparent",
-            color:
-              activeNodeKey === nodeKey
-                ? document.documentElement.classList.contains("dark") ||
-                  window.matchMedia("(prefers-color-scheme: dark)").matches
-                  ? "white" // White text for dark mode selection
-                  : "#0C4A6E" // Teal 900 for light mode selection
-                : getNodeColor(),
           }}
           onClick={e => {
             // Handle refresh icon click
             if ((e.target as HTMLElement).closest(".refresh-icon")) {
               e.stopPropagation();
               refreshNode(connectionId, node.type, nodeKey, node);
+              return;
+            }
+
+            // Handle edit icon click
+            if ((e.target as HTMLElement).closest(".edit-icon")) {
+              e.stopPropagation();
+              handleEditAction(node, connectionId, nodeKey);
               return;
             }
 
@@ -1936,7 +2185,15 @@ export default function Explorer() {
           )}
           {!hasChildren && <span className="mr-3" />}
           <span className="mr-2">{getIcon()}</span>
-          <span className="flex-1 truncate" title={getDisplayText()}>
+          <span 
+            className="flex-1 truncate"
+            style={{ 
+              color: activeNodeKey === nodeKey 
+                ? "#ffffff" // White text for selected state (works on blue background)
+                : (document.documentElement.classList.contains("dark") ? "#ffffff" : "#000000") // Theme-based text for normal state
+            }}
+            title={getDisplayText()}
+          >
             {getDisplayText()}
           </span>
 
@@ -1985,6 +2242,30 @@ export default function Explorer() {
               title="New Query"
             >
               <FileText
+                className={`w-3 h-3 ${
+                  activeNodeKey === nodeKey
+                    ? "text-gray-800 dark:text-gray-300"
+                    : "text-gray-600 dark:text-gray-400 hover:text-white"
+                }`}
+              />
+            </button>
+          )}
+
+          {/* Edit icon for nodes that can be edited */}
+          {canNodeBeEdited(node) && (
+            <button
+              className={`edit-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 ${
+                activeNodeKey === nodeKey
+                  ? "opacity-100"
+                  : "opacity-0 group-hover:opacity-100"
+              }`}
+              onClick={e => {
+                e.stopPropagation();
+                handleEditAction(node, connectionId, nodeKey);
+              }}
+              title={node.type === "table" ? "Edit data" : `Modify ${node.type}`}
+            >
+              <Pencil
                 className={`w-3 h-3 ${
                   activeNodeKey === nodeKey
                     ? "text-gray-800 dark:text-gray-300"
@@ -2319,6 +2600,43 @@ export default function Explorer() {
     return parts.length >= 5 ? parts[4] : null;
   };
 
+  // Search through schema data to find parent table and schema for a metadata item
+  const findParentTableFromSchemaData = (
+    connectionId: string, 
+    itemName: string, 
+    itemType: string
+  ): { table: string; schema: string } | null => {
+    const connState = connectionStates.get(connectionId);
+    if (!connState?.schemaData) return null;
+
+    // Search through all databases, schemas and tables to find the item
+    for (const database of connState.schemaData.databases) {
+      for (const schemaOrGroup of database.children || []) {
+        if (schemaOrGroup.type === "schema") {
+          // Search within schema
+          for (const table of schemaOrGroup.children || []) {
+            if (table.type === "table") {
+              // Check if this table has the item in its metadata groups
+              for (const group of table.children || []) {
+                if (group.type === "group" && group.children) {
+                  for (const item of group.children) {
+                    if (item.name === itemName && item.type === itemType) {
+                      return {
+                        table: table.name,
+                        schema: (table as TableNode).schema
+                      };
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
+  };
+
   // DDL Generation Functions
   const generateColumnDDL = (
     connectionType: string,
@@ -2556,6 +2874,162 @@ DROP TABLE ${qualifiedDrop};`;
       default:
         return `-- Unsupported action: ${action}`;
     }
+  };
+
+  const generateStoredProcedureDDL = (
+    connectionType: string,
+    _action: "create",
+    schemaName: string,
+    procedureName?: string
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+
+    const newProcName = procedureName || "NewStoredProcedure";
+    const qualified = `${ident(schemaName)}.${ident(newProcName)}`;
+    
+    return `-- Create new stored procedure ${qualified}
+CREATE PROCEDURE ${qualified}
+    @Parameter1 NVARCHAR(255) = NULL,
+    @Parameter2 INT = NULL
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    -- TODO: Add your stored procedure logic here
+    SELECT 
+        @Parameter1 AS Parameter1Value,
+        @Parameter2 AS Parameter2Value,
+        GETDATE() AS CurrentDateTime;
+        
+END;
+
+-- Example execution:
+-- EXEC ${qualified} @Parameter1 = 'Sample Value', @Parameter2 = 123;`;
+  };
+
+  const generateFunctionDDL = (
+    connectionType: string,
+    _action: "create",
+    schemaName: string,
+    functionName?: string
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+
+    const newFuncName = functionName || "NewFunction";
+    const qualified = `${ident(schemaName)}.${ident(newFuncName)}`;
+    
+    return `-- Create new scalar function ${qualified}
+CREATE FUNCTION ${qualified}
+(
+    @Parameter1 NVARCHAR(255),
+    @Parameter2 INT
+)
+RETURNS NVARCHAR(255)
+AS
+BEGIN
+    DECLARE @Result NVARCHAR(255);
+    
+    -- TODO: Add your function logic here
+    SET @Result = CONCAT(@Parameter1, ' - ', CAST(@Parameter2 AS NVARCHAR(10)));
+    
+    RETURN @Result;
+END;
+
+-- Example usage:
+-- SELECT ${qualified}('Sample Text', 123) AS FunctionResult;`;
+  };
+
+  const generateViewDDL = (
+    connectionType: string,
+    _action: "create",
+    schemaName: string,
+    viewName?: string
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+
+    const newViewName = viewName || "NewView";
+    const qualified = `${ident(schemaName)}.${ident(newViewName)}`;
+    
+    return `-- Create new view ${qualified}
+CREATE VIEW ${qualified}
+AS
+SELECT 
+    -- TODO: Define your view columns here
+    1 as Id,
+    'Sample Data' as Name,
+    GETDATE() as CreatedDate
+    
+    -- FROM YourSourceTable
+    -- WHERE YourConditions = 1;
+
+-- Example query:
+-- SELECT * FROM ${qualified};`;
+  };
+
+  const generateTypeDDL = (
+    connectionType: string,
+    _action: "create",
+    schemaName: string,
+    typeName?: string
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+
+    const newTypeName = typeName || "NewUserDefinedType";
+    const qualified = `${ident(schemaName)}.${ident(newTypeName)}`;
+    
+    return `-- Create new user-defined table type ${qualified}
+CREATE TYPE ${qualified} AS TABLE
+(
+    Id INT NOT NULL,
+    Name NVARCHAR(255) NOT NULL,
+    Value DECIMAL(18,2) NULL,
+    
+    PRIMARY KEY (Id)
+);
+
+-- Example usage in stored procedure:
+-- CREATE PROCEDURE ExampleProc
+--     @TableParam ${qualified} READONLY
+-- AS
+-- BEGIN
+--     SELECT * FROM @TableParam;
+-- END;`;
+  };
+
+  const generateSequenceDDL = (
+    connectionType: string,
+    _action: "create",
+    schemaName: string,
+    sequenceName?: string
+  ): string => {
+    const ident = (n: string) =>
+      connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
+
+    const newSeqName = sequenceName || "NewSequence";
+    const qualified = `${ident(schemaName)}.${ident(newSeqName)}`;
+    
+    return `-- Create new sequence ${qualified}
+CREATE SEQUENCE ${qualified}
+    AS BIGINT
+    START WITH 1
+    INCREMENT BY 1
+    MINVALUE 1
+    MAXVALUE 9223372036854775807
+    NO CYCLE
+    CACHE 10;
+
+-- Example usage:
+-- SELECT NEXT VALUE FOR ${qualified} AS NextSequenceValue;
+-- 
+-- -- In table creation:
+-- -- CREATE TABLE ExampleTable (
+-- --     Id BIGINT DEFAULT (NEXT VALUE FOR ${qualified}) NOT NULL,
+-- --     Name NVARCHAR(255)
+-- -- );`;
   };
 
   const openDDLTab = (
@@ -2846,6 +3320,34 @@ DROP TABLE ${qualifiedDrop};`;
               >
                 New Table
               </button>
+              <button
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                onClick={() => {
+                  if (!contextMenu.connId || !contextMenu.schema) return;
+
+                  // Generate view DDL template
+                  const sql = generateViewDDL(
+                    contextMenu.type || "sqlserver",
+                    "create",
+                    contextMenu.schema
+                  );
+
+                  const title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_view`;
+
+                  openDDLTab(
+                    sql,
+                    title,
+                    contextMenu.connId,
+                    contextMenu.type || "",
+                    contextMenu.connName || "",
+                    contextMenu.db || ""
+                  );
+
+                  setContextMenu(c => ({ ...c, visible: false }));
+                }}
+              >
+                New View
+              </button>
             </>
           )}
           {contextMenu.mode === "routine" && (
@@ -2987,23 +3489,26 @@ DROP TABLE ${qualifiedDrop};`;
               <button
                 className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
-                  if (
-                    !contextMenu.connId ||
-                    !contextMenu.schema ||
-                    !contextMenu.table ||
-                    !contextMenu.groupType
-                  )
+                  if (!contextMenu.connId || !contextMenu.schema || !contextMenu.groupType)
                     return;
+
+                  // Schema-level groups (Stored Procedures, Functions, etc.) don't need table
+                  const schemaLevelGroups = ["Stored Procedures", "Functions", "Types", "Sequences"];
+                  const isSchemaLevel = schemaLevelGroups.includes(contextMenu.groupType);
+                  
+                  // Table-level groups need table parameter
+                  if (!isSchemaLevel && !contextMenu.table) return;
 
                   let sql = "";
                   let title = "";
 
                   switch (contextMenu.groupType) {
+                    // Table-level groups
                     case "Columns":
                       sql = generateColumnDDL(
                         contextMenu.type || "sqlserver",
                         "create",
-                        contextMenu.table,
+                        contextMenu.table!,
                         contextMenu.schema
                       );
                       title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_column`;
@@ -3012,7 +3517,7 @@ DROP TABLE ${qualifiedDrop};`;
                       sql = generateKeyDDL(
                         contextMenu.type || "sqlserver",
                         "create",
-                        contextMenu.table,
+                        contextMenu.table!,
                         contextMenu.schema
                       );
                       title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_key`;
@@ -3021,7 +3526,7 @@ DROP TABLE ${qualifiedDrop};`;
                       sql = generateConstraintDDL(
                         contextMenu.type || "sqlserver",
                         "create",
-                        contextMenu.table,
+                        contextMenu.table!,
                         contextMenu.schema
                       );
                       title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_constraint`;
@@ -3030,7 +3535,7 @@ DROP TABLE ${qualifiedDrop};`;
                       sql = generateTriggerDDL(
                         contextMenu.type || "sqlserver",
                         "create",
-                        contextMenu.table,
+                        contextMenu.table!,
                         contextMenu.schema
                       );
                       title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_trigger`;
@@ -3039,10 +3544,44 @@ DROP TABLE ${qualifiedDrop};`;
                       sql = generateIndexDDL(
                         contextMenu.type || "sqlserver",
                         "create",
-                        contextMenu.table,
+                        contextMenu.table!,
                         contextMenu.schema
                       );
                       title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_index`;
+                      break;
+                    
+                    // Schema-level groups  
+                    case "Stored Procedures":
+                      sql = generateStoredProcedureDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_stored_procedure`;
+                      break;
+                    case "Functions":
+                      sql = generateFunctionDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_function`;
+                      break;
+                    case "Types":
+                      sql = generateTypeDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_type`;
+                      break;
+                    case "Sequences":
+                      sql = generateSequenceDDL(
+                        contextMenu.type || "sqlserver",
+                        "create",
+                        contextMenu.schema
+                      );
+                      title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_sequence`;
                       break;
                   }
 
@@ -3059,7 +3598,15 @@ DROP TABLE ${qualifiedDrop};`;
                   setContextMenu(c => ({ ...c, visible: false }));
                 }}
               >
-                New {contextMenu.groupType?.slice(0, -1)}
+                New {(() => {
+                  switch (contextMenu.groupType) {
+                    case "Stored Procedures": return "Stored Procedure";
+                    case "Functions": return "Function";
+                    case "Types": return "Type";
+                    case "Sequences": return "Sequence";
+                    default: return contextMenu.groupType?.slice(0, -1); // Remove 's' for others
+                  }
+                })()}
               </button>
             </>
           )}

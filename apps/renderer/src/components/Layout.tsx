@@ -1,4 +1,16 @@
 import { useState, useEffect } from "react";
+import {
+  Plus,
+  Save,
+  FolderOpen,
+  ClipboardList,
+  PanelLeft,
+  MessageSquare,
+  Sun,
+  Moon,
+  Settings,
+  X,
+} from "lucide-react";
 
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -78,7 +90,15 @@ export default function Layout() {
       window.electronAPI.onMenuAction((action: string) => {
         switch (action) {
           case "manage-ai-engines":
-            document.dispatchEvent(new CustomEvent("open-ai-engines-settings"));
+            // Open Settings dialog on AI Engines tab
+            document.dispatchEvent(new CustomEvent("open-settings"));
+            setTimeout(() => {
+              document.dispatchEvent(
+                new CustomEvent("settings-tab-change", {
+                  detail: { tab: "ai-engines" },
+                })
+              );
+            }, 100);
             break;
           case "new-chat":
             handleNewChat();
@@ -208,11 +228,29 @@ export default function Layout() {
   };
 
   const handleLoadChat = async (chatId: string): Promise<void> => {
-    // This would load chat messages from storage
-    console.log("Loading chat:", chatId);
-    const chatData = await window.electronAPI.chat.load(chatId);
-    document.dispatchEvent(new CustomEvent("load-chat", { detail: chatData }));
-    setDialogs(prev => ({ ...prev, loadChatDialog: false }));
+    try {
+      console.log("Loading chat:", chatId);
+      const chatData = await window.electronAPI.chat.load(chatId);
+
+      if (!chatData) {
+        console.error("No chat data received for chatId:", chatId);
+        return;
+      }
+
+      console.log("Chat data loaded successfully:", {
+        id: chatData.id,
+        title: chatData.title,
+        messageCount: chatData.messages?.length || 0,
+      });
+
+      document.dispatchEvent(
+        new CustomEvent("load-chat", { detail: chatData })
+      );
+      setDialogs(prev => ({ ...prev, loadChatDialog: false }));
+    } catch (error) {
+      console.error("Failed to load chat:", error);
+      // Keep the dialog open so user can see the error and try again
+    }
   };
 
   // Calculate title bar height and padding based on platform
@@ -246,7 +284,7 @@ export default function Layout() {
               layout.showExplorer ? "Hide Connections" : "Show Connections"
             }
           >
-            ◧
+            <PanelLeft size={16} />
           </button>
         </div>
 
@@ -270,7 +308,7 @@ export default function Layout() {
             className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5"
             title={layout.showChat ? "Hide Chat" : "Show Chat"}
           >
-            ◨
+            <MessageSquare size={16} />
           </button>
 
           <button
@@ -283,7 +321,18 @@ export default function Layout() {
             }
             className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5"
           >
-            {theme === "light" ? "🌙" : "☀️"}
+            {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
+          </button>
+
+          <button
+            onClick={() =>
+              document.dispatchEvent(new CustomEvent("open-settings"))
+            }
+            title="Open Settings"
+            aria-label="Open Settings"
+            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5"
+          >
+            <Settings size={16} />
           </button>
         </div>
       </div>
@@ -325,9 +374,17 @@ export default function Layout() {
                     </h2>
                     <button
                       onClick={() => {
+                        // Open Settings dialog on Connections tab
                         document.dispatchEvent(
-                          new CustomEvent("open-add-connection")
+                          new CustomEvent("open-settings")
                         );
+                        setTimeout(() => {
+                          document.dispatchEvent(
+                            new CustomEvent("settings-tab-change", {
+                              detail: { tab: "connections" },
+                            })
+                          );
+                        }, 100);
                       }}
                       className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
                       title="Add Connection"
@@ -336,7 +393,7 @@ export default function Layout() {
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      +
+                      <Plus size={16} />
                     </button>
                   </div>
                   <button
@@ -344,7 +401,7 @@ export default function Layout() {
                     className="text-xs p-1 rounded hover:bg-accent text-[hsl(var(--muted-foreground))]"
                     title="Hide Connections"
                   >
-                    ✕
+                    <X size={14} />
                   </button>
                 </div>
                 {/* Explorer Content */}
@@ -397,53 +454,53 @@ export default function Layout() {
                     </h2>
                     <button
                       onClick={handleNewChat}
-                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
+                      className="inline-flex items-center justify-center h-6 w-6 text-foreground hover:bg-accent"
                       title="New Chat"
                       aria-label="New Chat"
                       style={
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      +
+                      <Plus size={16} />
                     </button>
                     <button
                       onClick={() =>
                         setDialogs(prev => ({ ...prev, saveChatDialog: true }))
                       }
-                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
+                      className="inline-flex items-center justify-center h-6 w-6 text-foreground hover:bg-accent"
                       title="Save Chat"
                       aria-label="Save Chat"
                       style={
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      💾
+                      <Save size={16} />
                     </button>
                     <button
                       onClick={() =>
                         setDialogs(prev => ({ ...prev, loadChatDialog: true }))
                       }
-                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
+                      className="inline-flex items-center justify-center h-6 w-6 text-foreground hover:bg-accent"
                       title="Load Chat"
                       aria-label="Load Chat"
                       style={
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      📂
+                      <FolderOpen size={16} />
                     </button>
                     <button
                       onClick={() =>
                         setDialogs(prev => ({ ...prev, chatHistoryTab: true }))
                       }
-                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
+                      className="inline-flex items-center justify-center h-6 w-6 text-foreground hover:bg-accent"
                       title="Chat History"
                       aria-label="Chat History"
                       style={
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      📋
+                      <ClipboardList size={16} />
                     </button>
                   </div>
                   <button
@@ -451,7 +508,7 @@ export default function Layout() {
                     className="text-xs p-1 rounded hover:bg-accent text-[hsl(var(--muted-foreground))]"
                     title="Hide Chat"
                   >
-                    ✕
+                    <X size={14} />
                   </button>
                 </div>
                 {/* Chat Content */}

@@ -206,7 +206,7 @@ declare global {
         update: (id: string, updates: any) => Promise<any>;
         delete: (id: string) => Promise<{ success: boolean }>;
         test: (
-          id: string
+          config: any
         ) => Promise<{ success: boolean; latency?: number; error?: string }>;
         validate: (
           engine: any
@@ -227,6 +227,7 @@ declare global {
           content: string;
           timestamp: string;
           finalSQL?: string;
+          conversationId?: string;
         }>;
         getConversationHistory: (conversationId: string) => Promise<any[]>;
         createConversation: (params: {

@@ -180,6 +180,25 @@ export default function WorkArea() {
     Array<{ column: string; direction: "asc" | "desc" }>
   >([]);
   const [showSortManager, setShowSortManager] = useState(false);
+  // Connections for database dropdown
+  const [connections, setConnections] = useState<
+    Array<{
+      id: string;
+      name: string;
+      type: string;
+    }>
+  >([]);
+  // AI engines for button ordering
+  const [aiEngines, setAiEngines] = useState<
+    Array<{
+      id: string;
+      name: string;
+      type: string;
+    }>
+  >([]);
+  // Loading states for button ordering
+  const [connectionsLoaded, setConnectionsLoaded] = useState(false);
+  const [aiEnginesLoaded, setAiEnginesLoaded] = useState(false);
   const headerRefs = useMemo(
     () => ({}) as Record<string, HTMLTableCellElement | null>,
     []
@@ -337,6 +356,42 @@ export default function WorkArea() {
     document.addEventListener("toggle-results", handleToggleResults);
     return () =>
       document.removeEventListener("toggle-results", handleToggleResults);
+  }, []);
+
+  // Load connections for database dropdown
+  useEffect(() => {
+    const loadConnections = async () => {
+      try {
+        const result = await window.electronAPI.connections.list();
+
+        setConnections(result || []);
+        setConnectionsLoaded(true);
+      } catch (error) {
+        console.error("Failed to load connections for dropdown:", error);
+        setConnections([]);
+        setConnectionsLoaded(true);
+      }
+    };
+
+    loadConnections();
+  }, []);
+
+  // Load AI engines for button ordering
+  useEffect(() => {
+    const loadAiEngines = async () => {
+      try {
+        const result = await window.electronAPI.aiEngines.list();
+
+        setAiEngines(result || []);
+        setAiEnginesLoaded(true);
+      } catch (error) {
+        console.error("Failed to load AI engines for button ordering:", error);
+        setAiEngines([]);
+        setAiEnginesLoaded(true);
+      }
+    };
+
+    loadAiEngines();
   }, []);
 
   useEffect(() => {
@@ -1537,6 +1592,26 @@ export default function WorkArea() {
     );
   };
 
+  // Handle database selection change for current tab
+  const handleDatabaseChange = (connectionId: string) => {
+    if (!activeTab || !connectionId) return;
+
+    const selectedConnection = connections.find(
+      conn => conn.id === connectionId
+    );
+    if (selectedConnection) {
+      updateActiveTab({
+        connectionId: selectedConnection.id,
+        connectionName: selectedConnection.name,
+        connectionType: selectedConnection.type,
+        // Clear results when changing database
+        result: undefined,
+        results: undefined,
+        status: "idle",
+      });
+    }
+  };
+
   // Function to format XML execution plan in a new tab
   const formatXmlPlan = (xmlContent: string) => {
     try {
@@ -2332,21 +2407,22 @@ export default function WorkArea() {
                 Format
               </button>
             </div>
-            <div
-              className="text-sm text-gray-600 dark:text-gray-400 truncate max-w-xs"
-              title={
-                activeTab?.connectionName || activeTab?.database
-                  ? [activeTab.connectionName, activeTab.database]
-                      .filter(Boolean)
-                      .join(" • ")
-                  : "No database selected"
-              }
-            >
-              {activeTab?.connectionName || activeTab?.database
-                ? [activeTab.connectionName, activeTab.database]
-                    .filter(Boolean)
-                    .join(" • ")
-                : "No database selected"}
+            <div className="flex items-center space-x-2">
+              <label className="text-xs text-muted-foreground whitespace-nowrap">
+                Database:
+              </label>
+              <select
+                value={activeTab?.connectionId || ""}
+                onChange={e => handleDatabaseChange(e.target.value)}
+                className="px-2 py-1 text-xs border border-border rounded bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-xs"
+              >
+                <option value="">Select Database...</option>
+                {connections.map(conn => (
+                  <option key={conn.id} value={conn.id}>
+                    {conn.name} ({conn.type})
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
         )}
@@ -3318,55 +3394,153 @@ export default function WorkArea() {
               faster with AI assistance.
             </p>
             <div className="flex items-center justify-center gap-3 mb-4">
-              <button
-                className="px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700"
-                onClick={() =>
-                  document.dispatchEvent(new Event("open-add-connection"))
-                }
-              >
-                New Connection
-              </button>
-              <button
-                className="px-4 py-2 rounded bg-muted text-foreground text-sm hover:bg-accent"
-                onClick={async () => {
-                  const res = await window.electronAPI?.files?.open();
-                  if (!res || res.canceled || !res.filePath) return;
-                  const title = res.filePath.split(/[\\/]/).pop() || "Untitled";
-                  const id = `file:${res.filePath}`;
-                  const existing = tabs.find(t => t.id === id);
-                  if (existing) {
-                    setTabs(prev =>
-                      prev.map(t =>
-                        t.id === id ? { ...t, sql: res.content || "" } : t
-                      )
-                    );
-                    setActiveTabId(id);
+              {!connectionsLoaded || !aiEnginesLoaded ? (
+                // Loading state - show default order while data loads
+                <>
+                  <div className="px-4 py-2 rounded bg-blue-600/70 text-white text-sm animate-pulse cursor-pointer">
+                    Loading...
+                  </div>
+                </>
+              ) : (
+                (() => {
+                  // Determine button order based on what's configured
+                  const hasConnections = connections.length > 0;
+                  const hasAiEngines = aiEngines.length > 0;
+
+                  // Define button data with actions
+                  const buttons = [
+                    {
+                      key: "connection",
+                      text: "Setup Connections",
+                      onClick: () => {
+                        document.dispatchEvent(
+                          new CustomEvent("open-settings")
+                        );
+                        setTimeout(() => {
+                          document.dispatchEvent(
+                            new CustomEvent("settings-tab-change", {
+                              detail: { tab: "connections" },
+                            })
+                          );
+                        }, 100);
+                      },
+                    },
+                    {
+                      key: "query",
+                      text: "New Query",
+                      onClick: () => {
+                        const newTab: Tab = {
+                          id: `query-${Date.now()}`,
+                          type: "sql",
+                          title: "New Query",
+                          sql: "",
+                          activeResultTab: "results",
+                        } as Tab;
+                        setTabs(prev => [...prev, newTab]);
+                        setActiveTabId(newTab.id);
+                      },
+                    },
+                    {
+                      key: "file",
+                      text: "Open SQL File…",
+                      onClick: async () => {
+                        const res = await window.electronAPI?.files?.open();
+                        if (!res || res.canceled || !res.filePath) return;
+                        const title =
+                          res.filePath.split(/[\\/]/).pop() || "Untitled";
+                        const id = `file:${res.filePath}`;
+                        const existing = tabs.find(t => t.id === id);
+                        if (existing) {
+                          setTabs(prev =>
+                            prev.map(t =>
+                              t.id === id ? { ...t, sql: res.content || "" } : t
+                            )
+                          );
+                          setActiveTabId(id);
+                        } else {
+                          const newTab: Tab = {
+                            id,
+                            type: "sql",
+                            title,
+                            sql: res.content || "",
+                            filePath: res.filePath,
+                            activeResultTab: "results",
+                          } as Tab;
+                          setTabs(prev => [...prev, newTab]);
+                          setActiveTabId(id);
+                        }
+                      },
+                    },
+                    {
+                      key: "ai",
+                      text: "Setup AI Engines",
+                      onClick: () => {
+                        document.dispatchEvent(
+                          new CustomEvent("open-settings")
+                        );
+                        setTimeout(() => {
+                          document.dispatchEvent(
+                            new CustomEvent("settings-tab-change", {
+                              detail: { tab: "ai-engines" },
+                            })
+                          );
+                        }, 100);
+                      },
+                    },
+                  ];
+
+                  // Determine button order
+                  let orderedButtonKeys: string[];
+
+                  if (!hasConnections) {
+                    // No connections: prioritize New Connection first
+                    if (!hasAiEngines) {
+                      // No connections, no AI engines: Connection first, AI setup second
+                      orderedButtonKeys = ["connection", "ai", "query", "file"];
+                    } else {
+                      // No connections but has AI engines: Connection first, then query actions
+                      orderedButtonKeys = ["connection", "query", "file", "ai"];
+                    }
+                  } else if (!hasAiEngines) {
+                    // Has connections but no AI engines: Query first, AI setup second
+                    orderedButtonKeys = ["query", "ai", "file", "connection"];
                   } else {
-                    const newTab: Tab = {
-                      id,
-                      type: "sql",
-                      title,
-                      sql: res.content || "",
-                      filePath: res.filePath,
-                      activeResultTab: "results",
-                    } as Tab;
-                    setTabs(prev => [...prev, newTab]);
-                    setActiveTabId(id);
+                    // Has both connections and AI engines: Query and file operations prioritized
+                    orderedButtonKeys = ["query", "file", "connection", "ai"];
                   }
-                }}
-              >
-                Open SQL File…
-              </button>
-              <button
-                className="px-4 py-2 rounded bg-muted text-foreground text-sm hover:bg-accent"
-                onClick={() =>
-                  document.dispatchEvent(
-                    new CustomEvent("open-ai-engines-settings")
-                  )
-                }
-              >
-                Setup AI Engines
-              </button>
+
+                  // Map ordered keys to buttons with position-based styling
+                  return orderedButtonKeys.map((buttonKey, index) => {
+                    const button = buttons.find(b => b.key === buttonKey)!;
+
+                    // Style based on position: 1st = green (main), 2nd = blue (secondary), rest = muted
+                    let className: string;
+                    if (index === 0) {
+                      // Main action - green
+                      className =
+                        "px-4 py-2 rounded bg-green-600 text-white text-sm hover:bg-green-700 cursor-pointer";
+                    } else if (index === 1) {
+                      // Secondary action - blue
+                      className =
+                        "px-4 py-2 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 cursor-pointer";
+                    } else {
+                      // Tertiary actions - muted
+                      className =
+                        "px-4 py-2 rounded bg-muted text-foreground text-sm hover:bg-accent cursor-pointer";
+                    }
+
+                    return (
+                      <button
+                        key={button.key}
+                        className={className}
+                        onClick={button.onClick}
+                      >
+                        {button.text}
+                      </button>
+                    );
+                  });
+                })()
+              )}
             </div>
             <div className="text-xs text-muted-foreground mb-4">
               Tip: Press <span className="font-medium text-foreground">F5</span>{" "}

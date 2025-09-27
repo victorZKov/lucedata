@@ -119,14 +119,49 @@ try {
     sendMessage: (params) => ipcRenderer.invoke("chat-send-message", params),
     getConversationHistory: (conversationId) => ipcRenderer.invoke("chat-get-conversation-history", conversationId),
     createConversation: (params) => ipcRenderer.invoke("chat-create-conversation", params),
+    
+    // Save and Load functionality
+    save: (params) => {
+      console.log("🔗 preload.cjs: chat.save called with:", {
+        title: params.title,
+        messageCount: params.messages.length,
+        connectionId: params.connectionId,
+        engineId: params.engineId,
+      });
+      return ipcRenderer.invoke("chat-save", params);
+    },
+    loadList: () => {
+      console.log("🔗 preload.cjs: chat.loadList called");
+      return ipcRenderer.invoke("chat-load-list");
+    },
+    load: (chatId) => {
+      console.log("🔗 preload.cjs: chat.load called with:", chatId);
+      return ipcRenderer.invoke("chat-load", chatId);
+    },
   },
 
   // Cleanup
   removeAllListeners: (channel) => {
     ipcRenderer.removeAllListeners(channel);
   },
+
+  // SQL Tab creation
+  createSqlTab: (params) => {
+    console.log("🔗 preload.ts: createSqlTab called with:", params);
+    return ipcRenderer.invoke("create-sql-tab", params);
+  },
+
+  // Event listeners for main process events
+  onCreateNewTab: (callback) => {
+    console.log("🔗 preload.ts: onCreateNewTab listener registered");
+    ipcRenderer.on("create-new-tab", (_, tabData) => {
+      console.log("🔗 preload.ts: onCreateNewTab event received:", tabData);
+      callback(tabData);
+    });
+  },
   });
   console.log("✅ ElectronAPI exposed successfully to window.electronAPI");
+  console.log("🔍 createSqlTab and onCreateNewTab functions added to src preload");
 } catch (error) {
   console.error("❌ Failed to expose ElectronAPI:", error);
 }

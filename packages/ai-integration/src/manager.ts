@@ -8,6 +8,7 @@ import {
   ChatMessage,
 } from "./types.js";
 import { OpenAIProvider } from "./providers/openai-enhanced.js";
+import { AzureOpenAIProvider } from "./providers/azure-openai.js";
 
 export class AIManager {
   private providers = new Map<string, IAIProvider>();
@@ -28,11 +29,8 @@ export class AIManager {
         break;
 
       case AIProvider.AzureOpenAI:
-        // Use OpenAI provider with Azure configuration
-        provider = new OpenAIProvider({
-          ...config,
-          endpoint: config.endpoint || "https://your-resource.openai.azure.com",
-        });
+        // Use dedicated Azure OpenAI provider
+        provider = new AzureOpenAIProvider(config);
         break;
 
       case AIProvider.Ollama: {
@@ -46,6 +44,8 @@ export class AIManager {
         provider = new OpenAIProvider({
           ...config,
           endpoint: formattedEndpoint,
+          timeoutMs: config.timeoutMs || 60000, // Longer timeout for Ollama (model loading)
+          defaultModel: config.defaultModel || "mistral:7b", // Default to available model
         });
         break;
       }

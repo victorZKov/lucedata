@@ -15,6 +15,19 @@ interface ChatMessage {
   timestamp: Date;
   toolCalls?: ToolCall[];
   finalSQL?: string;
+  isSuggestion?: boolean;
+  suggestedSQL?: string;
+}
+
+interface SavedChatMessage {
+  id: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  timestamp: string | Date;
+  toolCalls?: ToolCall[];
+  finalSQL?: string;
+  isSuggestion?: boolean;
+  suggestedSQL?: string;
 }
 
 interface Connection {
@@ -43,6 +56,9 @@ export default function ChatPanel() {
   const [engines, setEngines] = useState<AIEngine[]>([]);
   const [loading, setLoading] = useState(false);
   const [showNewEngineDialog, setShowNewEngineDialog] = useState(false);
+  const [currentConversationId, setCurrentConversationId] = useState<
+    string | null
+  >(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load connections and engines on mount
@@ -76,19 +92,45 @@ export default function ChatPanel() {
       console.log("🔄 New chat requested, clearing messages...");
       setMessages([]);
       setInputText("");
+      setCurrentConversationId(null); // Clear conversation ID for new chat
     };
 
     const handleLoadChat = (event: CustomEvent) => {
       console.log("🔄 Load chat requested:", event.detail);
-      const chatData = event.detail;
-      if (chatData && chatData.messages) {
-        setMessages(chatData.messages);
-        if (chatData.connectionId) {
-          setSelectedConnection(chatData.connectionId);
+      try {
+        const chatData = event.detail;
+        if (chatData && Array.isArray(chatData.messages)) {
+          // Convert string timestamps back to Date objects and validate message structure
+          const messagesWithDates: ChatMessage[] = chatData.messages
+            .filter(
+              (msg: SavedChatMessage) =>
+                msg && msg.id && msg.role && msg.content
+            ) // Filter out invalid messages
+            .map((msg: SavedChatMessage) => ({
+              ...msg,
+              timestamp:
+                typeof msg.timestamp === "string"
+                  ? new Date(msg.timestamp)
+                  : msg.timestamp,
+            }));
+
+          console.log(
+            `🔄 Loading ${messagesWithDates.length} messages from chat: ${chatData.title || chatData.id}`
+          );
+          setMessages(messagesWithDates);
+          setCurrentConversationId(chatData.id); // Set the conversation ID
+
+          if (chatData.connectionId) {
+            setSelectedConnection(chatData.connectionId);
+          }
+          if (chatData.engineId) {
+            setSelectedEngine(chatData.engineId);
+          }
+        } else {
+          console.warn("🔄 Invalid chat data received:", chatData);
         }
-        if (chatData.engineId) {
-          setSelectedEngine(chatData.engineId);
-        }
+      } catch (error) {
+        console.error("🔄 Error loading chat:", error);
       }
     };
 
@@ -212,7 +254,7 @@ export default function ChatPanel() {
         message: inputText,
         connectionId: selectedConnection,
         engineId: selectedEngine,
-        // TODO: Add conversation ID when implementing conversation history
+        conversationId: currentConversationId || undefined, // Pass conversation ID for context
       });
 
       const assistantMessage: ChatMessage = {
@@ -223,7 +265,35 @@ export default function ChatPanel() {
         finalSQL: response.finalSQL,
       };
 
+      // Update conversation ID if returned from the backend (for auto-created conversations)
+      if (
+        response.conversationId &&
+        response.conversationId !== currentConversationId
+      ) {
+        console.log(
+          "📝 Updating conversation ID from response:",
+          response.conversationId
+        );
+        setCurrentConversationId(response.conversationId);
+      }
+
       setMessages(prev => [...prev, assistantMessage]);
+
+      // Add suggestion message if SQL was generated
+      if (response.finalSQL && selectedConnection) {
+        const suggestionMessage: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant",
+          content: "Would you like me to run this query for you?",
+          timestamp: new Date(),
+          isSuggestion: true,
+          suggestedSQL: response.finalSQL,
+        };
+
+        setTimeout(() => {
+          setMessages(prev => [...prev, suggestionMessage]);
+        }, 500); // Small delay to make it feel more natural
+      }
     } catch (error) {
       console.error("Chat error:", error);
       const errorMessage: ChatMessage = {
@@ -268,10 +338,63 @@ export default function ChatPanel() {
                   className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${
                     message.role === "user"
                       ? "bg-blue-600 text-white"
-                      : "bg-muted text-foreground"
+                      : message.isSuggestion
+                        ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-foreground"
+                        : "bg-muted text-foreground"
                   }`}
                 >
                   <div className="whitespace-pre-wrap">{message.content}</div>
+
+                  {/* Suggestion Action Buttons */}
+                  {message.isSuggestion && message.suggestedSQL && (
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1 transition-colors"
+                        onClick={async () => {
+                          if (
+                            window.electronAPI?.createSqlTab &&
+                            selectedConnection
+                          ) {
+                            try {
+                              const connection = connections.find(
+                                conn => conn.id === selectedConnection
+                              );
+                              await window.electronAPI.createSqlTab({
+                                sql: message.suggestedSQL!,
+                                connectionId: connection?.id,
+                                connectionName: connection?.name,
+                                connectionType: connection?.type,
+                                database: connection?.database,
+                                autoExecute: true,
+                              });
+                              // Remove the suggestion message after action
+                              setMessages(prev =>
+                                prev.filter(m => m.id !== message.id)
+                              );
+                            } catch (error) {
+                              console.error(
+                                "Failed to run suggested query:",
+                                error
+                              );
+                            }
+                          }
+                        }}
+                      >
+                        ▶ Yes, run it
+                      </button>
+                      <button
+                        className="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded transition-colors"
+                        onClick={() => {
+                          // Remove the suggestion message
+                          setMessages(prev =>
+                            prev.filter(m => m.id !== message.id)
+                          );
+                        }}
+                      >
+                        No, thanks
+                      </button>
+                    </div>
+                  )}
                   {message.finalSQL && (
                     <div className="mt-2 p-2 bg-slate-800 rounded font-mono text-xs text-green-400">
                       <div className="flex justify-between items-center mb-2">
@@ -296,6 +419,11 @@ export default function ChatPanel() {
                               console.log(
                                 "🔥 createSqlTab type:",
                                 typeof window.electronAPI?.createSqlTab
+                              );
+                              // Debug: check all methods to see which ones are there
+                              console.log(
+                                "🔥 Full electronAPI object:",
+                                window.electronAPI
                               );
                               if (
                                 message.finalSQL &&
@@ -535,10 +663,15 @@ export default function ChatPanel() {
               <button
                 onClick={() => {
                   setShowNewEngineDialog(false);
-                  // Open AI Engines settings dialog
-                  document.dispatchEvent(
-                    new CustomEvent("open-ai-engines-settings")
-                  );
+                  // Open Settings dialog on AI Engines tab
+                  document.dispatchEvent(new CustomEvent("open-settings"));
+                  setTimeout(() => {
+                    document.dispatchEvent(
+                      new CustomEvent("settings-tab-change", {
+                        detail: { tab: "ai-engines" },
+                      })
+                    );
+                  }, 100);
                 }}
                 className="px-3 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
               >

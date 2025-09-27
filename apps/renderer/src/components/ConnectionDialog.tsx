@@ -54,6 +54,11 @@ const ConnectionDialog: React.FC<ConnectionDialogProps> = ({
       setFormData({
         ...editConnection,
         password: "", // Don't pre-populate password for security
+        // Ensure useConnectionString is set if there's a connection string
+        useConnectionString:
+          editConnection.useConnectionString ||
+          (!!editConnection.connectionString &&
+            editConnection.connectionString.trim().length > 0),
       });
     } else {
       // Reset form for new connection

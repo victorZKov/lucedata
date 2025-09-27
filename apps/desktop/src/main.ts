@@ -29,6 +29,8 @@ const { autoUpdater } = electronUpdater;
 import { DatabaseManager, DatabaseType } from "@sqlhelper/database-core";
 import {
   AIManager,
+  EnhancedAIManager,
+  AutonomousAIManager,
   type AIEngineConfig,
   AIProvider,
 } from "@sqlhelper/ai-integration";
@@ -113,6 +115,8 @@ const databaseManager = new DatabaseManager();
 
 // Initialize AI manager for chat functionality
 const aiManager = new AIManager();
+const enhancedAIManager = new EnhancedAIManager();
+const autonomousAIManager = new AutonomousAIManager();
 
 // Initialize database tables
 database
@@ -404,11 +408,12 @@ function createMenu(): void {
           },
           { type: "separator" },
           {
-            label: "AI Engines",
+            label: "Preferences...",
+            accelerator: "CmdOrCtrl+,",
             click: () => {
-              console.log("AI Engines menu clicked");
+              console.log("Preferences menu clicked");
               if (mainWindow) {
-                mainWindow.webContents.send("menu-action", "manage-ai-engines");
+                mainWindow.webContents.send("menu-action", "preferences");
               }
             },
           },
@@ -1015,7 +1020,9 @@ ipcMain.handle(
         const xmlPlan = await provider.getXmlExecutionPlan(query);
         return xmlPlan;
       } else {
-        throw new Error("XML execution plans not supported for this database type");
+        throw new Error(
+          "XML execution plans not supported for this database type"
+        );
       }
     } catch (error) {
       console.error("Error getting XML execution plan:", error);
@@ -1652,6 +1659,10 @@ ipcMain.handle(
         throw new Error(`Database connection ${connectionId} not available`);
       }
 
+      // Configure autonomous AI manager with database access for autonomous query execution
+      autonomousAIManager.setDatabaseProvider(dbProvider, connectionId);
+      autonomousAIManager.setAIProvider(aiManager.getCurrentProvider()!);
+
       // Get database schema and context
       let schemaInfo: {
         tables?: Array<{ name: string; schema: string; rowCount?: number }>;
@@ -1694,29 +1705,89 @@ ipcMain.handle(
         connectionName: connectionData?.name || "Unknown",
       };
 
-      // Create conversation messages for AI
-      const messages = [
-        {
-          role: "system" as const,
-          content: `You are an expert SQL assistant connected to a ${sqlContext.databaseType} database named "${sqlContext.connectionName}".
+      // Get or create conversation history
+      let conversationHistory: any[] = [];
+      let conversationId = params.conversationId;
+
+      if (conversationId) {
+        // Load existing conversation
+        try {
+          console.log("📜 Loading conversation history for:", conversationId);
+          const savedChats = (store as any).get("savedChats") || [];
+          const chatSession = savedChats.find(
+            (chat: any) => chat.id === conversationId
+          );
+          conversationHistory = chatSession?.messages || [];
+          console.log(
+            "📜 Loaded",
+            conversationHistory.length,
+            "previous messages"
+          );
+        } catch (error) {
+          console.warn("📜 Could not load conversation history:", error);
+        }
+      } else {
+        // Auto-create a new conversation for the first message
+        conversationId = crypto.randomUUID();
+        console.log("📜 Auto-creating new conversation:", conversationId);
+
+        const newConversation = {
+          id: conversationId,
+          title: `Chat ${new Date().toLocaleTimeString()}`,
+          engineId,
+          connectionId,
+          createdAt: new Date().toISOString(),
+          lastActivity: new Date().toISOString(),
+          messages: [],
+        };
+
+        const savedChats = (store as any).get("savedChats") || [];
+        savedChats.push(newConversation);
+        (store as any).set("savedChats", savedChats);
+        console.log("📜 New conversation created and saved");
+      }
+
+      // Create system message with enhanced capabilities
+      const systemMessage = {
+        role: "system" as const,
+        content: `You are an expert SQL assistant with autonomous database inspection capabilities connected to a ${sqlContext.databaseType} database named "${sqlContext.connectionName}".
 
 Available tables: ${sqlContext.tables.map(t => `${t.schema}.${t.name}`).join(", ")}
+
+AUTONOMOUS CAPABILITIES:
+You have the ability to execute schema inspection queries directly to understand table structures. When you need to inspect table columns, relationships, or data patterns, you should:
+
+1. **Execute schema queries immediately** to discover actual column names and types
+2. **Inspect table relationships** by examining foreign key constraints
+3. **Analyze sample data** to understand data patterns and relationships
+4. **Run multiple queries** as needed to fully understand the schema before answering
+
+IMPORTANT: Never assume column names like "ShipmentID" or "OrderID". Always inspect the actual schema first.
 
 When generating SQL queries:
 1. Use appropriate SQL syntax for ${sqlContext.databaseType}
 2. Always include schema names in table references
 3. Use TOP instead of LIMIT for SQL Server
-4. Provide clear explanations of what the query does
-5. If the user asks about executing queries, mention they can use the "Run" or "Insert to New Tab" buttons
+4. First inspect schema if you don't know the exact column names
+5. Execute queries to understand data relationships
 
 Format your responses with:
-- Brief explanation of what you understood
-- SQL query in a code block
+- Brief explanation of what you understood  
+- Any schema inspection queries you executed
+- Final SQL query in a code block
 - Explanation of what the query does
-- Any relevant insights about the data structure
+- Insights about the data structure
 
-Always be helpful and provide working SQL queries when possible.`,
-        },
+You can execute queries directly - use your autonomous capabilities to provide accurate responses.`,
+      };
+
+      // Build full conversation with history
+      const messages = [
+        systemMessage,
+        ...conversationHistory.map((msg: any) => ({
+          role: msg.role,
+          content: msg.content,
+        })),
         {
           role: "user" as const,
           content: message,
@@ -1729,13 +1800,28 @@ Always be helpful and provide working SQL queries when possible.`,
         messageLength: message.length,
       });
 
-      // Call AI provider
-      const apiResponse = await aiManager.chat(messages, sqlContext);
+      // Call autonomous AI provider with query execution capabilities
+      const apiResponse = await autonomousAIManager.chat(messages, sqlContext);
 
       console.log("🤖 AI response received:", {
         contentLength: apiResponse.content?.length || 0,
         hasContent: !!apiResponse.content,
+        executedQueries: apiResponse.executedQueries?.length || 0,
       });
+
+      // Log executed queries for debugging
+      if (
+        apiResponse.executedQueries &&
+        apiResponse.executedQueries.length > 0
+      ) {
+        console.log("🔍 Autonomous queries executed:");
+        apiResponse.executedQueries.forEach((query, index) => {
+          console.log(`  ${index + 1}. ${query.query.substring(0, 100)}...`);
+          console.log(
+            `     → ${query.error ? "ERROR: " + query.error : "Success: " + (query.result?.rowCount || 0) + " rows"}`
+          );
+        });
+      }
 
       // Parse potential SQL from AI response
       let finalSQL: string | undefined;
@@ -1744,18 +1830,90 @@ Always be helpful and provide working SQL queries when possible.`,
         finalSQL = sqlMatch[1].trim();
       }
 
+      // Check if AI executed result queries and offer to create tabs
+      let autoExecutedQueries = 0;
+      if (
+        apiResponse.executedQueries &&
+        apiResponse.executedQueries.length > 0
+      ) {
+        apiResponse.executedQueries.forEach((queryExecution: any) => {
+          if (
+            queryExecution.query &&
+            !queryExecution.error &&
+            queryExecution.result?.rows?.length > 0
+          ) {
+            autoExecutedQueries++;
+          }
+        });
+      }
+
+      // If the AI executed queries with results, mention it in the response
+      let responseContent =
+        apiResponse.content || "I'm sorry, I couldn't generate a response.";
+      if (autoExecutedQueries > 0) {
+        responseContent += `\n\n*🔍 I executed ${autoExecutedQueries} ${autoExecutedQueries === 1 ? "query" : "queries"} to analyze your data and provide this response.*`;
+      }
+
       const response = {
         id: crypto.randomUUID(),
         role: "assistant" as const,
-        content: `*Connected to: **${dbContext}** using **${engine.name}***\n\n${apiResponse.content || "I'm sorry, I couldn't generate a response."}`,
+        content: `*Connected to: **${dbContext}** using **${engine.name}***\n\n${responseContent}`,
         timestamp: new Date().toISOString(),
         finalSQL,
+        conversationId, // Return conversation ID so frontend can track it
       };
 
       console.log("🤖 Final response prepared:", {
         hasSQL: !!finalSQL,
         sqlLength: finalSQL?.length || 0,
       });
+
+      // Save conversation history (conversationId is always set now due to auto-creation)
+      if (conversationId) {
+        try {
+          console.log("💾 Saving conversation history for:", conversationId);
+          const savedChats = (store as any).get("savedChats") || [];
+          let chatSession = savedChats.find(
+            (chat: any) => chat.id === conversationId
+          );
+
+          if (chatSession) {
+            // Add user message and AI response to existing conversation
+            chatSession.messages = chatSession.messages || [];
+
+            // Add user message
+            const userMessage = {
+              id: crypto.randomUUID(),
+              role: "user" as const,
+              content: message,
+              timestamp: new Date().toISOString(),
+            };
+
+            chatSession.messages.push(userMessage);
+            chatSession.messages.push(response);
+            chatSession.lastActivity = new Date().toISOString();
+
+            // Update the conversation in storage
+            const updatedChats = savedChats.map((chat: any) =>
+              chat.id === conversationId ? chatSession : chat
+            );
+            (store as any).set("savedChats", updatedChats);
+
+            console.log(
+              "💾 Conversation updated with",
+              chatSession.messages.length,
+              "total messages"
+            );
+          } else {
+            console.warn(
+              "💾 Conversation not found for saving:",
+              conversationId
+            );
+          }
+        } catch (error) {
+          console.error("💾 Error saving conversation history:", error);
+        }
+      }
 
       return response;
     } catch (error) {
@@ -1782,13 +1940,26 @@ ipcMain.handle(
   "chat-get-conversation-history",
   async (_: IpcMainInvokeEvent, conversationId: string) => {
     try {
-      // TODO: Implement conversation history retrieval from database
-      console.log("Getting conversation history for:", conversationId);
+      console.log("📜 Getting conversation history for:", conversationId);
+      const savedChats = (store as any).get("savedChats") || [];
+      const chatSession = savedChats.find(
+        (chat: any) => chat.id === conversationId
+      );
 
-      // Return empty array for now
-      return [];
+      if (!chatSession) {
+        console.log("📜 No chat session found, returning empty history");
+        return [];
+      }
+
+      const messages = chatSession.messages || [];
+      console.log(
+        "📜 Retrieved conversation history:",
+        messages.length,
+        "messages"
+      );
+      return messages;
     } catch (error) {
-      console.error("Error getting conversation history:", error);
+      console.error("📜 Error getting conversation history:", error);
       throw error;
     }
   }

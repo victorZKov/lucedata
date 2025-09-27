@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import Layout from "./components/Layout";
 import AIEnginesDialog from "./components/AIEnginesDialog";
+import SettingsDialog from "./components/SettingsDialog";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 // Create a client
@@ -17,6 +18,7 @@ const queryClient = new QueryClient({
 
 function App() {
   const [showAIEnginesDialog, setShowAIEnginesDialog] = useState(false);
+  const [showSettingsDialog, setShowSettingsDialog] = useState(false);
 
   useEffect(() => {
     // Listen for AI engines dialog events
@@ -24,10 +26,17 @@ function App() {
       setShowAIEnginesDialog(true);
     };
 
+    // Listen for Settings dialog events
+    const handleOpenSettings = () => {
+      setShowSettingsDialog(true);
+    };
+
     document.addEventListener(
       "open-ai-engines-settings",
       handleOpenAIEnginesSettings
     );
+
+    document.addEventListener("open-settings", handleOpenSettings);
 
     // Set up menu action handlers
     const handleMenuAction = (action: string, ...args: unknown[]) => {
@@ -37,6 +46,16 @@ function App() {
         case "new-connection":
           // Handle new connection
           console.log("Opening new connection dialog");
+          break;
+        case "manage-ai-engines":
+          // Open Settings dialog with AI Engines tab
+          setShowSettingsDialog(true);
+          // Dispatch event to set AI Engines tab as active
+          document.dispatchEvent(
+            new CustomEvent("settings-tab-change", {
+              detail: { tab: "ai-engines" },
+            })
+          );
           break;
         case "select-ai-provider":
           // Handle AI provider selection
@@ -75,7 +94,7 @@ function App() {
         }
         case "preferences":
           // Handle preferences
-          console.log("Opening preferences");
+          setShowSettingsDialog(true);
           break;
         case "find":
           // Handle find
@@ -114,6 +133,7 @@ function App() {
         "open-ai-engines-settings",
         handleOpenAIEnginesSettings
       );
+      document.removeEventListener("open-settings", handleOpenSettings);
       if (window.electronAPI) {
         window.electronAPI.removeAllListeners("menu-action");
       }
@@ -131,6 +151,12 @@ function App() {
               setShowAIEnginesDialog(false);
               // Dispatch event to refresh engines in other components
               document.dispatchEvent(new CustomEvent("ai-engines-updated"));
+            }}
+          />
+          <SettingsDialog
+            isOpen={showSettingsDialog}
+            onClose={() => {
+              setShowSettingsDialog(false);
             }}
           />
         </div>

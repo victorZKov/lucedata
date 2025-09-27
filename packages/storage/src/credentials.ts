@@ -5,17 +5,23 @@ interface KeytarCredential {
 }
 
 interface KeytarModule {
-  setPassword(service: string, account: string, password: string): Promise<void>;
+  setPassword(
+    service: string,
+    account: string,
+    password: string
+  ): Promise<void>;
   getPassword(service: string, account: string): Promise<string | null>;
   deletePassword(service: string, account: string): Promise<boolean>;
   findCredentials(service: string): Promise<KeytarCredential[]>;
 }
 
 export class CredentialManager {
-  private readonly serviceName = 'SQLHelper';
+  private readonly serviceName = "SQLHelper";
   private isKeytarAvailable = false;
   private keytar: KeytarModule | null = null;
   private loadPromise: Promise<void> | null = null;
+  // Fallback in-memory store when keytar isn't available (app session only)
+  private memoryStore = new Map<string, string>();
 
   constructor() {
     // Lazy-load keytar using ESM-friendly dynamic import
@@ -25,11 +31,16 @@ export class CredentialManager {
   private async loadKeytar(): Promise<void> {
     try {
       // Dynamic import works in ESM and CommonJS builds
-      const mod = await import('keytar') as { default?: KeytarModule } & KeytarModule;
+      const mod = (await import("keytar")) as {
+        default?: KeytarModule;
+      } & KeytarModule;
       this.keytar = mod?.default ?? mod;
-      this.isKeytarAvailable = typeof this.keytar?.setPassword === 'function';
+      this.isKeytarAvailable = typeof this.keytar?.setPassword === "function";
     } catch (error) {
-      console.warn('Keytar not available, passwords will not be stored securely:', error);
+      console.warn(
+        "Keytar not available, passwords will not be stored securely:",
+        error
+      );
       this.isKeytarAvailable = false;
     }
   }
@@ -42,14 +53,20 @@ export class CredentialManager {
   async savePassword(connectionId: string, password: string): Promise<void> {
     await this.ensureLoaded();
     if (!this.isKeytarAvailable || !this.keytar) {
-      console.warn('Keytar not available, skipping password save for connection:', connectionId);
+      console.warn(
+        "Keytar not available, skipping password save for connection:",
+        connectionId
+      );
       return;
     }
 
     try {
       await this.keytar.setPassword(this.serviceName, connectionId, password);
     } catch (error) {
-      console.warn(`Failed to save password for connection ${connectionId}:`, error);
+      console.warn(
+        `Failed to save password for connection ${connectionId}:`,
+        error
+      );
       // Don't throw error, just log warning - password saving is optional
     }
   }
@@ -63,7 +80,10 @@ export class CredentialManager {
     try {
       return await this.keytar.getPassword(this.serviceName, connectionId);
     } catch (error) {
-      console.warn(`Failed to retrieve password for connection ${connectionId}:`, error);
+      console.warn(
+        `Failed to retrieve password for connection ${connectionId}:`,
+        error
+      );
       return null;
     }
   }
@@ -77,7 +97,10 @@ export class CredentialManager {
     try {
       return await this.keytar.deletePassword(this.serviceName, connectionId);
     } catch (error) {
-      console.warn(`Failed to delete password for connection ${connectionId}:`, error);
+      console.warn(
+        `Failed to delete password for connection ${connectionId}:`,
+        error
+      );
       return false;
     }
   }
@@ -92,7 +115,7 @@ export class CredentialManager {
       const credentials = await this.keytar.findCredentials(this.serviceName);
       return credentials.map((cred: KeytarCredential) => cred.account);
     } catch (error) {
-      console.warn('Failed to list stored connections:', error);
+      console.warn("Failed to list stored connections:", error);
       return [];
     }
   }
@@ -112,10 +135,12 @@ export class CredentialManager {
     try {
       const credentials = await this.keytar.findCredentials(this.serviceName);
       await Promise.all(
-        credentials.map((cred: KeytarCredential) => this.keytar!.deletePassword(this.serviceName, cred.account))
+        credentials.map((cred: KeytarCredential) =>
+          this.keytar!.deletePassword(this.serviceName, cred.account)
+        )
       );
     } catch (error) {
-      console.warn('Failed to clear all passwords:', error);
+      console.warn("Failed to clear all passwords:", error);
     }
   }
 
@@ -123,9 +148,13 @@ export class CredentialManager {
   async saveApiKey(engineId: string, apiKey: string): Promise<string> {
     await this.ensureLoaded();
     const keyRef = `ai_engine_${engineId}`;
-    
+
     if (!this.isKeytarAvailable || !this.keytar) {
-      console.warn('Keytar not available, API key will not be stored securely for engine:', engineId);
+      console.warn(
+        "[CredentialManager] Keytar not available, storing API key ONLY in memory for engine:",
+        engineId
+      );
+      this.memoryStore.set(keyRef, apiKey);
       return keyRef;
     }
 
@@ -134,13 +163,17 @@ export class CredentialManager {
       return keyRef;
     } catch (error) {
       console.warn(`Failed to save API key for engine ${engineId}:`, error);
-      throw new Error('Failed to securely store API key');
+      throw new Error("Failed to securely store API key");
     }
   }
 
   async getApiKey(keyRef: string): Promise<string | null> {
     await this.ensureLoaded();
     if (!this.isKeytarAvailable || !this.keytar) {
+      // Fallback to memory store (not persisted across restarts)
+      if (this.memoryStore.has(keyRef)) {
+        return this.memoryStore.get(keyRef) || null;
+      }
       return null;
     }
 
@@ -155,6 +188,7 @@ export class CredentialManager {
   async deleteApiKey(keyRef: string): Promise<boolean> {
     await this.ensureLoaded();
     if (!this.isKeytarAvailable || !this.keytar) {
+      this.memoryStore.delete(keyRef);
       return true;
     }
 

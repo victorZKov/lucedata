@@ -48,15 +48,28 @@ export class AzureOpenAIProvider implements IAIProvider {
     // For Azure, use deployment name as model
     const deploymentName = this.config.defaultModel || "gpt-4o";
 
-    const response = await this.client.chat.completions.create({
+    // GPT-5-mini and newer models use max_completion_tokens instead of max_tokens
+    const tokenLimit = options?.maxTokens || this.config.maxTokens || 2048;
+    const isGPT5Model = deploymentName.toLowerCase().includes("gpt-5");
+
+    // Prepare base parameters
+    const baseParams = {
       model: deploymentName, // This is actually the deployment name in Azure
       messages: this.convertMessages(messages),
-      max_tokens: options?.maxTokens || this.config.maxTokens || 2048,
       temperature: options?.temperature ?? this.config.temperature ?? 0.7,
       tools: options?.tools,
-      tool_choice: options?.tools ? "auto" : undefined,
-      stream: false,
-    });
+      tool_choice: options?.tools ? ("auto" as const) : undefined,
+      stream: false as const,
+    };
+
+    // Add the appropriate token parameter based on model
+    const requestParams = isGPT5Model
+      ? { ...baseParams, max_completion_tokens: tokenLimit } // GPT-5 uses max_completion_tokens
+      : { ...baseParams, max_tokens: tokenLimit };
+
+    const response = await this.client.chat.completions.create(
+      requestParams as any
+    );
 
     const choice = response.choices[0];
     const content = choice.message.content || "";
@@ -89,15 +102,28 @@ export class AzureOpenAIProvider implements IAIProvider {
   ): AsyncIterable<StreamingChatResponse> {
     const deploymentName = this.config.defaultModel || "gpt-4o";
 
-    const stream = await this.client.chat.completions.create({
+    // GPT-5-mini and newer models use max_completion_tokens instead of max_tokens
+    const tokenLimit = options?.maxTokens || this.config.maxTokens || 2048;
+    const isGPT5Model = deploymentName.toLowerCase().includes("gpt-5");
+
+    // Prepare base parameters
+    const baseStreamParams = {
       model: deploymentName,
       messages: this.convertMessages(messages),
-      max_tokens: options?.maxTokens || this.config.maxTokens || 2048,
       temperature: options?.temperature ?? this.config.temperature ?? 0.7,
       tools: options?.tools,
-      tool_choice: options?.tools ? "auto" : undefined,
-      stream: true,
-    });
+      tool_choice: options?.tools ? ("auto" as const) : undefined,
+      stream: true as const,
+    };
+
+    // Add the appropriate token parameter based on model
+    const streamParams = isGPT5Model
+      ? { ...baseStreamParams, max_completion_tokens: tokenLimit } // GPT-5 uses max_completion_tokens
+      : { ...baseStreamParams, max_tokens: tokenLimit };
+
+    const stream = (await this.client.chat.completions.create(
+      streamParams as any
+    )) as any;
 
     let toolCalls: ToolCall[] = [];
     let currentToolCall: Partial<ToolCall> | null = null;
@@ -231,7 +257,7 @@ export class AzureOpenAIProvider implements IAIProvider {
       return models.data.map((model: any) => model.id).sort();
     } catch (error) {
       console.warn("Failed to list Azure OpenAI models:", error);
-      return ["gpt-5-mini", "gpt-4o", "gpt-4o-mini", "gpt-4", "gpt-35-turbo"];
+      return ["gpt-5-mini", "gpt-4o", "4o-mini", "gpt-4", "gpt-35-turbo"];
     }
   }
 

@@ -36,8 +36,14 @@ export class OpenAIProvider implements IAIProvider {
   }
 
   async generate(messages: ChatMessage[], options?: GenerateOptions) {
+    // Choose appropriate default model based on provider
+    let defaultModel = this.config.defaultModel || "gpt-4";
+    if (this.config.provider === AIProvider.Ollama) {
+      defaultModel = this.config.defaultModel || "mistral:7b"; // Use available Ollama model
+    }
+
     const response = await this.client.chat.completions.create({
-      model: this.config.defaultModel || "gpt-4",
+      model: defaultModel,
       messages: this.convertMessages(messages),
       max_tokens: options?.maxTokens || this.config.maxTokens || 2048,
       temperature: options?.temperature ?? this.config.temperature ?? 0.7,
@@ -74,8 +80,14 @@ export class OpenAIProvider implements IAIProvider {
     messages: ChatMessage[],
     options?: GenerateOptions
   ): AsyncIterable<StreamingChatResponse> {
+    // Choose appropriate default model based on provider
+    let defaultModel = this.config.defaultModel || "gpt-4";
+    if (this.config.provider === AIProvider.Ollama) {
+      defaultModel = this.config.defaultModel || "mistral:7b"; // Use available Ollama model
+    }
+
     const stream = await this.client.chat.completions.create({
-      model: this.config.defaultModel || "gpt-4",
+      model: defaultModel,
       messages: this.convertMessages(messages),
       max_tokens: options?.maxTokens || this.config.maxTokens || 2048,
       temperature: options?.temperature ?? this.config.temperature ?? 0.7,

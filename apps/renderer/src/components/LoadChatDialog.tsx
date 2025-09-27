@@ -18,6 +18,16 @@ interface SavedChat {
   messageCount: number;
 }
 
+interface RawChatData {
+  id?: string;
+  title?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  connectionId?: string;
+  engineId?: string;
+  messages?: unknown[];
+}
+
 export function LoadChatDialog({
   isOpen,
   onClose,
@@ -40,7 +50,34 @@ export function LoadChatDialog({
     setIsLoading(true);
     try {
       const chats = await window.electronAPI.chat.loadList();
-      setSavedChats(chats || []);
+
+      // Validate and filter chat data
+      const validChats = (chats || [])
+        .filter((chat: RawChatData) => {
+          return (
+            chat &&
+            chat.id &&
+            chat.title &&
+            Array.isArray(chat.messages) &&
+            typeof chat.createdAt === "string"
+          );
+        })
+        .map(
+          (chat: RawChatData): SavedChat => ({
+            id: chat.id!, // Safe because we validated these exist in the filter
+            title: chat.title!,
+            createdAt: chat.createdAt!,
+            updatedAt: chat.updatedAt || chat.createdAt!,
+            connectionId: chat.connectionId,
+            engineId: chat.engineId,
+            messageCount: chat.messages ? chat.messages.length : 0,
+          })
+        );
+
+      console.log(
+        `Loaded ${validChats.length} valid chat sessions out of ${chats?.length || 0} total`
+      );
+      setSavedChats(validChats);
     } catch (error) {
       console.error("Failed to load saved chats:", error);
       setSavedChats([]);

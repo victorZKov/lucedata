@@ -277,6 +277,12 @@ export default function WorkArea() {
     return saved ? JSON.parse(saved) : true;
   });
 
+  // AI Context Sharing state
+  const [shareContextWithAI, setShareContextWithAI] = useState(() => {
+    const saved = localStorage.getItem("sqlhelper-share-context-with-ai");
+    return saved ? JSON.parse(saved) : false;
+  });
+
   const activeTab = useMemo(
     () => tabs.find(t => t.id === activeTabId) || null,
     [tabs, activeTabId]
@@ -336,6 +342,13 @@ export default function WorkArea() {
   useEffect(() => {
     localStorage.setItem("sqlhelper-show-results", JSON.stringify(showResults));
   }, [showResults]);
+
+  useEffect(() => {
+    localStorage.setItem(
+      "sqlhelper-share-context-with-ai",
+      JSON.stringify(shareContextWithAI)
+    );
+  }, [shareContextWithAI]);
 
   // Reset active result index when switching tabs or when results change
   useEffect(() => {
@@ -2141,6 +2154,51 @@ export default function WorkArea() {
     return () => window.electronAPI?.removeAllListeners?.("menu-action");
   }, [activeTab]);
 
+  // Broadcast workspace context to AI when sharing is enabled
+  useEffect(() => {
+    if (!shareContextWithAI || !activeTab) {
+      // Clear context when sharing is disabled or no active tab
+      const event = new CustomEvent("workspace-context-change", {
+        detail: { enabled: false, context: null },
+      });
+      document.dispatchEvent(event);
+      return;
+    }
+
+    // Get current query and results
+    const currentResult = getCurrentResult(activeTab);
+    const context = {
+      enabled: true,
+      query: activeTab.sql?.trim() || null,
+      results: currentResult
+        ? {
+            columns: currentResult.columns || [],
+            rowCount: currentResult.rowCount || 0,
+            executionTime: currentResult.executionTime || 0,
+            // Include a sample of the data (first 5 rows) for context
+            sampleRows: (currentResult.rows || []).slice(0, 5),
+            error: currentResult.error || null,
+            connectionName: activeTab.connectionName || null,
+            database: activeTab.database || null,
+            connectionType: activeTab.connectionType || null,
+          }
+        : null,
+    };
+
+    // Broadcast the context
+    const event = new CustomEvent("workspace-context-change", {
+      detail: context,
+    });
+    document.dispatchEvent(event);
+  }, [
+    shareContextWithAI,
+    activeTab,
+    activeTab?.sql,
+    activeTab?.result,
+    activeTab?.results,
+    activeResultIndex,
+  ]);
+
   // Listen for new tab creation events from main process
   useEffect(() => {
     const handler = (tabData: {
@@ -2406,6 +2464,28 @@ export default function WorkArea() {
                 )}
                 Format
               </button>
+
+              {/* AI Context Sharing Toggle */}
+              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
+                <label
+                  htmlFor="ai-context-toggle"
+                  className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
+                  title={
+                    shareContextWithAI
+                      ? "Query and results are shared with AI Assistant"
+                      : "Click to share query and results with AI Assistant"
+                  }
+                >
+                  <input
+                    id="ai-context-toggle"
+                    type="checkbox"
+                    checked={shareContextWithAI}
+                    onChange={e => setShareContextWithAI(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 bg-background border-border rounded focus:ring-blue-500 focus:ring-2"
+                  />
+                  <span className="whitespace-nowrap">🤖 Share with AI</span>
+                </label>
+              </div>
             </div>
             <div className="flex items-center space-x-2">
               <label className="text-xs text-muted-foreground whitespace-nowrap">

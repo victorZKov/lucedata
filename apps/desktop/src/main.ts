@@ -1546,6 +1546,7 @@ ipcMain.handle(
       connectionId: string;
       engineId: string;
       conversationId?: string;
+      workspaceContext?: any;
     }
   ) => {
     try {
@@ -1747,12 +1748,56 @@ ipcMain.handle(
         console.log("📜 New conversation created and saved");
       }
 
+      // Add workspace context to system message if available
+      let workspaceContextText = "";
+      if (params.workspaceContext) {
+        console.log(
+          "🔧 Including workspace context in AI request:",
+          params.workspaceContext
+        );
+
+        workspaceContextText = `
+
+CURRENT WORKSPACE CONTEXT:
+The user is currently working on the following in their SQL workspace:
+
+Current Query: ${params.workspaceContext.currentQuery || "No query currently active"}`;
+
+        if (params.workspaceContext.results) {
+          const results = params.workspaceContext.results;
+          workspaceContextText += `
+
+Query Results:
+- Connection: ${results.connectionName || "Unknown"} (${results.connectionType || "Unknown"}) 
+- Database: ${results.database || "Unknown"}
+- Columns: [${results.columns.join(", ")}]
+- Row Count: ${results.rowCount}
+- Execution Time: ${results.executionTime}ms`;
+
+          if (results.error) {
+            workspaceContextText += `
+- Error: ${results.error}`;
+          } else if (results.sampleData && results.sampleData.length > 0) {
+            workspaceContextText += `
+
+Sample Data (first few rows):
+${JSON.stringify(results.sampleData, null, 2)}`;
+          }
+        }
+
+        workspaceContextText += `
+
+When answering the user's question, consider this current workspace context. The user may be asking about the current query, results, or wanting to modify/extend their current work.
+
+`;
+      }
+
       // Create system message with enhanced capabilities
       const systemMessage = {
         role: "system" as const,
         content: `You are an expert SQL assistant with autonomous database inspection capabilities connected to a ${sqlContext.databaseType} database named "${sqlContext.connectionName}".
 
-Available tables: ${sqlContext.tables.map(t => `${t.schema}.${t.name}`).join(", ")}
+Available tables: ${sqlContext.tables.map(t => `${t.schema}.${t.name}`).join(", ")}${workspaceContextText}
 
 AUTONOMOUS CAPABILITIES:
 You have the ability to execute schema inspection queries directly to understand table structures. When you need to inspect table columns, relationships, or data patterns, you should:

@@ -247,6 +247,7 @@ try {
         connectionId: string;
         engineId: string;
         conversationId?: string;
+        workspaceContext?: any;
       }) => ipcRenderer.invoke("chat-send-message", params),
       getConversationHistory: (conversationId: string) =>
         ipcRenderer.invoke("chat-get-conversation-history", conversationId),

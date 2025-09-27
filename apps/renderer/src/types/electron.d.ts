@@ -221,6 +221,19 @@ declare global {
           connectionId: string;
           engineId: string;
           conversationId?: string;
+          workspaceContext?: {
+            currentQuery: string;
+            results?: {
+              columns: string[];
+              rowCount: number;
+              executionTime: number;
+              sampleData: Record<string, unknown>[];
+              error?: string | null;
+              connectionName?: string | null;
+              database?: string | null;
+              connectionType?: string | null;
+            } | null;
+          } | null;
         }) => Promise<{
           id: string;
           role: "assistant";

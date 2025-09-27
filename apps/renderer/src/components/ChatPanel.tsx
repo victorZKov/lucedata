@@ -45,6 +45,21 @@ interface AIEngine {
   defaultModel?: string;
 }
 
+interface WorkspaceContext {
+  enabled: boolean;
+  query?: string | null;
+  results?: {
+    columns: string[];
+    rowCount: number;
+    executionTime: number;
+    sampleRows: Record<string, unknown>[];
+    error?: string | null;
+    connectionName?: string | null;
+    database?: string | null;
+    connectionType?: string | null;
+  } | null;
+}
+
 export default function ChatPanel() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
@@ -59,6 +74,8 @@ export default function ChatPanel() {
   const [currentConversationId, setCurrentConversationId] = useState<
     string | null
   >(null);
+  const [workspaceContext, setWorkspaceContext] =
+    useState<WorkspaceContext | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Load connections and engines on mount
@@ -85,6 +102,12 @@ export default function ChatPanel() {
       console.log("🔄 Window focused, refreshing chat panel data...");
       loadConnections();
       loadEngines();
+    };
+
+    // Listen for workspace context changes from WorkArea
+    const handleWorkspaceContextChange = (event: CustomEvent) => {
+      console.log("🔄 Workspace context changed:", event.detail);
+      setWorkspaceContext(event.detail);
     };
 
     // Chat management event handlers
@@ -141,6 +164,10 @@ export default function ChatPanel() {
     );
     document.addEventListener("new-chat", handleNewChat);
     document.addEventListener("load-chat", handleLoadChat as EventListener);
+    document.addEventListener(
+      "workspace-context-change",
+      handleWorkspaceContextChange as EventListener
+    );
     window.addEventListener("focus", handleWindowFocus);
 
     return () => {
@@ -153,6 +180,10 @@ export default function ChatPanel() {
       document.removeEventListener(
         "load-chat",
         handleLoadChat as EventListener
+      );
+      document.removeEventListener(
+        "workspace-context-change",
+        handleWorkspaceContextChange as EventListener
       );
       window.removeEventListener("focus", handleWindowFocus);
     };
@@ -249,12 +280,33 @@ export default function ChatPanel() {
     setLoading(true);
 
     try {
+      // Prepare workspace context if sharing is enabled
+      let contextInfo = null;
+      if (workspaceContext?.enabled && workspaceContext.query) {
+        contextInfo = {
+          currentQuery: workspaceContext.query,
+          results: workspaceContext.results
+            ? {
+                columns: workspaceContext.results.columns,
+                rowCount: workspaceContext.results.rowCount,
+                executionTime: workspaceContext.results.executionTime,
+                sampleData: workspaceContext.results.sampleRows,
+                error: workspaceContext.results.error,
+                connectionName: workspaceContext.results.connectionName,
+                database: workspaceContext.results.database,
+                connectionType: workspaceContext.results.connectionType,
+              }
+            : null,
+        };
+      }
+
       // Send the message to the AI agent
       const response = await window.electronAPI.chat.sendMessage({
         message: inputText,
         connectionId: selectedConnection,
         engineId: selectedEngine,
         conversationId: currentConversationId || undefined, // Pass conversation ID for context
+        workspaceContext: contextInfo, // Include workspace context
       });
 
       const assistantMessage: ChatMessage = {
@@ -318,7 +370,15 @@ export default function ChatPanel() {
   return (
     <div className="h-full flex flex-col bg-background min-h-0">
       <div className="p-3 border-b border-border flex-shrink-0">
-        <h2 className="text-sm font-medium text-foreground">AI Assistant</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-foreground">AI Assistant</h2>
+          {workspaceContext?.enabled && (
+            <div className="flex items-center gap-1 text-xs text-green-600 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded-full">
+              <span>🔗</span>
+              <span>Workspace Context</span>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Chat Messages */}

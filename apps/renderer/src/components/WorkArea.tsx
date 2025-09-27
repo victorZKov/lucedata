@@ -299,6 +299,15 @@ export default function WorkArea() {
     column?: string;
   }>({ x: 0, y: 0, show: false });
 
+  // Tab management state
+  const [tabContextMenu, setTabContextMenu] = useState<{
+    x: number;
+    y: number;
+    show: boolean;
+    tabId?: string;
+  }>({ x: 0, y: 0, show: false });
+  const [showTabDropdown, setShowTabDropdown] = useState(false);
+
   // For multiple query results - track which result is currently active
   const [activeResultIndex, setActiveResultIndex] = useState(0);
 
@@ -701,6 +710,27 @@ export default function WorkArea() {
       const next = tabs[idx + 1] || tabs[idx - 1] || null;
       setActiveTabId(next ? next.id : null);
     }
+  };
+
+  // Tab management functions
+  const closeAllTabs = () => {
+    setTabs([]);
+    setActiveTabId(null);
+  };
+
+  const closeOtherTabs = (keepTabId: string) => {
+    setTabs(prev => prev.filter(t => t.id === keepTabId));
+    setActiveTabId(keepTabId);
+  };
+
+  const handleTabRightClick = (e: React.MouseEvent, tabId: string) => {
+    e.preventDefault();
+    setTabContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      show: true,
+      tabId,
+    });
   };
 
   // Function to detect content type based on content
@@ -2329,6 +2359,8 @@ export default function WorkArea() {
     const closer = () => {
       setResultMenu(prev => (prev.show ? { ...prev, show: false } : prev));
       setColumnMenu(prev => (prev.show ? { ...prev, show: false } : prev));
+      setTabContextMenu(prev => (prev.show ? { ...prev, show: false } : prev));
+      setShowTabDropdown(false);
     };
     window.addEventListener("click", closer);
     return () => window.removeEventListener("click", closer);
@@ -2394,37 +2426,90 @@ export default function WorkArea() {
   return (
     <div className="h-full flex-1 flex flex-col bg-background text-foreground min-w-0">
       {/* Tabs Header */}
-      <div className="flex items-center overflow-x-auto border-b border-border bg-muted min-w-0">
-        {tabs.length === 0 ? (
-          <div className="px-3 py-2 text-xs text-gray-500"></div>
-        ) : (
-          tabs.map(tab => (
-            <div
-              key={tab.id}
-              className={`flex items-center gap-2 h-8 px-2.5 text-sm cursor-pointer border-r border-border flex-shrink-0 ${
-                activeTabId === tab.id
-                  ? "bg-background text-foreground"
-                  : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
-              }`}
-              onClick={() => setActiveTabId(tab.id)}
+      <div className="flex items-center border-b border-border bg-muted min-w-0">
+        <div className="flex items-center overflow-x-auto flex-1 min-w-0">
+          {tabs.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-gray-500"></div>
+          ) : (
+            tabs.map(tab => (
+              <div
+                key={tab.id}
+                className={`flex items-center gap-2 h-8 px-2.5 text-sm cursor-pointer border-r border-border flex-shrink-0 relative ${
+                  activeTabId === tab.id
+                    ? "bg-background text-foreground shadow-sm border-b-2 border-b-blue-500"
+                    : "bg-transparent text-muted-foreground hover:bg-accent hover:text-foreground"
+                }`}
+                onClick={() => setActiveTabId(tab.id)}
+                onContextMenu={e => handleTabRightClick(e, tab.id)}
+              >
+                <span
+                  className="truncate max-w-[180px]"
+                  title={`${tab.connectionName || ""} • ${tab.title}`}
+                >
+                  {tab.title}
+                </span>
+                <button
+                  className="text-xs hover:text-red-500 opacity-70 hover:opacity-100"
+                  onClick={e => {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Tab Dropdown Button */}
+        {tabs.length > 0 && (
+          <div className="relative">
+            <button
+              className="h-8 px-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent border-l border-border flex items-center gap-1"
+              onClick={e => {
+                e.stopPropagation();
+                setShowTabDropdown(!showTabDropdown);
+              }}
+              title="All tabs"
             >
-              <span
-                className="truncate max-w-[180px]"
-                title={`${tab.connectionName || ""} • ${tab.title}`}
-              >
-                {tab.title}
-              </span>
-              <button
-                className="text-xs hover:text-red-500"
-                onClick={e => {
-                  e.stopPropagation();
-                  closeTab(tab.id);
-                }}
-              >
-                ✕
-              </button>
-            </div>
-          ))
+              <span className="text-xs">⏷</span>
+              <span className="hidden sm:inline text-xs">{tabs.length}</span>
+            </button>
+
+            {/* Tab Dropdown Menu */}
+            {showTabDropdown && (
+              <div className="absolute right-0 top-full mt-1 bg-background border border-border rounded-lg shadow-lg z-50 min-w-[200px] max-h-[300px] overflow-y-auto">
+                <div className="py-1">
+                  {tabs.map((tab, index) => (
+                    <button
+                      key={tab.id}
+                      className={`w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center gap-2 ${
+                        activeTabId === tab.id
+                          ? "bg-accent/50 text-foreground font-medium"
+                          : "text-muted-foreground"
+                      }`}
+                      onClick={e => {
+                        e.stopPropagation();
+                        setActiveTabId(tab.id);
+                        setShowTabDropdown(false);
+                      }}
+                    >
+                      <span className="flex-shrink-0 text-xs text-muted-foreground w-6 text-center">
+                        {index + 1}
+                      </span>
+                      <span className="truncate flex-1">{tab.title}</span>
+                      {tab.connectionName && (
+                        <span className="text-xs text-muted-foreground truncate max-w-[80px]">
+                          {tab.connectionName}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -3358,6 +3443,43 @@ export default function WorkArea() {
                           />
                         </>
                       )}
+                    </div>
+                  )}
+
+                  {/* Tab Context Menu */}
+                  {tabContextMenu.show && (
+                    <div
+                      className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
+                      style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
+                      onMouseLeave={() =>
+                        setTabContextMenu(prev => ({ ...prev, show: false }))
+                      }
+                      onClick={() =>
+                        setTabContextMenu(prev => ({ ...prev, show: false }))
+                      }
+                    >
+                      <MenuItem
+                        label="Close Tab"
+                        onClick={() => {
+                          if (tabContextMenu.tabId) {
+                            closeTab(tabContextMenu.tabId);
+                          }
+                        }}
+                      />
+                      <MenuItem
+                        label="Close Other Tabs"
+                        onClick={() => {
+                          if (tabContextMenu.tabId) {
+                            closeOtherTabs(tabContextMenu.tabId);
+                          }
+                        }}
+                        disabled={tabs.length <= 1}
+                      />
+                      <MenuItem
+                        label="Close All Tabs"
+                        onClick={closeAllTabs}
+                        disabled={tabs.length === 0}
+                      />
                     </div>
                   )}
 

@@ -20,6 +20,11 @@ interface ChatMessage {
   finalSQL?: string;
   isSuggestion?: boolean;
   suggestedSQL?: string;
+  connectionId?: string | null;
+  connectionName?: string | null;
+  connectionType?: string | null;
+  database?: string | null;
+  renderMarkdown?: boolean;
 }
 
 interface SavedChatMessage {
@@ -31,6 +36,11 @@ interface SavedChatMessage {
   finalSQL?: string;
   isSuggestion?: boolean;
   suggestedSQL?: string;
+  connectionId?: string | null;
+  connectionName?: string | null;
+  connectionType?: string | null;
+  database?: string | null;
+  renderMarkdown?: boolean;
 }
 
 interface Connection {
@@ -141,15 +151,21 @@ export default function ChatPanel() {
             ? `${detail.title}\n\n${detail.content}`
             : detail.content,
           timestamp: new Date(),
+          renderMarkdown: true,
         };
 
         setMessages(prev => [...prev, message]);
         console.log(`📝 Added analysis message to chat: ${detail.type}`);
+        setLoading(false);
         return;
       }
 
       // Original format handling
       const { userMessage, assistantMessage, conversationId } = detail;
+
+      if (userMessage && !assistantMessage) {
+        setLoading(true);
+      }
 
       // Update conversation ID if provided
       if (conversationId && conversationId !== currentConversationId) {
@@ -168,6 +184,7 @@ export default function ChatPanel() {
           role: userMessage.role || "user",
           content: userMessage.content,
           timestamp: new Date(userMessage.timestamp || new Date()),
+          renderMarkdown: userMessage.renderMarkdown,
         });
       }
       if (assistantMessage) {
@@ -177,7 +194,9 @@ export default function ChatPanel() {
           content: assistantMessage.content,
           timestamp: new Date(assistantMessage.timestamp || new Date()),
           finalSQL: assistantMessage.finalSQL,
+          renderMarkdown: assistantMessage.renderMarkdown,
         });
+        setLoading(false);
       }
 
       if (newMessages.length > 0) {
@@ -197,13 +216,27 @@ export default function ChatPanel() {
               (msg: SavedChatMessage) =>
                 msg && msg.id && msg.role && msg.content
             ) // Filter out invalid messages
-            .map((msg: SavedChatMessage) => ({
-              ...msg,
-              timestamp:
+            .map((msg: SavedChatMessage) => {
+              const timestamp =
                 typeof msg.timestamp === "string"
                   ? new Date(msg.timestamp)
-                  : msg.timestamp,
-            }));
+                  : (msg.timestamp ?? new Date());
+
+              const renderMarkdown =
+                typeof msg.renderMarkdown === "boolean"
+                  ? msg.renderMarkdown
+                  : msg.role !== "user"
+                    ? true
+                    : /(```|\*\*|__|\n\s*[-*+]\s+|^\s*#|\n\s*\d+\.|\n>)/m.test(
+                        msg.content
+                      );
+
+              return {
+                ...msg,
+                timestamp,
+                renderMarkdown,
+              };
+            });
 
           console.log(
             `🔄 Loading ${messagesWithDates.length} messages from chat: ${chatData.title || chatData.id}`
@@ -282,6 +315,7 @@ export default function ChatPanel() {
           content: msg.content,
           timestamp: msg.timestamp.toISOString(),
           finalSQL: msg.finalSQL,
+          renderMarkdown: !!msg.renderMarkdown,
         })),
       })
     );
@@ -289,15 +323,22 @@ export default function ChatPanel() {
 
   // Notify Layout about context changes
   useEffect(() => {
+    const activeConnection = connections.find(
+      conn => conn.id === selectedConnection
+    );
+
     document.dispatchEvent(
       new CustomEvent("chat-context-updated", {
         detail: {
           connectionId: selectedConnection,
+          connectionName: activeConnection?.name ?? null,
+          connectionType: activeConnection?.type ?? null,
+          database: activeConnection?.database ?? null,
           engineId: selectedEngine,
         },
       })
     );
-  }, [selectedConnection, selectedEngine]);
+  }, [selectedConnection, selectedEngine, connections]);
 
   const loadConnections = async () => {
     try {
@@ -343,6 +384,10 @@ export default function ChatPanel() {
       console.warn("Please select both a database connection and AI engine");
       return;
     }
+
+    const activeConnection = connections.find(
+      conn => conn.id === selectedConnection
+    );
 
     const userMessage: ChatMessage = {
       id: crypto.randomUUID(),
@@ -393,6 +438,10 @@ export default function ChatPanel() {
         content: response.content,
         timestamp: new Date(response.timestamp),
         finalSQL: response.finalSQL,
+        connectionId: activeConnection?.id || selectedConnection,
+        connectionName: activeConnection?.name || null,
+        connectionType: activeConnection?.type || null,
+        database: activeConnection?.database ?? null,
       };
 
       // Update conversation ID if returned from the backend (for auto-created conversations)
@@ -418,6 +467,10 @@ export default function ChatPanel() {
           timestamp: new Date(),
           isSuggestion: true,
           suggestedSQL: response.finalSQL,
+          connectionId: assistantMessage.connectionId,
+          connectionName: assistantMessage.connectionName,
+          connectionType: assistantMessage.connectionType,
+          database: assistantMessage.database,
         };
 
         setTimeout(() => {
@@ -481,7 +534,7 @@ export default function ChatPanel() {
                         : "bg-muted text-foreground"
                   }`}
                 >
-                  {message.role === "user" ? (
+                  {message.role === "user" && !message.renderMarkdown ? (
                     <div className="whitespace-pre-wrap">{message.content}</div>
                   ) : (
                     <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mt-2 prose-headings:mb-2 prose-p:mb-2 prose-code:text-sm prose-pre:bg-gray-800 prose-pre:text-green-400">
@@ -500,20 +553,34 @@ export default function ChatPanel() {
                       <button
                         className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1 transition-colors cursor-pointer"
                         onClick={async () => {
+                          const connectionIdToUse =
+                            message.connectionId || selectedConnection;
+                          const connectionDetails = connectionIdToUse
+                            ? connections.find(
+                                conn => conn.id === connectionIdToUse
+                              )
+                            : undefined;
+
                           if (
                             window.electronAPI?.createSqlTab &&
-                            selectedConnection
+                            connectionIdToUse
                           ) {
                             try {
-                              const connection = connections.find(
-                                conn => conn.id === selectedConnection
-                              );
                               await window.electronAPI.createSqlTab({
                                 sql: message.suggestedSQL!,
-                                connectionId: connection?.id,
-                                connectionName: connection?.name,
-                                connectionType: connection?.type,
-                                database: connection?.database,
+                                connectionId: connectionIdToUse,
+                                connectionName:
+                                  connectionDetails?.name ||
+                                  message.connectionName ||
+                                  undefined,
+                                connectionType:
+                                  connectionDetails?.type ||
+                                  message.connectionType ||
+                                  undefined,
+                                database:
+                                  connectionDetails?.database ||
+                                  message.database ||
+                                  undefined,
                                 autoExecute: true,
                               });
                               // Remove the suggestion message after action
@@ -553,49 +620,59 @@ export default function ChatPanel() {
                           <button
                             className="text-green-400 hover:text-green-300 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1 cursor-pointer"
                             onClick={async () => {
-                              console.log("🔥 RUN BUTTON CLICKED");
-                              console.log("Debug info:", {
+                              const connectionIdToUse =
+                                message.connectionId || selectedConnection;
+                              const connectionDetails = connectionIdToUse
+                                ? connections.find(
+                                    conn => conn.id === connectionIdToUse
+                                  )
+                                : undefined;
+
+                              console.log("🔥 RUN BUTTON CLICKED", {
                                 hasSQL: !!message.finalSQL,
+                                connectionIdToUse,
+                                connectionFromMessage: message.connectionId,
                                 hasElectronAPI: !!window.electronAPI,
                                 hasCreateSqlTab:
                                   !!window.electronAPI?.createSqlTab,
-                                hasSelectedConnection: !!selectedConnection,
                               });
-                              console.log(
-                                "🔥 Available electronAPI methods:",
-                                Object.keys(window.electronAPI || {})
-                              );
-                              console.log(
-                                "🔥 createSqlTab type:",
-                                typeof window.electronAPI?.createSqlTab
-                              );
-                              // Debug: check all methods to see which ones are there
-                              console.log(
-                                "🔥 Full electronAPI object:",
-                                window.electronAPI
-                              );
                               if (
                                 message.finalSQL &&
                                 window.electronAPI?.createSqlTab &&
-                                selectedConnection
+                                connectionIdToUse
                               ) {
                                 try {
-                                  const connection = connections.find(
-                                    conn => conn.id === selectedConnection
-                                  );
                                   console.log("🔥 CALLING createSqlTab with:", {
                                     sql: message.finalSQL,
-                                    connectionId: connection?.id,
-                                    connectionName: connection?.name,
-                                    connectionType: connection?.type,
-                                    database: connection?.database,
+                                    connectionId: connectionIdToUse,
+                                    connectionName:
+                                      connectionDetails?.name ||
+                                      message.connectionName ||
+                                      undefined,
+                                    connectionType:
+                                      connectionDetails?.type ||
+                                      message.connectionType ||
+                                      undefined,
+                                    database:
+                                      connectionDetails?.database ||
+                                      message.database ||
+                                      undefined,
                                   });
                                   await window.electronAPI.createSqlTab({
                                     sql: message.finalSQL,
-                                    connectionId: connection?.id,
-                                    connectionName: connection?.name,
-                                    connectionType: connection?.type,
-                                    database: connection?.database,
+                                    connectionId: connectionIdToUse,
+                                    connectionName:
+                                      connectionDetails?.name ||
+                                      message.connectionName ||
+                                      undefined,
+                                    connectionType:
+                                      connectionDetails?.type ||
+                                      message.connectionType ||
+                                      undefined,
+                                    database:
+                                      connectionDetails?.database ||
+                                      message.database ||
+                                      undefined,
                                     autoExecute: true,
                                   });
                                   console.log(
@@ -650,36 +727,58 @@ export default function ChatPanel() {
                           <button
                             className="text-yellow-400 hover:text-yellow-300 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 cursor-pointer"
                             onClick={async () => {
-                              console.log("📄 INSERT BUTTON CLICKED");
-                              console.log("Debug info:", {
+                              const connectionIdToUse =
+                                message.connectionId || selectedConnection;
+                              const connectionDetails = connectionIdToUse
+                                ? connections.find(
+                                    conn => conn.id === connectionIdToUse
+                                  )
+                                : undefined;
+                              console.log("📄 INSERT BUTTON CLICKED", {
                                 hasSQL: !!message.finalSQL,
+                                connectionIdToUse,
+                                connectionFromMessage: message.connectionId,
                                 hasElectronAPI: !!window.electronAPI,
                                 hasCreateSqlTab:
                                   !!window.electronAPI?.createSqlTab,
-                                hasSelectedConnection: !!selectedConnection,
                               });
                               if (
                                 message.finalSQL &&
                                 window.electronAPI?.createSqlTab &&
-                                selectedConnection
+                                connectionIdToUse
                               ) {
                                 try {
-                                  const connection = connections.find(
-                                    conn => conn.id === selectedConnection
-                                  );
                                   console.log("📄 CALLING createSqlTab with:", {
                                     sql: message.finalSQL,
-                                    connectionId: connection?.id,
-                                    connectionName: connection?.name,
-                                    connectionType: connection?.type,
-                                    database: connection?.database,
+                                    connectionId: connectionIdToUse,
+                                    connectionName:
+                                      connectionDetails?.name ||
+                                      message.connectionName ||
+                                      undefined,
+                                    connectionType:
+                                      connectionDetails?.type ||
+                                      message.connectionType ||
+                                      undefined,
+                                    database:
+                                      connectionDetails?.database ||
+                                      message.database ||
+                                      undefined,
                                   });
                                   await window.electronAPI.createSqlTab({
                                     sql: message.finalSQL,
-                                    connectionId: connection?.id,
-                                    connectionName: connection?.name,
-                                    connectionType: connection?.type,
-                                    database: connection?.database,
+                                    connectionId: connectionIdToUse,
+                                    connectionName:
+                                      connectionDetails?.name ||
+                                      message.connectionName ||
+                                      undefined,
+                                    connectionType:
+                                      connectionDetails?.type ||
+                                      message.connectionType ||
+                                      undefined,
+                                    database:
+                                      connectionDetails?.database ||
+                                      message.database ||
+                                      undefined,
                                     autoExecute: false,
                                   });
                                   console.log(

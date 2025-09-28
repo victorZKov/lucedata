@@ -6,10 +6,11 @@ interface SaveChatDialogProps {
   onSave: (title: string) => void;
   messages: Array<{
     id: string;
-    role: "user" | "assistant";
+    role: "user" | "assistant" | "system";
     content: string;
     timestamp: string;
     finalSQL?: string;
+    renderMarkdown?: boolean;
   }>;
   suggestedTitle?: string;
 }

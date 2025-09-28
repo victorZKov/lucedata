@@ -107,6 +107,14 @@ type Tab = {
   isAnalyzeLoading?: boolean;
 };
 
+type ChatContextDetail = {
+  connectionId?: string | null;
+  connectionName?: string | null;
+  connectionType?: string | null;
+  database?: string | null;
+  engineId?: string | null;
+};
+
 // Utility function to parse SQL text into individual queries
 const parseSQLQueries = (sqlText: string): string[] => {
   if (!sqlText || !sqlText.trim()) return [];
@@ -182,6 +190,12 @@ export default function WorkArea() {
   );
   const monacoRef = useRef<typeof Monaco | null>(null);
   const decorationIdsRef = useRef<string[]>([]);
+  const lastConnectionRef = useRef<{
+    id?: string;
+    name?: string;
+    type?: string;
+    database?: string | null;
+  } | null>(null);
 
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
@@ -196,8 +210,11 @@ export default function WorkArea() {
       id: string;
       name: string;
       type: string;
+      database?: string | null;
     }>
   >([]);
+  const [latestChatContext, setLatestChatContext] =
+    useState<ChatContextDetail | null>(null);
   // AI engines for button ordering
   const [aiEngines, setAiEngines] = useState<
     Array<{
@@ -223,44 +240,57 @@ export default function WorkArea() {
   // Load saved tabs
   useEffect(() => {
     try {
+      let storedConnection: {
+        id?: string;
+        name?: string;
+        type?: string;
+        database?: string | null;
+      } | null = null;
+
+      try {
+        const raw = localStorage.getItem("sqlhelper-last-connection");
+        if (raw) {
+          storedConnection = JSON.parse(raw);
+        }
+      } catch {
+        storedConnection = null;
+      }
+
+      lastConnectionRef.current = storedConnection;
+
       const saved = localStorage.getItem("sqlhelper-tabs");
       const savedActive = localStorage.getItem("sqlhelper-active-tab");
       if (saved) {
         const parsed: Tab[] = JSON.parse(saved);
         // Do not restore result payloads to avoid heavy memory
         const sanitized = parsed.map(t => ({ ...t, result: undefined }));
-        setTabs(sanitized);
-        setActiveTabId(savedActive || (sanitized[0]?.id ?? null));
+        const hydrated = sanitized.map(t => {
+          if (t.type === "sql" && !t.connectionId && storedConnection?.id) {
+            return {
+              ...t,
+              connectionId: storedConnection.id,
+              connectionName: storedConnection.name,
+              connectionType: storedConnection.type,
+              database: storedConnection.database ?? undefined,
+            } as Tab;
+          }
+          return t;
+        });
+        setTabs(hydrated);
+        setActiveTabId(savedActive || (hydrated[0]?.id ?? null));
       } else {
         // No saved tabs: open a default empty query and try to bind to last used connection
         const id = "local:new:1";
-        let connId: string | undefined;
-        let connName: string | undefined;
-        let connType: string | undefined;
-        let dbName: string | undefined;
-        try {
-          // Pull a last-used connection from localStorage if present (set by Explorer after successful connect)
-          const lastCtx = localStorage.getItem("sqlhelper-last-connection");
-          if (lastCtx) {
-            const parsed = JSON.parse(lastCtx);
-            connId = parsed.id;
-            connName = parsed.name;
-            connType = parsed.type;
-            dbName = parsed.database;
-          }
-        } catch {
-          // Failed to parse connection string - will use default values
-        }
         const newTab: Tab = {
           id,
           type: "sql",
           title: "New Query",
           sql: "",
           activeResultTab: "results",
-          connectionId: connId,
-          connectionName: connName,
-          connectionType: connType,
-          database: dbName,
+          connectionId: storedConnection?.id,
+          connectionName: storedConnection?.name,
+          connectionType: storedConnection?.type,
+          database: storedConnection?.database ?? undefined,
         } as Tab;
         setTabs([newTab]);
         setActiveTabId(id);
@@ -357,6 +387,83 @@ export default function WorkArea() {
     return tab.result;
   };
 
+  const getConnectionDetails = (
+    connectionId?: string | null
+  ): {
+    connectionId: string;
+    connectionName: string | null;
+    connectionType: string | null;
+    database: string | null;
+  } | null => {
+    if (!connectionId) return null;
+
+    const match = connections.find(conn => conn.id === connectionId);
+    if (match) {
+      return {
+        connectionId: match.id,
+        connectionName: match.name ?? null,
+        connectionType: match.type ?? null,
+        database: match.database ?? null,
+      };
+    }
+
+    if (latestChatContext && latestChatContext.connectionId === connectionId) {
+      return {
+        connectionId,
+        connectionName: latestChatContext.connectionName ?? null,
+        connectionType: latestChatContext.connectionType ?? null,
+        database: latestChatContext.database ?? null,
+      };
+    }
+
+    if (
+      lastConnectionRef.current &&
+      lastConnectionRef.current.id === connectionId
+    ) {
+      return {
+        connectionId,
+        connectionName: lastConnectionRef.current.name ?? null,
+        connectionType: lastConnectionRef.current.type ?? null,
+        database: lastConnectionRef.current.database ?? null,
+      };
+    }
+
+    return {
+      connectionId,
+      connectionName: null,
+      connectionType: null,
+      database: null,
+    };
+  };
+
+  const getDefaultConnection = () => {
+    const fromChat = latestChatContext?.connectionId
+      ? getConnectionDetails(latestChatContext.connectionId)
+      : null;
+    if (fromChat) return fromChat;
+
+    if (lastConnectionRef.current?.id) {
+      return {
+        connectionId: lastConnectionRef.current.id,
+        connectionName: lastConnectionRef.current.name ?? null,
+        connectionType: lastConnectionRef.current.type ?? null,
+        database: lastConnectionRef.current.database ?? null,
+      };
+    }
+
+    if (connections.length > 0) {
+      const first = connections[0];
+      return {
+        connectionId: first.id,
+        connectionName: first.name ?? null,
+        connectionType: first.type ?? null,
+        database: first.database ?? null,
+      };
+    }
+
+    return null;
+  };
+
   useEffect(() => {
     localStorage.setItem("sqlhelper-sql-height", sqlHeight.toString());
   }, [sqlHeight]);
@@ -371,6 +478,32 @@ export default function WorkArea() {
       JSON.stringify(shareContextWithAI)
     );
   }, [shareContextWithAI]);
+
+  useEffect(() => {
+    if (!connectionsLoaded) return;
+
+    const fallback = getDefaultConnection();
+    if (!fallback?.connectionId) return;
+
+    setTabs(prevTabs => {
+      let updated = false;
+      const nextTabs = prevTabs.map(tab => {
+        if (tab.type === "sql" && !tab.connectionId) {
+          updated = true;
+          return {
+            ...tab,
+            connectionId: fallback.connectionId,
+            connectionName: fallback.connectionName ?? tab.connectionName,
+            connectionType: fallback.connectionType ?? tab.connectionType,
+            database: fallback.database ?? tab.database,
+          };
+        }
+        return tab;
+      });
+
+      return updated ? nextTabs : prevTabs;
+    });
+  }, [connectionsLoaded, getDefaultConnection]);
 
   // Reset active result index when switching tabs or when results change
   useEffect(() => {
@@ -444,6 +577,49 @@ export default function WorkArea() {
     };
 
     loadTipsStartupSetting();
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const { detail } = event as CustomEvent<ChatContextDetail>;
+      if (!detail) return;
+
+      setLatestChatContext(detail);
+
+      if (
+        detail.connectionId &&
+        (detail.connectionName || detail.connectionType)
+      ) {
+        lastConnectionRef.current = {
+          id: detail.connectionId,
+          name: detail.connectionName ?? undefined,
+          type: detail.connectionType ?? undefined,
+          database: detail.database ?? null,
+        };
+
+        try {
+          localStorage.setItem(
+            "sqlhelper-last-connection",
+            JSON.stringify({
+              id: detail.connectionId,
+              name: detail.connectionName ?? undefined,
+              type: detail.connectionType ?? undefined,
+              database: detail.database ?? null,
+            })
+          );
+        } catch {
+          // Ignore localStorage write errors
+        }
+      }
+    };
+
+    document.addEventListener("chat-context-updated", handler as EventListener);
+
+    return () =>
+      document.removeEventListener(
+        "chat-context-updated",
+        handler as EventListener
+      );
   }, []);
 
   // Handler for showTipsAtStartup checkbox
@@ -1721,7 +1897,10 @@ export default function WorkArea() {
   const analyzeQueryWithAI = async () => {
     if (!activeTab || !activeTab.sql?.trim() || !aiEnginesLoaded) return;
 
-    if (!activeTab.connectionId) {
+    const resolvedConnection =
+      getConnectionDetails(activeTab.connectionId) ?? getDefaultConnection();
+
+    if (!resolvedConnection?.connectionId) {
       console.error("❌ No connection ID available for analysis");
       console.log("💡 Active tab info:", {
         hasActiveTab: !!activeTab,
@@ -1731,7 +1910,6 @@ export default function WorkArea() {
         connectionName: activeTab?.connectionName,
       });
 
-      // Send error to ChatPanel with helpful guidance
       window.dispatchEvent(
         new CustomEvent("external-chat-message", {
           detail: {
@@ -1753,14 +1931,57 @@ Currently active tab has no connection information.`,
       return;
     }
 
+    const effectiveConnectionId = resolvedConnection.connectionId;
+    const effectiveConnectionName =
+      resolvedConnection.connectionName ?? activeTab.connectionName ?? null;
+    const effectiveConnectionType =
+      resolvedConnection.connectionType ?? activeTab.connectionType ?? null;
+    const effectiveDatabase =
+      resolvedConnection.database ?? activeTab.database ?? null;
+
+    if (
+      activeTab.connectionId !== effectiveConnectionId ||
+      activeTab.connectionName !== effectiveConnectionName ||
+      activeTab.connectionType !== effectiveConnectionType ||
+      activeTab.database !== effectiveDatabase
+    ) {
+      updateActiveTab({
+        connectionId: effectiveConnectionId,
+        connectionName: effectiveConnectionName ?? undefined,
+        connectionType: effectiveConnectionType ?? undefined,
+        database: effectiveDatabase ?? undefined,
+      });
+    }
+
+    lastConnectionRef.current = {
+      id: effectiveConnectionId,
+      name: effectiveConnectionName ?? undefined,
+      type: effectiveConnectionType ?? undefined,
+      database: effectiveDatabase ?? null,
+    };
+
+    try {
+      localStorage.setItem(
+        "sqlhelper-last-connection",
+        JSON.stringify({
+          id: effectiveConnectionId,
+          name: effectiveConnectionName ?? undefined,
+          type: effectiveConnectionType ?? undefined,
+          database: effectiveDatabase ?? null,
+        })
+      );
+    } catch {
+      // Ignore localStorage errors
+    }
+
     try {
       updateActiveTab({ isAnalyzeLoading: true });
       console.log(
         "🔍 Starting query analysis with connection ID:",
-        activeTab.connectionId
+        effectiveConnectionId
       );
 
-      // Create analysis message focused on query optimization
+      const connectionTypeLabel = effectiveConnectionType || "Unknown";
       const message = `Please analyze this SQL query for optimization opportunities:
 
 **Query:**
@@ -1768,9 +1989,9 @@ Currently active tab has no connection information.`,
 ${activeTab.sql}
 \`\`\`
 
-**Database Type:** ${activeTab.connectionType || "Unknown"}
-${activeTab.connectionName ? `**Connection:** ${activeTab.connectionName}` : ""}
-${activeTab.database ? `**Database:** ${activeTab.database}` : ""}
+**Database Type:** ${connectionTypeLabel}
+${effectiveConnectionName ? `**Connection:** ${effectiveConnectionName}` : ""}
+${effectiveDatabase ? `**Database:** ${effectiveDatabase}` : ""}
 
 Please provide:
 1. **Query Analysis**: What the query does and its current approach
@@ -1782,7 +2003,6 @@ Please provide:
 
 Focus on practical, actionable recommendations for better query performance.`;
 
-      // Send to AI Assistant immediately
       const userMessage = {
         id: crypto.randomUUID(),
         role: "user" as const,
@@ -1794,28 +2014,26 @@ Requesting analysis of this query:
 ${activeTab.sql}
 \`\`\``,
         timestamp: new Date().toISOString(),
+        renderMarkdown: true,
       };
 
-      // Emit event to update ChatPanel with user message immediately
       document.dispatchEvent(
         new CustomEvent("external-chat-message", {
           detail: {
             userMessage,
-            conversationId: null, // Will be auto-created
+            conversationId: null,
           },
         })
       );
 
       console.log("📤 Query analysis request sent to chat panel");
 
-      // Get AI engine using the same logic as ChatPanel
       let selectedEngineId: string | null = null;
 
       try {
-        // Get current chat state to find selected engine and conversation ID
         const chatData = await window.electronAPI.chat.loadList();
         const activeChatData = chatData.find(
-          (chat: any) => chat.connectionId === activeTab?.connectionId
+          (chat: any) => chat.connectionId === effectiveConnectionId
         );
         selectedEngineId = activeChatData?.engineId || null;
         console.log(
@@ -1829,7 +2047,6 @@ ${activeTab.sql}
         );
       }
 
-      // If no selected engine found, use the default engine as fallback (same logic as ChatPanel)
       if (!selectedEngineId && aiEngines.length > 0) {
         const defaultEngine = aiEngines.find(e => e.isDefault) || aiEngines[0];
         selectedEngineId = defaultEngine.id;
@@ -1844,12 +2061,11 @@ ${activeTab.sql}
         throw new Error("No AI engine available");
       }
 
-      // Get conversation ID for context (like ChatPanel does)
       let currentConversationId: string | null = null;
       try {
         const chatData = await window.electronAPI.chat.loadList();
         const activeChatData = chatData.find(
-          (chat: any) => chat.connectionId === activeTab?.connectionId
+          (chat: any) => chat.connectionId === effectiveConnectionId
         );
         currentConversationId = activeChatData?.id || null;
       } catch (error) {
@@ -1858,7 +2074,7 @@ ${activeTab.sql}
 
       console.log("📞 Sending AI request with:", {
         messageLength: message.length,
-        connectionId: activeTab.connectionId,
+        connectionId: effectiveConnectionId,
         engineId: selectedEngineId,
         conversationId: currentConversationId,
         hasWorkspaceContext: true,
@@ -1866,9 +2082,9 @@ ${activeTab.sql}
 
       const response = await window.electronAPI.chat.sendMessage({
         message,
-        connectionId: activeTab.connectionId,
+        connectionId: effectiveConnectionId,
         engineId: selectedEngineId,
-        conversationId: currentConversationId || undefined, // Pass conversation ID like ChatPanel does
+        conversationId: currentConversationId || undefined,
         workspaceContext: {
           currentQuery: activeTab.sql,
           activeTabTitle: activeTab.title,
@@ -1884,13 +2100,13 @@ ${activeTab.sql}
         conversationId: response?.conversationId,
       });
 
-      // Emit AI response to ChatPanel
       const assistantMessage = {
         id: response.id || crypto.randomUUID(),
         role: "assistant" as const,
         content: response.content || "I'm sorry, I couldn't analyze the query.",
         timestamp: response.timestamp || new Date().toISOString(),
         finalSQL: response.finalSQL,
+        renderMarkdown: true,
       };
 
       document.dispatchEvent(
@@ -1906,13 +2122,13 @@ ${activeTab.sql}
     } catch (error) {
       console.error("❌ Failed to analyze query with AI:", error);
 
-      // Show error in chat
       const errorMessage = {
         id: crypto.randomUUID(),
         role: "assistant" as const,
         content:
           "I'm sorry, I couldn't analyze the query at this time. Please check your AI configuration and try again.",
         timestamp: new Date().toISOString(),
+        renderMarkdown: true,
       };
 
       document.dispatchEvent(
@@ -3680,11 +3896,35 @@ ${executionData.query}
                                   connectionId: selectedConnection.id,
                                   connectionName: selectedConnection.name,
                                   connectionType: selectedConnection.type,
+                                  database:
+                                    selectedConnection.database ?? undefined,
                                   // Clear results when changing database
                                   result: undefined,
                                   results: undefined,
                                   status: "idle",
                                 });
+
+                                lastConnectionRef.current = {
+                                  id: selectedConnection.id,
+                                  name: selectedConnection.name,
+                                  type: selectedConnection.type,
+                                  database: selectedConnection.database ?? null,
+                                };
+
+                                try {
+                                  localStorage.setItem(
+                                    "sqlhelper-last-connection",
+                                    JSON.stringify({
+                                      id: selectedConnection.id,
+                                      name: selectedConnection.name,
+                                      type: selectedConnection.type,
+                                      database:
+                                        selectedConnection.database ?? null,
+                                    })
+                                  );
+                                } catch {
+                                  // Ignore localStorage failures
+                                }
                               }
                             }
                           }}

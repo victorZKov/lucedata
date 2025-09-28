@@ -220,10 +220,11 @@ export default function Layout() {
   const [currentChatMessages, setCurrentChatMessages] = useState<
     Array<{
       id: string;
-      role: "user" | "assistant";
+      role: "user" | "assistant" | "system";
       content: string;
       timestamp: string;
       finalSQL?: string;
+      renderMarkdown?: boolean;
     }>
   >([]);
   const [currentChatContext, setCurrentChatContext] = useState<{

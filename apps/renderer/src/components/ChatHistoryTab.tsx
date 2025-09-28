@@ -12,17 +12,18 @@ interface HistoryMessage {
   chatId: string;
   chatTitle: string;
   content: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "system";
   timestamp: string;
   connectionId?: string;
   engineId?: string;
+  renderMarkdown?: boolean;
 }
 
 interface SearchFilters {
   query: string;
   connectionId?: string;
   engineId?: string;
-  role?: "user" | "assistant" | "";
+  role?: "user" | "assistant" | "system" | "";
   dateFrom?: string;
   dateTo?: string;
 }
@@ -221,6 +222,7 @@ export function ChatHistoryTab({
                   <option value="">All Messages</option>
                   <option value="user">User Messages</option>
                   <option value="assistant">AI Responses</option>
+                  <option value="system">System Messages</option>
                 </select>
               </div>
 

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
@@ -115,7 +116,7 @@ const databaseManager = new DatabaseManager();
 
 // Initialize AI manager for chat functionality
 const aiManager = new AIManager();
-const enhancedAIManager = new EnhancedAIManager();
+const _enhancedAIManager = new EnhancedAIManager();
 const autonomousAIManager = new AutonomousAIManager();
 
 // Initialize database tables
@@ -157,9 +158,7 @@ database
     // Initialize AI engines components after database is ready
     try {
       const StorageModule = await import("@sqlhelper/storage");
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       credentialManager = new (StorageModule as any).CredentialManager();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       aiEnginesRepository = new (StorageModule as any).AIEnginesRepository(
         database,
         credentialManager
@@ -2033,9 +2032,32 @@ You can execute queries directly - use your autonomous capabilities to provide a
 
       // Parse potential SQL from AI response
       let finalSQL: string | undefined;
-      const sqlMatch = apiResponse.content?.match(/```sql\n([\s\S]*?)\n```/);
-      if (sqlMatch) {
-        finalSQL = sqlMatch[1].trim();
+
+      const sqlBlockMatch = apiResponse.content?.match(
+        /```sql\s*([\s\S]*?)```/i
+      );
+      if (sqlBlockMatch) {
+        finalSQL = sqlBlockMatch[1].trim();
+      }
+
+      if (!finalSQL) {
+        const resultTagMatch = apiResponse.content?.match(
+          /<RESULT_QUERY>([\s\S]*?)<\/RESULT_QUERY>/i
+        );
+        if (resultTagMatch) {
+          finalSQL = resultTagMatch[1].trim();
+        }
+      }
+
+      if (!finalSQL && apiResponse.executedQueries?.length) {
+        const lastSuccessfulQuery = [...apiResponse.executedQueries]
+          .reverse()
+          .find(
+            queryExecution => !queryExecution.error && queryExecution.query
+          );
+        if (lastSuccessfulQuery?.query) {
+          finalSQL = lastSuccessfulQuery.query.trim();
+        }
       }
 
       // Check if AI executed result queries and offer to create tabs
@@ -2251,10 +2273,11 @@ ipcMain.handle(
       title: string;
       messages: Array<{
         id: string;
-        role: "user" | "assistant";
+        role: "user" | "assistant" | "system";
         content: string;
         timestamp: string;
         finalSQL?: string;
+        renderMarkdown?: boolean;
       }>;
       connectionId?: string;
       engineId?: string;
@@ -2354,6 +2377,7 @@ ipcMain.handle(
       engineId?: string;
       dateFrom?: string;
       dateTo?: string;
+      role?: "user" | "assistant" | "system";
     }
   ) => {
     try {
@@ -2396,6 +2420,10 @@ ipcMain.handle(
         allMessages = allMessages.filter(
           msg => msg.engineId === params.engineId
         );
+      }
+
+      if (params.role) {
+        allMessages = allMessages.filter(msg => msg.role === params.role);
       }
 
       if (params.dateFrom) {

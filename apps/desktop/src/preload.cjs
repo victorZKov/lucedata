@@ -1,3 +1,5 @@
+/* eslint-env node */
+/* global console */
 const { contextBridge, ipcRenderer } = require("electron");
 
 console.log("🔧 Preload script starting...");
@@ -77,6 +79,38 @@ try {
     createDatabase: (connectionId, databaseData) => {
       console.log('🔗 preload.js: database.createDatabase called with:', { connectionId, databaseName: databaseData.name });
       return ipcRenderer.invoke("database-create-database", connectionId, databaseData);
+    },
+    getRandomTips: (count, category) => {
+      console.log('🔗 preload.js: database.getRandomTips called with:', { count, category });
+      return ipcRenderer.invoke("tips-get-random", count, category);
+    },
+    getTips: (category, activeOnly) => {
+      console.log('🔗 preload.js: database.getTips called with:', { category, activeOnly });
+      return ipcRenderer.invoke("tips-get-all", category, activeOnly);
+    },
+    createTip: (tipData) => {
+      console.log('🔗 preload.js: database.createTip called with:', tipData);
+      return ipcRenderer.invoke("tips-create", tipData);
+    },
+    updateTip: (id, updates) => {
+      console.log('🔗 preload.js: database.updateTip called with:', { id, updates });
+      return ipcRenderer.invoke("tips-update", id, updates);
+    },
+    deleteTip: (id) => {
+      console.log('🔗 preload.js: database.deleteTip called with:', id);
+      return ipcRenderer.invoke("tips-delete", id);
+    },
+    incrementTipShowCount: (id) => {
+      console.log('🔗 preload.js: database.incrementTipShowCount called with:', id);
+      return ipcRenderer.invoke("tips-increment-show-count", id);
+    },
+    getSetting: (key, defaultValue) => {
+      console.log('🔗 preload.js: database.getSetting called with:', { key, defaultValue });
+      return ipcRenderer.invoke("settings-get", key, defaultValue);
+    },
+    setSetting: (key, value) => {
+      console.log('🔗 preload.js: database.setSetting called with:', { key, value });
+      return ipcRenderer.invoke("settings-set", key, value);
     },
   },
 

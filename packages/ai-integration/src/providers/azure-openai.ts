@@ -38,19 +38,38 @@ export class AzureOpenAIProvider implements IAIProvider {
 
     this.client = new AzureOpenAI({
       apiKey: config.apiKey,
+      apiVersion: "2024-10-21", // Try recent stable API version for model-router
       endpoint: config.endpoint,
-      apiVersion: "2024-08-01-preview", // Latest stable API version
-      timeout: config.timeoutMs || 30000,
+      timeout: config.timeoutMs || 90000, // Increased to 90 seconds to match frontend timeout
     });
   }
 
   async generate(messages: ChatMessage[], options?: GenerateOptions) {
-    // For Azure, use deployment name as model
-    const deploymentName = this.config.defaultModel || "gpt-4o";
+    // For Azure, use deployment name as model (from database configuration)
+    const deploymentName = this.config.defaultModel || "gpt-4o"; // Keep gpt-4o as ultimate fallback
 
     // GPT-5-mini and newer models use max_completion_tokens instead of max_tokens
-    const tokenLimit = options?.maxTokens || this.config.maxTokens || 2048;
-    const isGPT5Model = deploymentName.toLowerCase().includes("gpt-5");
+    // Increased token limit for large execution plans - supports much larger contexts
+    const tokenLimit = options?.maxTokens || this.config.maxTokens || 8192;
+    // Check for GPT-5 models or model-router which may route to GPT-5
+    const isGPT5Model =
+      deploymentName.toLowerCase().includes("gpt-5") ||
+      deploymentName.toLowerCase().includes("model-router");
+
+    // Log request details
+    const totalMessageLength = messages.reduce(
+      (sum, msg) => sum + (msg.content?.length || 0),
+      0
+    );
+    console.log(
+      `[AzureOpenAI] Request - Model: ${deploymentName}, Messages: ${messages.length}, Total Length: ${totalMessageLength} chars, Token Limit: ${tokenLimit}`
+    );
+
+    // Log first message preview for debugging
+    if (messages.length > 0 && messages[0].content) {
+      const preview = messages[0].content.substring(0, 200);
+      console.log(`[AzureOpenAI] First message preview: ${preview}...`);
+    }
 
     // Prepare base parameters
     const baseParams = {
@@ -67,12 +86,52 @@ export class AzureOpenAIProvider implements IAIProvider {
       ? { ...baseParams, max_completion_tokens: tokenLimit } // GPT-5 uses max_completion_tokens
       : { ...baseParams, max_tokens: tokenLimit };
 
-    const response = await this.client.chat.completions.create(
-      requestParams as any
-    );
+    let response;
+    try {
+      console.log(`[AzureOpenAI] Making request to Azure OpenAI...`);
+      console.log(`[AzureOpenAI] Endpoint: ${this.client.baseURL}`);
+      console.log(`[AzureOpenAI] Deployment: ${deploymentName}`);
+      console.log(`[AzureOpenAI] API Version: 2024-10-21`);
+      console.log(
+        `[AzureOpenAI] Request params: ${JSON.stringify({ ...requestParams, messages: "[REDACTED]" })}`
+      );
+
+      response = await this.client.chat.completions.create(
+        requestParams as any
+      );
+      console.log(
+        `[AzureOpenAI] Response received - Choices: ${response.choices?.length}, Usage: ${JSON.stringify(response.usage)}`
+      );
+    } catch (error) {
+      console.error(`[AzureOpenAI] Request failed:`, error);
+      console.error(`[AzureOpenAI] Error details:`, {
+        message: (error as any)?.message,
+        status: (error as any)?.status,
+        code: (error as any)?.code,
+        type: (error as any)?.type,
+      });
+      throw error;
+    }
 
     const choice = response.choices[0];
     const content = choice.message.content || "";
+
+    // Log response details
+    console.log(`[AzureOpenAI] Response content length: ${content.length}`);
+    if (content.length === 0) {
+      console.warn(
+        `[AzureOpenAI] Empty response content! Choice finish_reason: ${choice.finish_reason}`
+      );
+      console.log(
+        `[AzureOpenAI] Full choice object:`,
+        JSON.stringify(choice, null, 2)
+      );
+    } else {
+      console.log(
+        `[AzureOpenAI] Response preview: ${content.substring(0, 200)}...`
+      );
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const toolCalls = choice.message.tool_calls?.map((tc: any) => ({
       id: tc.id,
@@ -82,6 +141,10 @@ export class AzureOpenAIProvider implements IAIProvider {
         arguments: tc.function.arguments,
       },
     }));
+
+    console.log(
+      `[AzureOpenAI] Returning response - Content length: ${content.length}, Tool calls: ${toolCalls?.length || 0}`
+    );
 
     return {
       content,
@@ -100,11 +163,15 @@ export class AzureOpenAIProvider implements IAIProvider {
     messages: ChatMessage[],
     options?: GenerateOptions
   ): AsyncIterable<StreamingChatResponse> {
-    const deploymentName = this.config.defaultModel || "gpt-4o";
+    const deploymentName = this.config.defaultModel || "gpt-4o"; // Keep gpt-4o as ultimate fallback
 
     // GPT-5-mini and newer models use max_completion_tokens instead of max_tokens
-    const tokenLimit = options?.maxTokens || this.config.maxTokens || 2048;
-    const isGPT5Model = deploymentName.toLowerCase().includes("gpt-5");
+    // Increased token limit for large execution plans - supports much larger contexts
+    const tokenLimit = options?.maxTokens || this.config.maxTokens || 8192;
+    // Check for GPT-5 models or model-router which may route to GPT-5
+    const isGPT5Model =
+      deploymentName.toLowerCase().includes("gpt-5") ||
+      deploymentName.toLowerCase().includes("model-router");
 
     // Prepare base parameters
     const baseStreamParams = {
@@ -257,7 +324,14 @@ export class AzureOpenAIProvider implements IAIProvider {
       return models.data.map((model: any) => model.id).sort();
     } catch (error) {
       console.warn("Failed to list Azure OpenAI models:", error);
-      return ["gpt-5-mini", "gpt-4o", "4o-mini", "gpt-4", "gpt-35-turbo"];
+      return [
+        "model-router",
+        "gpt-5-mini",
+        "gpt-4o",
+        "4o-mini",
+        "gpt-4",
+        "gpt-35-turbo",
+      ];
     }
   }
 

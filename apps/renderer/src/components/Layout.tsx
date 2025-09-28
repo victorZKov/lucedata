@@ -30,6 +30,7 @@ import ChatPanel from "./ChatPanel";
 import Resizer from "./Resizer";
 import { SaveChatDialog } from "./SaveChatDialog";
 import { LoadChatDialog } from "./LoadChatDialog";
+import TipsDialog from "./TipsDialog";
 import { ChatHistoryTab } from "./ChatHistoryTab";
 import VersionDialog from "./VersionDialog";
 
@@ -45,6 +46,7 @@ interface DialogState {
   loadChatDialog: boolean;
   chatHistoryTab: boolean;
   versionDialog: boolean;
+  tipsDialog: boolean;
 }
 
 export default function Layout() {
@@ -73,6 +75,7 @@ export default function Layout() {
     loadChatDialog: false,
     chatHistoryTab: false,
     versionDialog: false,
+    tipsDialog: false,
   });
 
   // Mock data - in real app, these would come from your store
@@ -158,15 +161,32 @@ export default function Layout() {
     const handleShowVersion = () => {
       setDialogs(prev => ({ ...prev, versionDialog: true }));
     };
+    const handleShowLoadChatDialog = () => {
+      setDialogs(prev => ({ ...prev, loadChatDialog: true }));
+    };
+
+    const handleShowTipsDialog = () => {
+      setDialogs(prev => ({ ...prev, tipsDialog: true }));
+    };
 
     document.addEventListener("toggle-explorer", handleToggleExplorer);
     document.addEventListener("toggle-chat", handleToggleChat);
     document.addEventListener("show-version", handleShowVersion);
+    document.addEventListener(
+      "show-load-chat-dialog",
+      handleShowLoadChatDialog
+    );
+    document.addEventListener("show-tips-dialog", handleShowTipsDialog);
 
     return () => {
       document.removeEventListener("toggle-explorer", handleToggleExplorer);
       document.removeEventListener("toggle-chat", handleToggleChat);
       document.removeEventListener("show-version", handleShowVersion);
+      document.removeEventListener(
+        "show-load-chat-dialog",
+        handleShowLoadChatDialog
+      );
+      document.removeEventListener("show-tips-dialog", handleShowTipsDialog);
     };
   }, []);
 
@@ -258,6 +278,30 @@ export default function Layout() {
         handleTabStateChange as EventListener
       );
     };
+  }, []);
+
+  // Tips startup logic
+  useEffect(() => {
+    const checkAndShowTips = async () => {
+      try {
+        // Check if user wants to see tips at startup
+        const showAtStartup = await window.electronAPI.database.getSetting(
+          "showTipsAtStartup",
+          true
+        );
+
+        if (showAtStartup) {
+          // Small delay to let the app fully load
+          setTimeout(() => {
+            setDialogs(prev => ({ ...prev, tipsDialog: true }));
+          }, 1000);
+        }
+      } catch (error) {
+        console.error("Failed to check tips startup preference:", error);
+      }
+    };
+
+    checkAndShowTips();
   }, []);
 
   // Chat dialog handlers
@@ -465,183 +509,221 @@ export default function Layout() {
             </div>
 
             {/* Edit Operations */}
-            {toolbarExpanded && (
-              <div className="flex items-center border-r border-border pr-3 mr-3">
-                <button
-                  onClick={() => {
-                    document.dispatchEvent(
-                      new CustomEvent("toolbar-action", {
-                        detail: { action: "cut-text" },
-                      })
-                    );
-                  }}
-                  disabled={!currentTabState.hasSelection}
-                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
-                    currentTabState.hasSelection
-                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
-                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
-                  }`}
-                  title="Cut (Ctrl+X)"
-                >
-                  <Scissors className="text-red-600" size={16} />
-                  <span className="text-xs">Cut</span>
-                </button>
-                <button
-                  onClick={() => {
-                    document.dispatchEvent(
-                      new CustomEvent("toolbar-action", {
-                        detail: { action: "copy-text" },
-                      })
-                    );
-                  }}
-                  disabled={!currentTabState.hasSelection}
-                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
-                    currentTabState.hasSelection
-                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
-                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
-                  }`}
-                  title="Copy (Ctrl+C)"
-                >
-                  <Copy className="text-teal-600" size={16} />
-                  <span className="text-xs">Copy</span>
-                </button>
-                <button
-                  onClick={() => {
-                    document.dispatchEvent(
-                      new CustomEvent("toolbar-action", {
-                        detail: { action: "paste-text" },
-                      })
-                    );
-                  }}
-                  className="p-2 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex flex-col items-center gap-1 min-w-[60px]"
-                  title="Paste (Ctrl+V)"
-                >
-                  <ClipboardPaste className="text-blue-600" size={16} />
-                  <span className="text-xs">Paste</span>
-                </button>
-              </div>
-            )}
+            <div
+              className={`flex items-center border-r border-border gap-1 ${
+                toolbarExpanded ? "pr-3 mr-3" : "pr-2 mr-2"
+              }`}
+            >
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "cut-text" },
+                    })
+                  );
+                }}
+                disabled={!currentTabState.hasSelection}
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } ${
+                  currentTabState.hasSelection
+                    ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                }`}
+                title="Cut (Ctrl+X)"
+              >
+                <Scissors className="text-red-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Cut</span>}
+              </button>
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "copy-text" },
+                    })
+                  );
+                }}
+                disabled={!currentTabState.hasSelection}
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } ${
+                  currentTabState.hasSelection
+                    ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                }`}
+                title="Copy (Ctrl+C)"
+              >
+                <Copy className="text-teal-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Copy</span>}
+              </button>
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "paste-text" },
+                    })
+                  );
+                }}
+                className={`p-2 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                }`}
+                title="Paste (Ctrl+V)"
+              >
+                <ClipboardPaste className="text-blue-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Paste</span>}
+              </button>
+            </div>
 
             {/* Query Operations */}
-            {toolbarExpanded && (
-              <div className="flex items-center border-r border-border pr-3 mr-3">
-                <button
-                  onClick={() => {
-                    document.dispatchEvent(
-                      new CustomEvent("toolbar-action", {
-                        detail: { action: "run-query" },
-                      })
-                    );
-                  }}
-                  disabled={
-                    !currentTabState.hasContent ||
-                    !currentTabState.hasConnection ||
-                    currentTabState.isRunning
-                  }
-                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
-                    currentTabState.hasContent &&
-                    currentTabState.hasConnection &&
-                    !currentTabState.isRunning
-                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
-                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
-                  }`}
-                  title="Run Query (F5)"
-                >
-                  <Play className="text-green-600" size={16} />
-                  <span className="text-xs">Run</span>
-                </button>
-                <button
-                  onClick={() => {
-                    document.dispatchEvent(
-                      new CustomEvent("toolbar-action", {
-                        detail: { action: "explain-query" },
-                      })
-                    );
-                  }}
-                  disabled={
-                    !currentTabState.hasContent ||
-                    !currentTabState.hasConnection ||
-                    currentTabState.isRunning
-                  }
-                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
-                    currentTabState.hasContent &&
-                    currentTabState.hasConnection &&
-                    !currentTabState.isRunning
-                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
-                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
-                  }`}
-                  title="Explain Query"
-                >
-                  <HelpCircle className="text-orange-600" size={16} />
-                  <span className="text-xs">Explain</span>
-                </button>
-                <button
-                  onClick={() => {
-                    document.dispatchEvent(
-                      new CustomEvent("toolbar-action", {
-                        detail: { action: "format-query" },
-                      })
-                    );
-                  }}
-                  disabled={
-                    !currentTabState.hasContent || currentTabState.isFormatting
-                  }
-                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
-                    currentTabState.hasContent && !currentTabState.isFormatting
-                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
-                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
-                  }`}
-                  title="Format Query"
-                >
-                  <AlignLeft className="text-pink-600" size={16} />
-                  <span className="text-xs">Format</span>
-                </button>
-              </div>
-            )}
+            <div
+              className={`flex items-center border-r border-border gap-1 ${
+                toolbarExpanded ? "pr-3 mr-3" : "pr-2 mr-2"
+              }`}
+            >
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "run-query" },
+                    })
+                  );
+                }}
+                disabled={
+                  !currentTabState.hasContent ||
+                  !currentTabState.hasConnection ||
+                  currentTabState.isRunning
+                }
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } ${
+                  currentTabState.hasContent &&
+                  currentTabState.hasConnection &&
+                  !currentTabState.isRunning
+                    ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                }`}
+                title="Run Query (F5)"
+              >
+                <Play className="text-green-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Run</span>}
+              </button>
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "explain-query" },
+                    })
+                  );
+                }}
+                disabled={
+                  !currentTabState.hasContent ||
+                  !currentTabState.hasConnection ||
+                  currentTabState.isRunning
+                }
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } ${
+                  currentTabState.hasContent &&
+                  currentTabState.hasConnection &&
+                  !currentTabState.isRunning
+                    ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                }`}
+                title="Explain Query"
+              >
+                <HelpCircle className="text-orange-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Explain</span>}
+              </button>
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "format-query" },
+                    })
+                  );
+                }}
+                disabled={
+                  !currentTabState.hasContent || currentTabState.isFormatting
+                }
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } ${
+                  currentTabState.hasContent && !currentTabState.isFormatting
+                    ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                }`}
+                title="Format Query"
+              >
+                <AlignLeft className="text-pink-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Format</span>}
+              </button>
+            </div>
 
             {/* Utility Operations */}
-            {toolbarExpanded && (
-              <div className="flex items-center">
-                <button
-                  onClick={() => {
-                    document.dispatchEvent(
-                      new CustomEvent("toolbar-action", {
-                        detail: { action: "copy-query" },
-                      })
-                    );
-                  }}
-                  disabled={!currentTabState.hasContent}
-                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
-                    currentTabState.hasContent
-                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
-                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
-                  }`}
-                  title="Copy Query"
-                >
-                  <Copy className="text-teal-600" size={16} />
-                  <span className="text-xs">Copy All</span>
-                </button>
-                <button
-                  onClick={() => {
-                    document.dispatchEvent(
-                      new CustomEvent("toolbar-action", {
-                        detail: { action: "clear-query" },
-                      })
-                    );
-                  }}
-                  disabled={!currentTabState.hasContent}
-                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
-                    currentTabState.hasContent
-                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
-                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
-                  }`}
-                  title="Clear Query"
-                >
-                  <Trash2 className="text-red-600" size={16} />
-                  <span className="text-xs">Clear</span>
-                </button>
-              </div>
-            )}
+            <div
+              className={`flex items-center gap-1 ${
+                toolbarExpanded ? "" : "ml-2"
+              }`}
+            >
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "copy-query" },
+                    })
+                  );
+                }}
+                disabled={!currentTabState.hasContent}
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } ${
+                  currentTabState.hasContent
+                    ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                }`}
+                title="Copy Query"
+              >
+                <Copy className="text-teal-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Copy All</span>}
+              </button>
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "clear-query" },
+                    })
+                  );
+                }}
+                disabled={!currentTabState.hasContent}
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } ${
+                  currentTabState.hasContent
+                    ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                    : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                }`}
+                title="Clear Query"
+              >
+                <Trash2 className="text-red-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Clear</span>}
+              </button>
+            </div>
           </div>
 
           {/* Right Side - Additional Controls */}
@@ -664,7 +746,15 @@ export default function Layout() {
       {/* Main Content */}
       <div
         className={`flex flex-1 ${isMac ? "pt-20" : "pt-21"} min-h-0 min-w-0 px-3`}
-        style={{ paddingTop: isMac ? "88px" : "92px" }}
+        style={{
+          paddingTop: toolbarExpanded
+            ? isMac
+              ? "104px"
+              : "108px" // Title bar + expanded toolbar (44 + 60)
+            : isMac
+              ? "84px"
+              : "88px", // Title bar + collapsed toolbar (44 + 40)
+        }}
       >
         {/* Rounded inner surface under the title bar */}
         <div
@@ -888,6 +978,11 @@ export default function Layout() {
       <VersionDialog
         isOpen={dialogs.versionDialog}
         onClose={() => setDialogs(prev => ({ ...prev, versionDialog: false }))}
+      />
+
+      <TipsDialog
+        isOpen={dialogs.tipsDialog}
+        onClose={() => setDialogs(prev => ({ ...prev, tipsDialog: false }))}
       />
     </div>
   );

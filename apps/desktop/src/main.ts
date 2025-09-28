@@ -354,6 +354,17 @@ function createMenu(): void {
         label: "File",
         submenu: [
           {
+            label: "New Query",
+            accelerator: "CmdOrCtrl+T",
+            click: () => {
+              console.log("New Query clicked from menu");
+              if (mainWindow) {
+                mainWindow.webContents.send("menu-action", "new-query");
+              }
+            },
+          },
+          { type: "separator" },
+          {
             label: "New Connection",
             accelerator: "CmdOrCtrl+N",
             click: () => {
@@ -529,7 +540,7 @@ function createMenu(): void {
             click: () => {
               console.log("New Chat clicked from menu");
               if (mainWindow) {
-                mainWindow.webContents.send("menu-action", "chat-new");
+                mainWindow.webContents.send("menu-action", "new-chat");
               }
             },
           },
@@ -992,7 +1003,79 @@ ipcMain.handle(
   "database-execute-query",
   async (_: IpcMainInvokeEvent, connectionId: string, query: string) => {
     try {
-      const provider = databaseManager.getProvider(connectionId);
+      // Get database connection for context - auto-connect if needed
+      let provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        console.log(
+          `🔗 Database connection ${connectionId} not found, attempting to connect...`
+        );
+
+        const connectionData =
+          await database.getConnectionWithCredentials(connectionId);
+        if (!connectionData) {
+          throw new Error(`Database connection ${connectionId} not found`);
+        }
+
+        console.log(`🔍 Connection data for ${connectionId}:`, {
+          name: connectionData.name,
+          type: connectionData.type,
+          host: connectionData.host,
+          port: connectionData.port,
+          database: connectionData.database,
+          username: connectionData.username,
+          hasPassword: !!connectionData.password,
+          hasConnectionString: !!connectionData.connectionString,
+        });
+
+        // Handle special placeholders for database paths
+        let databasePath = connectionData.database;
+        let connectionString = connectionData.connectionString;
+
+        if (databasePath && databasePath.includes("{{APP_DATA}}")) {
+          const appDataPath = app.getPath("userData");
+          databasePath = databasePath.replace("{{APP_DATA}}", appDataPath);
+        }
+
+        if (connectionString && connectionString.includes("{{APP_DATA}}")) {
+          const appDataPath = app.getPath("userData");
+          connectionString = connectionString.replace(
+            "{{APP_DATA}}",
+            appDataPath
+          );
+        }
+
+        // Create database connection object
+        const usingConnectionString = !!connectionString;
+        const dbConnection = {
+          id: connectionId,
+          name: connectionData.name,
+          type: connectionData.type as DatabaseType,
+          // Only include host/port when NOT using a connection string
+          host: usingConnectionString
+            ? (undefined as unknown as string)
+            : connectionData.host || "localhost",
+          port: usingConnectionString
+            ? (undefined as unknown as number)
+            : parseInt(String(connectionData.port || "1433")),
+          database: databasePath || undefined,
+          username: connectionData.username,
+          password: connectionData.password,
+          connectionString: connectionString || undefined,
+        };
+
+        console.log(`🔧 Final connection object for ${connectionId}:`, {
+          ...dbConnection,
+          password: dbConnection.password ? "[REDACTED]" : undefined,
+          connectionString: dbConnection.connectionString
+            ? "[REDACTED]"
+            : undefined,
+          usingConnectionString,
+        });
+
+        await databaseManager.connect(dbConnection);
+        provider = databaseManager.getProvider(connectionId);
+      }
+
       if (!provider) {
         throw new Error(`No active connection found for id '${connectionId}'`);
       }
@@ -1010,7 +1093,82 @@ ipcMain.handle(
   "database-get-xml-execution-plan",
   async (_: IpcMainInvokeEvent, connectionId: string, query: string) => {
     try {
-      const provider = databaseManager.getProvider(connectionId);
+      // Get database connection for context - auto-connect if needed
+      let provider = databaseManager.getProvider(connectionId);
+      if (!provider) {
+        console.log(
+          `🔗 Database connection ${connectionId} not found for XML plan, attempting to connect...`
+        );
+
+        const connectionData =
+          await database.getConnectionWithCredentials(connectionId);
+        if (!connectionData) {
+          throw new Error(`Database connection ${connectionId} not found`);
+        }
+
+        console.log(`🔍 XML Plan - Connection data for ${connectionId}:`, {
+          name: connectionData.name,
+          type: connectionData.type,
+          host: connectionData.host,
+          port: connectionData.port,
+          database: connectionData.database,
+          username: connectionData.username,
+          hasPassword: !!connectionData.password,
+          hasConnectionString: !!connectionData.connectionString,
+        });
+
+        // Handle special placeholders for database paths
+        let databasePath = connectionData.database;
+        let connectionString = connectionData.connectionString;
+
+        if (databasePath && databasePath.includes("{{APP_DATA}}")) {
+          const appDataPath = app.getPath("userData");
+          databasePath = databasePath.replace("{{APP_DATA}}", appDataPath);
+        }
+
+        if (connectionString && connectionString.includes("{{APP_DATA}}")) {
+          const appDataPath = app.getPath("userData");
+          connectionString = connectionString.replace(
+            "{{APP_DATA}}",
+            appDataPath
+          );
+        }
+
+        // Create database connection object
+        const usingConnectionString = !!connectionString;
+        const dbConnection = {
+          id: connectionId,
+          name: connectionData.name,
+          type: connectionData.type as DatabaseType,
+          // Only include host/port when NOT using a connection string
+          host: usingConnectionString
+            ? (undefined as unknown as string)
+            : connectionData.host || "localhost",
+          port: usingConnectionString
+            ? (undefined as unknown as number)
+            : parseInt(String(connectionData.port || "1433")),
+          database: databasePath || undefined,
+          username: connectionData.username,
+          password: connectionData.password,
+          connectionString: connectionString || undefined,
+        };
+
+        console.log(
+          `🔧 XML Plan - Final connection object for ${connectionId}:`,
+          {
+            ...dbConnection,
+            password: dbConnection.password ? "[REDACTED]" : undefined,
+            connectionString: dbConnection.connectionString
+              ? "[REDACTED]"
+              : undefined,
+            usingConnectionString,
+          }
+        );
+
+        await databaseManager.connect(dbConnection);
+        provider = databaseManager.getProvider(connectionId);
+      }
+
       if (!provider) {
         throw new Error(`No active connection found for id '${connectionId}'`);
       }
@@ -1546,7 +1704,12 @@ ipcMain.handle(
       connectionId: string;
       engineId: string;
       conversationId?: string;
-      workspaceContext?: any;
+      workspaceContext?: {
+        currentQuery?: string;
+        results?: any;
+        activeTabTitle?: string;
+        activeTabId?: string;
+      };
     }
   ) => {
     try {
@@ -1758,8 +1921,8 @@ ipcMain.handle(
 
         workspaceContextText = `
 
-CURRENT WORKSPACE CONTEXT:
-The user is currently working on the following in their SQL workspace:
+CURRENT WORKSPACE CONTEXT (ACTIVE TAB ONLY):
+The user is currently working on the following in their active SQL tab "${params.workspaceContext.activeTabTitle || "Untitled"}" (other open tabs are excluded from this context):
 
 Current Query: ${params.workspaceContext.currentQuery || "No query currently active"}`;
 
@@ -2261,6 +2424,150 @@ ipcMain.handle(
     }
   }
 );
+
+// Tips management handlers
+ipcMain.handle(
+  "tips-create",
+  async (
+    _,
+    tipData: {
+      title: string;
+      content: string;
+      category?: string;
+      priority?: number;
+    }
+  ) => {
+    try {
+      console.log("🔍 Creating tip:", tipData.title);
+      const tipWithDefaults = {
+        id: `tip_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        title: tipData.title,
+        content: tipData.content,
+        category: tipData.category || "general",
+        priority: tipData.priority || 0,
+        isActive: true,
+        showCount: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+      const tip = await database.createTip(tipWithDefaults);
+      return tip;
+    } catch (error) {
+      console.error("🔍 Failed to create tip:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "tips-get-all",
+  async (_, category?: string, activeOnly: boolean = true) => {
+    try {
+      console.log(
+        "🔍 Getting all tips, category:",
+        category,
+        "activeOnly:",
+        activeOnly
+      );
+      const tips = await database.getTips(category, activeOnly);
+      return tips;
+    } catch (error) {
+      console.error("🔍 Failed to get tips:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "tips-get-random",
+  async (_, count: number = 1, category?: string) => {
+    try {
+      console.log(
+        "🔍 Getting random tips, count:",
+        count,
+        "category:",
+        category
+      );
+      const tips = await database.getRandomTips(count, category);
+      return tips;
+    } catch (error) {
+      console.error("🔍 Failed to get random tips:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "tips-update",
+  async (
+    _,
+    id: string,
+    updates: {
+      title?: string;
+      content?: string;
+      category?: string;
+      priority?: number;
+      isActive?: boolean;
+    }
+  ) => {
+    try {
+      console.log("🔍 Updating tip:", id);
+      const tip = await database.updateTip(id, updates);
+      return tip;
+    } catch (error) {
+      console.error("🔍 Failed to update tip:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle("tips-delete", async (_, id: string) => {
+  try {
+    console.log("🔍 Deleting tip:", id);
+    await database.deleteTip(id);
+    return { success: true };
+  } catch (error) {
+    console.error("🔍 Failed to delete tip:", error);
+    throw error;
+  }
+});
+
+ipcMain.handle("tips-increment-show-count", async (_, id: string) => {
+  try {
+    console.log("🔍 Incrementing show count for tip:", id);
+    await database.incrementTipShowCount(id);
+    return { success: true };
+  } catch (error) {
+    console.error("🔍 Failed to increment tip show count:", error);
+    throw error;
+  }
+});
+
+// Settings handlers for tips
+ipcMain.handle(
+  "settings-get",
+  async (_, key: string, defaultValue?: unknown) => {
+    try {
+      console.log("🔍 Getting setting:", key);
+      const value = await database.getSetting(key, defaultValue);
+      return value;
+    } catch (error) {
+      console.error("🔍 Failed to get setting:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle("settings-set", async (_, key: string, value: unknown) => {
+  try {
+    console.log("🔍 Setting:", key);
+    await database.setSetting(key, value);
+    return { success: true };
+  } catch (error) {
+    console.error("🔍 Failed to set setting:", error);
+    throw error;
+  }
+});
 
 // Ollama handler for fetching models
 ipcMain.handle("ollama-fetch-models", async (_, baseUrl?: string) => {

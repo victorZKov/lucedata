@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, asc, and, sql } from "drizzle-orm";
 
 import type {
   Connection,
@@ -11,6 +11,8 @@ import type {
   NewSavedQuery,
   AuditLogEntry,
   NewAuditLogEntry,
+  Tip,
+  NewTip,
 } from "./schema";
 import * as schema from "./schema";
 import { CredentialManager } from "./credentials";
@@ -48,19 +50,13 @@ export class LocalDatabase {
   async initialize(): Promise<void> {
     console.log("🔧 Database initialization starting...");
 
-    // Check if tables already exist before running migrations
-    const tablesExist = this.checkTablesExist();
-    console.log(`🔧 Tables exist: ${tablesExist}`);
-
-    if (!tablesExist) {
-      console.log("🔧 Creating tables for the first time...");
-      this.createTables();
-    } else {
-      console.log("🔧 Tables already exist, skipping creation...");
-    }
+    // Always run table creation since CREATE TABLE IF NOT EXISTS is safe
+    console.log("🔧 Ensuring all tables exist...");
+    this.createTables();
 
     // Handle schema migrations for existing databases
     this.handleSchemaMigrations();
+    await this.createDefaultTips();
 
     console.log("🔧 Database initialization completed");
   }
@@ -220,6 +216,20 @@ export class LocalDatabase {
       )
     `);
 
+    this.sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS tips (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL,
+        priority INTEGER DEFAULT 0,
+        is_active INTEGER DEFAULT 1,
+        show_count INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     // Create indexes
     this.sqlite.exec(`
       CREATE INDEX IF NOT EXISTS idx_query_history_connection_id ON query_history(connection_id);
@@ -232,6 +242,9 @@ export class LocalDatabase {
       CREATE INDEX IF NOT EXISTS idx_chat_conversations_connection_id ON chat_conversations(connection_id);
       CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_id ON chat_messages(conversation_id);
       CREATE INDEX IF NOT EXISTS idx_chat_messages_created_at ON chat_messages(created_at);
+      CREATE INDEX IF NOT EXISTS idx_tips_category ON tips(category);
+      CREATE INDEX IF NOT EXISTS idx_tips_is_active ON tips(is_active);
+      CREATE INDEX IF NOT EXISTS idx_tips_priority ON tips(priority);
     `);
   }
 
@@ -542,5 +555,209 @@ export class LocalDatabase {
       failedQueries: logs.filter(l => !l.success).length,
       riskyQueries: logs.filter(l => l.riskLevel === "high").length,
     };
+  }
+
+  // Tips management
+  async createTip(tip: NewTip): Promise<Tip> {
+    const id = generateUUID();
+    const newTip = {
+      ...tip,
+      id,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    const result = await this.drizzle
+      .insert(schema.tips)
+      .values(newTip)
+      .returning();
+
+    return result[0];
+  }
+
+  async getTips(category?: string, activeOnly: boolean = true): Promise<Tip[]> {
+    if (category && activeOnly) {
+      return await this.drizzle
+        .select()
+        .from(schema.tips)
+        .where(
+          and(
+            eq(schema.tips.isActive, true),
+            eq(schema.tips.category, category)
+          )
+        )
+        .orderBy(desc(schema.tips.priority), asc(schema.tips.createdAt));
+    }
+
+    if (activeOnly) {
+      return await this.drizzle
+        .select()
+        .from(schema.tips)
+        .where(eq(schema.tips.isActive, true))
+        .orderBy(desc(schema.tips.priority), asc(schema.tips.createdAt));
+    }
+
+    if (category) {
+      return await this.drizzle
+        .select()
+        .from(schema.tips)
+        .where(eq(schema.tips.category, category))
+        .orderBy(desc(schema.tips.priority), asc(schema.tips.createdAt));
+    }
+
+    return await this.drizzle
+      .select()
+      .from(schema.tips)
+      .orderBy(desc(schema.tips.priority), asc(schema.tips.createdAt));
+  }
+
+  async getTip(id: string): Promise<Tip | null> {
+    const result = await this.drizzle
+      .select()
+      .from(schema.tips)
+      .where(eq(schema.tips.id, id))
+      .limit(1);
+
+    return result[0] || null;
+  }
+
+  async updateTip(
+    id: string,
+    updates: Partial<Omit<Tip, "id" | "createdAt">>
+  ): Promise<Tip | null> {
+    const updateData = {
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    const result = await this.drizzle
+      .update(schema.tips)
+      .set(updateData)
+      .where(eq(schema.tips.id, id))
+      .returning();
+
+    return result[0] || null;
+  }
+
+  async deleteTip(id: string): Promise<boolean> {
+    const result = await this.drizzle
+      .delete(schema.tips)
+      .where(eq(schema.tips.id, id));
+
+    return result.changes > 0;
+  }
+
+  async incrementTipShowCount(id: string): Promise<void> {
+    await this.drizzle
+      .update(schema.tips)
+      .set({ showCount: sql`${schema.tips.showCount} + 1` })
+      .where(eq(schema.tips.id, id));
+  }
+
+  async getRandomTips(count: number = 1, category?: string): Promise<Tip[]> {
+    const tips = await this.getTips(category);
+
+    // Simple random shuffle using Fisher-Yates algorithm
+    const shuffled = [...tips];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+
+    return shuffled.slice(0, count);
+  }
+
+  private async createDefaultTips(): Promise<void> {
+    try {
+      // Check if any tips already exist
+      const existingTips = await this.getTips(undefined, false);
+      if (existingTips.length > 0) {
+        return; // Don't create defaults if tips already exist
+      }
+
+      const defaultTips = [
+        {
+          id: "tip_welcome",
+          title: "Welcome to SQL Helper",
+          content:
+            "SQL Helper is designed to make working with databases easier and more productive. Use the connection manager to set up your database connections, write SQL queries in the editor, and get AI-powered assistance with your queries.",
+          category: "general",
+          priority: 10,
+          isActive: true,
+          showCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "tip_connections",
+          title: "Setting Up Database Connections",
+          content:
+            "Click the 'New Connection' button to add your first database connection. SQL Helper supports various database types including SQL Server, PostgreSQL, MySQL, and more. Test your connection before saving to ensure it works correctly.",
+          category: "connection",
+          priority: 9,
+          isActive: true,
+          showCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "tip_ai_engines",
+          title: "AI-Powered Query Assistance",
+          content:
+            "Set up AI engines in the settings to get intelligent help with your SQL queries. The AI can help you write queries, explain existing ones, optimize performance, and troubleshoot errors. Support for OpenAI, Azure OpenAI, Ollama, and more.",
+          category: "ai",
+          priority: 8,
+          isActive: true,
+          showCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "tip_query_editor",
+          title: "Query Editor Features",
+          content:
+            "The SQL editor includes syntax highlighting, auto-completion, and multiple query execution. Use Ctrl+Enter (Cmd+Enter on Mac) to execute the current query or selected text. View results in a tabbed interface with export capabilities.",
+          category: "query",
+          priority: 7,
+          isActive: true,
+          showCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "tip_shortcuts",
+          title: "Keyboard Shortcuts",
+          content:
+            "Learn these helpful shortcuts: F5 to execute queries, Ctrl+N for new query tab, Ctrl+O to open SQL files, Ctrl+S to save, and Ctrl+Shift+C to format SQL. Toggle the explorer with Ctrl+B and chat panel with Ctrl+Shift+B.",
+          category: "shortcuts",
+          priority: 6,
+          isActive: true,
+          showCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+        {
+          id: "tip_performance",
+          title: "Query Performance Tips",
+          content:
+            "For better query performance: use indexes on frequently queried columns, avoid SELECT *, use WHERE clauses to limit result sets, and consider using EXPLAIN to analyze query execution plans. The AI assistant can help optimize slow queries.",
+          category: "performance",
+          priority: 5,
+          isActive: true,
+          showCount: 0,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ];
+
+      // Create each default tip
+      for (const tip of defaultTips) {
+        await this.createTip(tip);
+      }
+
+      console.log("🔧 Created default tips");
+    } catch (error) {
+      console.error("🔧 Failed to create default tips:", error);
+    }
   }
 }

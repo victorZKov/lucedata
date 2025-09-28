@@ -42,7 +42,14 @@ const MODELS_BY_PROVIDER = {
     "claude-3-opus-20240229",
   ],
   google: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-pro"],
-  "azure-openai": ["gpt-5-mini", "gpt-4o", "4o-mini", "gpt-4", "gpt-35-turbo"],
+  "azure-openai": [
+    "model-router",
+    "gpt-5-mini",
+    "gpt-4o",
+    "4o-mini",
+    "gpt-4",
+    "gpt-35-turbo",
+  ],
   ollama: ["mistral:7b", "codellama:13b-instruct", "phi3:14b", "qwen3:30b"],
   custom: [],
 } as const;

@@ -210,6 +210,8 @@ export default function WorkArea() {
   // Loading states for button ordering
   const [connectionsLoaded, setConnectionsLoaded] = useState(false);
   const [aiEnginesLoaded, setAiEnginesLoaded] = useState(false);
+  // Show tips checkbox state
+  const [showTipsAtStartup, setShowTipsAtStartup] = useState(true);
   const headerRefs = useMemo(
     () => ({}) as Record<string, HTMLTableCellElement | null>,
     []
@@ -426,6 +428,36 @@ export default function WorkArea() {
 
     loadAiEngines();
   }, []);
+
+  // Load showTipsAtStartup setting
+  useEffect(() => {
+    const loadTipsStartupSetting = async () => {
+      try {
+        const value = await window.electronAPI.database.getSetting(
+          "showTipsAtStartup",
+          true
+        );
+        setShowTipsAtStartup(value as boolean);
+      } catch (error) {
+        console.error("Failed to load tips startup setting:", error);
+      }
+    };
+
+    loadTipsStartupSetting();
+  }, []);
+
+  // Handler for showTipsAtStartup checkbox
+  const handleShowTipsChange = async (checked: boolean) => {
+    try {
+      await window.electronAPI.database.setSetting(
+        "showTipsAtStartup",
+        checked
+      );
+      setShowTipsAtStartup(checked);
+    } catch (error) {
+      console.error("Failed to save tips startup setting:", error);
+    }
+  };
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -3517,18 +3549,19 @@ ${executionData.query}
                 >
                   <div className="h-full border border-border rounded bg-background overflow-hidden min-w-0 flex flex-col">
                     {/* Tab-specific toolbar */}
-                    <div className="flex items-center gap-1 px-3 py-2 bg-muted/50 border-b border-border">
+                    <div className="flex items-center gap-1 px-3 py-2 bg-muted/50 border-b border-border overflow-x-auto flex-shrink-0 min-w-full">
                       {/* Run Query Button */}
                       <button
                         onClick={runQuery}
                         disabled={
                           activeTab.isRunLoading || !activeTab.connectionId
                         }
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border flex-shrink-0 ${
                           activeTab.isRunLoading || !activeTab.connectionId
                             ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
                             : "bg-transparent hover:bg-accent text-foreground border-transparent hover:border-border hover:shadow-sm cursor-pointer"
                         }`}
+                        style={{ minWidth: "80px" }}
                         title="Run Query (Ctrl+Enter or F5)"
                       >
                         <Play
@@ -3547,11 +3580,12 @@ ${executionData.query}
                         disabled={
                           activeTab.isExplainLoading || !activeTab.connectionId
                         }
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border flex-shrink-0 ${
                           activeTab.isExplainLoading || !activeTab.connectionId
                             ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
                             : "bg-transparent hover:bg-accent text-foreground border-transparent hover:border-border hover:shadow-sm cursor-pointer"
                         }`}
+                        style={{ minWidth: "90px" }}
                         title="Explain Query (Ctrl+Shift+Enter)"
                       >
                         {activeTab.isExplainLoading ? (
@@ -3577,11 +3611,12 @@ ${executionData.query}
                       <button
                         onClick={formatSql}
                         disabled={_isFormatLoading || !activeTab.sql?.trim()}
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border flex-shrink-0 ${
                           _isFormatLoading || !activeTab.sql?.trim()
                             ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
                             : "bg-transparent hover:bg-accent text-foreground border-transparent hover:border-border hover:shadow-sm cursor-pointer"
                         }`}
+                        style={{ minWidth: "85px" }}
                         title="Format SQL"
                       >
                         <AlignLeft className="text-pink-600 w-4 h-4" />
@@ -3596,13 +3631,14 @@ ${executionData.query}
                           !activeTab.sql?.trim() ||
                           !aiEnginesLoaded
                         }
-                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border flex-shrink-0 ${
                           activeTab.isAnalyzeLoading ||
                           !activeTab.sql?.trim() ||
                           !aiEnginesLoaded
                             ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
                             : "bg-transparent hover:bg-accent text-foreground border-transparent hover:border-border hover:shadow-sm cursor-pointer"
                         }`}
+                        style={{ minWidth: "140px" }}
                         title="Analyze Query with AI"
                       >
                         {activeTab.isAnalyzeLoading ? (
@@ -3626,7 +3662,10 @@ ${executionData.query}
                       </button>
 
                       {/* Database Selection Dropdown */}
-                      <div className="flex items-center gap-2 ml-4">
+                      <div
+                        className="flex items-center gap-2 ml-4 min-w-0"
+                        style={{ minWidth: "150px", maxWidth: "250px" }}
+                      >
                         <Database className="w-4 h-4 text-muted-foreground" />
                         <select
                           value={activeTab.connectionId || ""}
@@ -4590,22 +4629,6 @@ ${executionData.query}
                   // Define button data with actions
                   const buttons = [
                     {
-                      key: "connection",
-                      text: "Setup Connections",
-                      onClick: () => {
-                        document.dispatchEvent(
-                          new CustomEvent("open-settings")
-                        );
-                        setTimeout(() => {
-                          document.dispatchEvent(
-                            new CustomEvent("settings-tab-change", {
-                              detail: { tab: "connections" },
-                            })
-                          );
-                        }, 100);
-                      },
-                    },
-                    {
                       key: "query",
                       text: "New Query",
                       onClick: () => {
@@ -4652,19 +4675,12 @@ ${executionData.query}
                       },
                     },
                     {
-                      key: "ai",
-                      text: "Setup AI Engines",
+                      key: "chat",
+                      text: "Load Chat",
                       onClick: () => {
                         document.dispatchEvent(
-                          new CustomEvent("open-settings")
+                          new CustomEvent("show-load-chat-dialog")
                         );
-                        setTimeout(() => {
-                          document.dispatchEvent(
-                            new CustomEvent("settings-tab-change", {
-                              detail: { tab: "ai-engines" },
-                            })
-                          );
-                        }, 100);
                       },
                     },
                   ];
@@ -4673,20 +4689,19 @@ ${executionData.query}
                   let orderedButtonKeys: string[];
 
                   if (!hasConnections) {
-                    // No connections: prioritize New Connection first
                     if (!hasAiEngines) {
-                      // No connections, no AI engines: Connection first, AI setup second
-                      orderedButtonKeys = ["connection", "ai", "query", "file"];
+                      // No connections, no AI engines: Query first, Load Chat second
+                      orderedButtonKeys = ["query", "file", "chat"];
                     } else {
-                      // No connections but has AI engines: Connection first, then query actions
-                      orderedButtonKeys = ["connection", "query", "file", "ai"];
+                      // No connections but has AI engines: Query first, then file and chat
+                      orderedButtonKeys = ["query", "file", "chat"];
                     }
                   } else if (!hasAiEngines) {
-                    // Has connections but no AI engines: Query first, AI setup second
-                    orderedButtonKeys = ["query", "ai", "file", "connection"];
+                    // Has connections but no AI engines: Query first, Load Chat second
+                    orderedButtonKeys = ["query", "chat", "file"];
                   } else {
                     // Has both connections and AI engines: Query and file operations prioritized
-                    orderedButtonKeys = ["query", "file", "connection", "ai"];
+                    orderedButtonKeys = ["query", "file", "chat"];
                   }
 
                   // Map ordered keys to buttons with position-based styling
@@ -4731,6 +4746,24 @@ ${executionData.query}
               to run queries.
             </div>
             <div className="pt-4 border-t border-border">
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <input
+                  type="checkbox"
+                  id="showTipsAtStartup"
+                  checked={showTipsAtStartup}
+                  onChange={e => handleShowTipsChange(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded cursor-pointer"
+                />
+                <label
+                  htmlFor="showTipsAtStartup"
+                  className="text-sm text-muted-foreground cursor-pointer select-none"
+                  onClick={() => {
+                    document.dispatchEvent(new CustomEvent("show-tips-dialog"));
+                  }}
+                >
+                  Show Tips
+                </label>
+              </div>
               <div className="text-xs text-muted-foreground text-center">
                 SQL Helper v{VERSION_INFO.version} • Build {VERSION_INFO.build}{" "}
                 • {VERSION_INFO.buildDate}

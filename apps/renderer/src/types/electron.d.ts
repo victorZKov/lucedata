@@ -173,6 +173,85 @@ declare global {
             encoding?: string;
           }
         ) => Promise<{ success: boolean; message: string }>;
+
+        // Tips management
+        getRandomTips: (
+          count?: number,
+          category?: string
+        ) => Promise<
+          Array<{
+            id: string;
+            title: string;
+            content: string;
+            category: string;
+            priority: number;
+            isActive: boolean;
+            showCount: number;
+            createdAt: string;
+            updatedAt: string;
+          }>
+        >;
+        getTips: (
+          category?: string,
+          activeOnly?: boolean
+        ) => Promise<
+          Array<{
+            id: string;
+            title: string;
+            content: string;
+            category: string;
+            priority: number;
+            isActive: boolean;
+            showCount: number;
+            createdAt: string;
+            updatedAt: string;
+          }>
+        >;
+        createTip: (tipData: {
+          title: string;
+          content: string;
+          category?: string;
+          priority?: number;
+        }) => Promise<{
+          id: string;
+          title: string;
+          content: string;
+          category: string;
+          priority: number;
+          isActive: boolean;
+          showCount: number;
+          createdAt: string;
+          updatedAt: string;
+        }>;
+        updateTip: (
+          id: string,
+          updates: {
+            title?: string;
+            content?: string;
+            category?: string;
+            priority?: number;
+            isActive?: boolean;
+          }
+        ) => Promise<{
+          id: string;
+          title: string;
+          content: string;
+          category: string;
+          priority: number;
+          isActive: boolean;
+          showCount: number;
+          createdAt: string;
+          updatedAt: string;
+        }>;
+        deleteTip: (id: string) => Promise<{ success: boolean }>;
+        incrementTipShowCount: (id: string) => Promise<{ success: boolean }>;
+
+        // Settings management
+        getSetting: <T>(
+          key: string,
+          defaultValue?: T
+        ) => Promise<T | undefined>;
+        setSetting: <T>(key: string, value: T) => Promise<{ success: boolean }>;
       };
       export: {
         save: (options: {
@@ -223,6 +302,8 @@ declare global {
           conversationId?: string;
           workspaceContext?: {
             currentQuery: string;
+            activeTabTitle?: string | null;
+            activeTabId?: string | null;
             results?: {
               columns: string[];
               rowCount: number;

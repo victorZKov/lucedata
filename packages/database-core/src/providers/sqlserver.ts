@@ -86,6 +86,20 @@ export class SqlServerProvider implements IDatabaseProvider {
       throw new Error("Not connected to database");
     }
 
+    // Check if connection is still alive and reconnect if needed
+    if (!this.pool.connected && !this.pool.connecting) {
+      console.log("🔄 Connection lost, attempting to reconnect...");
+      try {
+        await this.pool.connect();
+        console.log("✅ Reconnection successful");
+      } catch (reconnectError) {
+        console.error("❌ Reconnection failed:", reconnectError);
+        throw new Error(
+          `Connection lost and reconnection failed: ${reconnectError instanceof Error ? reconnectError.message : String(reconnectError)}`
+        );
+      }
+    }
+
     const startTime = Date.now();
     try {
       console.log(
@@ -254,31 +268,35 @@ export class SqlServerProvider implements IDatabaseProvider {
       // Use a transaction to ensure commands stay together
       const transaction = new sql.Transaction(this.pool);
       await transaction.begin();
-      
+
       try {
         const transactionRequest = new sql.Request(transaction);
-        
+
         // Enable XML execution plan
         await transactionRequest.query("SET SHOWPLAN_XML ON");
-        
+
         // Execute the query (this should return XML plan)
         const planResult = await transactionRequest.query(query);
-        
+
         // Disable XML execution plan
         await transactionRequest.query("SET SHOWPLAN_XML OFF");
-        
+
         await transaction.commit();
-        
+
         // Extract XML from the result
         if (planResult.recordset && planResult.recordset.length > 0) {
           const firstRow = planResult.recordset[0];
           const xmlContent = Object.values(firstRow)[0] as string;
-          
-          if (xmlContent && typeof xmlContent === 'string' && xmlContent.includes('<ShowPlanXML')) {
+
+          if (
+            xmlContent &&
+            typeof xmlContent === "string" &&
+            xmlContent.includes("<ShowPlanXML")
+          ) {
             return xmlContent;
           }
         }
-        
+
         return null;
       } catch (error) {
         await transaction.rollback();
@@ -671,9 +689,22 @@ export class SqlServerProvider implements IDatabaseProvider {
   }
 
   private buildConfig(connection: DatabaseConnection): sql.config | string {
-    // If connection string is provided, use it directly
+    // If connection string is provided, ensure it has adequate timeout
     if (connection.connectionString) {
-      return connection.connectionString;
+      let connString = connection.connectionString;
+
+      // Check if connection string already has Connection Timeout or Command Timeout
+      const hasTimeout =
+        /Connection\s+Timeout\s*=/i.test(connString) ||
+        /Command\s+Timeout\s*=/i.test(connString);
+
+      if (!hasTimeout) {
+        // Add Connection Timeout if not present
+        connString += connString.endsWith(";") ? "" : ";";
+        connString += "Connection Timeout=60;";
+      }
+
+      return connString;
     }
 
     // Otherwise, build config from individual parameters
@@ -683,6 +714,8 @@ export class SqlServerProvider implements IDatabaseProvider {
       server: connection.host,
       port: connection.port,
       database: connection.database,
+      requestTimeout: 60000, // 60 seconds for complex queries like execution plan cache
+      connectionTimeout: 30000, // 30 seconds to establish connection
       options: {
         encrypt: true, // Required for Azure SQL
         trustServerCertificate: false, // Don't trust self-signed certificates for Azure
@@ -692,7 +725,7 @@ export class SqlServerProvider implements IDatabaseProvider {
       pool: {
         max: 10,
         min: 0,
-        idleTimeoutMillis: 30000,
+        idleTimeoutMillis: 120000, // 2 minutes - longer than request timeout
       },
     };
 

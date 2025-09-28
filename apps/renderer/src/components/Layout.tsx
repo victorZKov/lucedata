@@ -9,7 +9,17 @@ import {
   Sun,
   Moon,
   Settings,
+  Scissors,
+  Copy,
+  ClipboardPaste,
+  Play,
+  HelpCircle,
+  AlignLeft,
+  Trash2,
   X,
+  RefreshCw,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react";
 
 import { useTheme } from "../contexts/ThemeContext";
@@ -76,10 +86,33 @@ export default function Layout() {
     { id: "ollama", name: "Ollama CodeLlama" },
   ]);
 
+  // Track current tab state for toolbar buttons
+  const [currentTabState, setCurrentTabState] = useState({
+    hasContent: false,
+    hasConnection: false,
+    hasSelection: false,
+    isRunning: false,
+    isFormatting: false,
+  });
+
+  // Toolbar expand/collapse state
+  const [toolbarExpanded, setToolbarExpanded] = useState(() => {
+    const saved = localStorage.getItem("sqlhelper-toolbar-expanded");
+    return saved ? JSON.parse(saved) : true;
+  });
+
   // Save layout to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem("sqlhelper-layout", JSON.stringify(layout));
   }, [layout]);
+
+  // Save toolbar expanded state
+  useEffect(() => {
+    localStorage.setItem(
+      "sqlhelper-toolbar-expanded",
+      JSON.stringify(toolbarExpanded)
+    );
+  }, [toolbarExpanded]);
 
   useEffect(() => {
     // Get platform info
@@ -112,6 +145,9 @@ export default function Layout() {
           case "chat-history":
             setDialogs(prev => ({ ...prev, chatHistoryTab: true }));
             break;
+          case "show-version":
+            setDialogs(prev => ({ ...prev, versionDialog: true }));
+            break;
         }
       });
     }
@@ -140,6 +176,10 @@ export default function Layout() {
 
   const toggleChat = () => {
     setLayout(prev => ({ ...prev, showChat: !prev.showChat }));
+  };
+
+  const toggleToolbar = () => {
+    setToolbarExpanded((prev: boolean) => !prev);
   };
 
   const handleExplorerResize = (delta: number) => {
@@ -202,10 +242,30 @@ export default function Layout() {
     };
   }, []);
 
+  // Listen for tab state changes
+  useEffect(() => {
+    const handleTabStateChange = (event: CustomEvent) => {
+      setCurrentTabState(event.detail);
+    };
+
+    document.addEventListener(
+      "tab-state-changed",
+      handleTabStateChange as EventListener
+    );
+    return () => {
+      document.removeEventListener(
+        "tab-state-changed",
+        handleTabStateChange as EventListener
+      );
+    };
+  }, []);
+
   // Chat dialog handlers
   const handleNewChat = () => {
     // Reset chat state - this would be implemented in ChatPanel
     document.dispatchEvent(new CustomEvent("new-chat"));
+    // Clear workspace context for fresh chat
+    document.dispatchEvent(new CustomEvent("clear-workspace-context"));
   };
 
   const handleSaveChat = async (title: string): Promise<void> => {
@@ -279,7 +339,7 @@ export default function Layout() {
         >
           <button
             onClick={toggleExplorer}
-            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5"
+            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5 cursor-pointer"
             title={
               layout.showExplorer ? "Hide Connections" : "Show Connections"
             }
@@ -305,7 +365,7 @@ export default function Layout() {
         >
           <button
             onClick={toggleChat}
-            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5"
+            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5 cursor-pointer"
             title={layout.showChat ? "Hide Chat" : "Show Chat"}
           >
             <MessageSquare size={16} />
@@ -319,7 +379,7 @@ export default function Layout() {
             aria-label={
               theme === "light" ? "Switch to dark mode" : "Switch to light mode"
             }
-            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5"
+            className="inline-flex items-center justify-center h-7 w-7 text-base leading-none rounded-full border border-border bg-muted text-foreground hover:bg-accent translate-y-0.5 cursor-pointer"
           >
             {theme === "light" ? <Moon size={16} /> : <Sun size={16} />}
           </button>
@@ -337,9 +397,274 @@ export default function Layout() {
         </div>
       </div>
 
+      {/* Professional Application Toolbar */}
+      <div
+        className={`fixed left-0 right-0 z-40 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 ${
+          isMac ? "top-11" : "top-12"
+        }`}
+        style={{ height: toolbarExpanded ? "60px" : "40px" }}
+      >
+        <div className="flex items-center justify-between h-full px-4">
+          {/* Left Side - File Operations */}
+          <div className="flex items-center">
+            <div className="flex items-center border-r border-border pr-3 mr-3">
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "new-query" },
+                    })
+                  );
+                }}
+                className={`p-2 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : ""
+                }`}
+                title="New Query (Ctrl+T)"
+              >
+                <Plus className="text-blue-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">New</span>}
+              </button>
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "open-query" },
+                    })
+                  );
+                }}
+                className={`p-2 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : ""
+                }`}
+                title="Open Query (Ctrl+O)"
+              >
+                <FolderOpen className="text-purple-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Open</span>}
+              </button>
+              <button
+                onClick={() => {
+                  document.dispatchEvent(
+                    new CustomEvent("toolbar-action", {
+                      detail: { action: "save-query" },
+                    })
+                  );
+                }}
+                className={`p-2 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : ""
+                }`}
+                title="Save Query (Ctrl+S)"
+              >
+                <Save className="text-indigo-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">Save</span>}
+              </button>
+            </div>
+
+            {/* Edit Operations */}
+            {toolbarExpanded && (
+              <div className="flex items-center border-r border-border pr-3 mr-3">
+                <button
+                  onClick={() => {
+                    document.dispatchEvent(
+                      new CustomEvent("toolbar-action", {
+                        detail: { action: "cut-text" },
+                      })
+                    );
+                  }}
+                  disabled={!currentTabState.hasSelection}
+                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
+                    currentTabState.hasSelection
+                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                  }`}
+                  title="Cut (Ctrl+X)"
+                >
+                  <Scissors className="text-red-600" size={16} />
+                  <span className="text-xs">Cut</span>
+                </button>
+                <button
+                  onClick={() => {
+                    document.dispatchEvent(
+                      new CustomEvent("toolbar-action", {
+                        detail: { action: "copy-text" },
+                      })
+                    );
+                  }}
+                  disabled={!currentTabState.hasSelection}
+                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
+                    currentTabState.hasSelection
+                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                  }`}
+                  title="Copy (Ctrl+C)"
+                >
+                  <Copy className="text-teal-600" size={16} />
+                  <span className="text-xs">Copy</span>
+                </button>
+                <button
+                  onClick={() => {
+                    document.dispatchEvent(
+                      new CustomEvent("toolbar-action", {
+                        detail: { action: "paste-text" },
+                      })
+                    );
+                  }}
+                  className="p-2 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer flex flex-col items-center gap-1 min-w-[60px]"
+                  title="Paste (Ctrl+V)"
+                >
+                  <ClipboardPaste className="text-blue-600" size={16} />
+                  <span className="text-xs">Paste</span>
+                </button>
+              </div>
+            )}
+
+            {/* Query Operations */}
+            {toolbarExpanded && (
+              <div className="flex items-center border-r border-border pr-3 mr-3">
+                <button
+                  onClick={() => {
+                    document.dispatchEvent(
+                      new CustomEvent("toolbar-action", {
+                        detail: { action: "run-query" },
+                      })
+                    );
+                  }}
+                  disabled={
+                    !currentTabState.hasContent ||
+                    !currentTabState.hasConnection ||
+                    currentTabState.isRunning
+                  }
+                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
+                    currentTabState.hasContent &&
+                    currentTabState.hasConnection &&
+                    !currentTabState.isRunning
+                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                  }`}
+                  title="Run Query (F5)"
+                >
+                  <Play className="text-green-600" size={16} />
+                  <span className="text-xs">Run</span>
+                </button>
+                <button
+                  onClick={() => {
+                    document.dispatchEvent(
+                      new CustomEvent("toolbar-action", {
+                        detail: { action: "explain-query" },
+                      })
+                    );
+                  }}
+                  disabled={
+                    !currentTabState.hasContent ||
+                    !currentTabState.hasConnection ||
+                    currentTabState.isRunning
+                  }
+                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
+                    currentTabState.hasContent &&
+                    currentTabState.hasConnection &&
+                    !currentTabState.isRunning
+                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                  }`}
+                  title="Explain Query"
+                >
+                  <HelpCircle className="text-orange-600" size={16} />
+                  <span className="text-xs">Explain</span>
+                </button>
+                <button
+                  onClick={() => {
+                    document.dispatchEvent(
+                      new CustomEvent("toolbar-action", {
+                        detail: { action: "format-query" },
+                      })
+                    );
+                  }}
+                  disabled={
+                    !currentTabState.hasContent || currentTabState.isFormatting
+                  }
+                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
+                    currentTabState.hasContent && !currentTabState.isFormatting
+                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                  }`}
+                  title="Format Query"
+                >
+                  <AlignLeft className="text-pink-600" size={16} />
+                  <span className="text-xs">Format</span>
+                </button>
+              </div>
+            )}
+
+            {/* Utility Operations */}
+            {toolbarExpanded && (
+              <div className="flex items-center">
+                <button
+                  onClick={() => {
+                    document.dispatchEvent(
+                      new CustomEvent("toolbar-action", {
+                        detail: { action: "copy-query" },
+                      })
+                    );
+                  }}
+                  disabled={!currentTabState.hasContent}
+                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
+                    currentTabState.hasContent
+                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                  }`}
+                  title="Copy Query"
+                >
+                  <Copy className="text-teal-600" size={16} />
+                  <span className="text-xs">Copy All</span>
+                </button>
+                <button
+                  onClick={() => {
+                    document.dispatchEvent(
+                      new CustomEvent("toolbar-action", {
+                        detail: { action: "clear-query" },
+                      })
+                    );
+                  }}
+                  disabled={!currentTabState.hasContent}
+                  className={`p-2 rounded-md transition-colors flex flex-col items-center gap-1 min-w-[60px] ${
+                    currentTabState.hasContent
+                      ? "hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer"
+                      : "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground"
+                  }`}
+                  title="Clear Query"
+                >
+                  <Trash2 className="text-red-600" size={16} />
+                  <span className="text-xs">Clear</span>
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Right Side - Additional Controls */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={toggleToolbar}
+              className="p-2 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
+              title={toolbarExpanded ? "Collapse Toolbar" : "Expand Toolbar"}
+            >
+              {toolbarExpanded ? (
+                <ChevronUp className="text-gray-600" size={16} />
+              ) : (
+                <ChevronDown className="text-gray-600" size={16} />
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Main Content */}
       <div
-        className={`flex flex-1 ${isMac ? "pt-11" : "pt-12"} min-h-0 min-w-0 px-3`}
+        className={`flex flex-1 ${isMac ? "pt-20" : "pt-21"} min-h-0 min-w-0 px-3`}
+        style={{ paddingTop: isMac ? "88px" : "92px" }}
       >
         {/* Rounded inner surface under the title bar */}
         <div
@@ -386,14 +711,30 @@ export default function Layout() {
                           );
                         }, 100);
                       }}
-                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent"
+                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent cursor-pointer"
                       title="Add Connection"
                       aria-label="Add Connection"
                       style={
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      <Plus size={16} />
+                      <Plus className="text-blue-500" size={16} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        // Refresh connections
+                        document.dispatchEvent(
+                          new CustomEvent("refresh-connections")
+                        );
+                      }}
+                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-foreground hover:bg-accent cursor-pointer"
+                      title="Refresh Connections"
+                      aria-label="Refresh Connections"
+                      style={
+                        { WebkitAppRegion: "no-drag" } as React.CSSProperties
+                      }
+                    >
+                      <RefreshCw className="text-purple-500" size={16} />
                     </button>
                   </div>
                   <button

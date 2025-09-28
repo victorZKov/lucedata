@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import rehypeHighlight from "rehype-highlight";
 
 interface ToolCall {
   id: string;
@@ -47,6 +50,8 @@ interface AIEngine {
 
 interface WorkspaceContext {
   enabled: boolean;
+  tabTitle?: string | null; // Title of the active tab
+  tabId?: string | null; // ID of the active tab for reference
   query?: string | null;
   results?: {
     columns: string[];
@@ -112,10 +117,73 @@ export default function ChatPanel() {
 
     // Chat management event handlers
     const handleNewChat = () => {
-      console.log("🔄 New chat requested, clearing messages...");
+      console.log(
+        "🔄 New chat requested, clearing messages and workspace context..."
+      );
       setMessages([]);
       setInputText("");
       setCurrentConversationId(null); // Clear conversation ID for new chat
+      setWorkspaceContext(null); // Clear workspace context for fresh start
+    };
+
+    // Handle external chat messages (from execution plan analysis)
+    const handleExternalChatMessage = (event: CustomEvent) => {
+      console.log("🔄 External chat message received:", event.detail);
+      const detail = event.detail;
+
+      // Handle both old format (userMessage/assistantMessage) and new format (type/content/title)
+      if (detail.type && detail.content) {
+        // New format from analysis buttons
+        const message: ChatMessage = {
+          id: crypto.randomUUID(),
+          role: detail.type === "error" ? "system" : "assistant",
+          content: detail.title
+            ? `${detail.title}\n\n${detail.content}`
+            : detail.content,
+          timestamp: new Date(),
+        };
+
+        setMessages(prev => [...prev, message]);
+        console.log(`📝 Added analysis message to chat: ${detail.type}`);
+        return;
+      }
+
+      // Original format handling
+      const { userMessage, assistantMessage, conversationId } = detail;
+
+      // Update conversation ID if provided
+      if (conversationId && conversationId !== currentConversationId) {
+        console.log(
+          "📝 Updating conversation ID from external message:",
+          conversationId
+        );
+        setCurrentConversationId(conversationId);
+      }
+
+      // Add messages to the chat
+      const newMessages: ChatMessage[] = [];
+      if (userMessage) {
+        newMessages.push({
+          id: userMessage.id || crypto.randomUUID(),
+          role: userMessage.role || "user",
+          content: userMessage.content,
+          timestamp: new Date(userMessage.timestamp || new Date()),
+        });
+      }
+      if (assistantMessage) {
+        newMessages.push({
+          id: assistantMessage.id || crypto.randomUUID(),
+          role: assistantMessage.role || "assistant",
+          content: assistantMessage.content,
+          timestamp: new Date(assistantMessage.timestamp || new Date()),
+          finalSQL: assistantMessage.finalSQL,
+        });
+      }
+
+      if (newMessages.length > 0) {
+        setMessages(prev => [...prev, ...newMessages]);
+        console.log(`📝 Added ${newMessages.length} external messages to chat`);
+      }
     };
 
     const handleLoadChat = (event: CustomEvent) => {
@@ -168,6 +236,10 @@ export default function ChatPanel() {
       "workspace-context-change",
       handleWorkspaceContextChange as EventListener
     );
+    document.addEventListener(
+      "external-chat-message",
+      handleExternalChatMessage as EventListener
+    );
     window.addEventListener("focus", handleWindowFocus);
 
     return () => {
@@ -184,6 +256,10 @@ export default function ChatPanel() {
       document.removeEventListener(
         "workspace-context-change",
         handleWorkspaceContextChange as EventListener
+      );
+      document.removeEventListener(
+        "external-chat-message",
+        handleExternalChatMessage as EventListener
       );
       window.removeEventListener("focus", handleWindowFocus);
     };
@@ -280,11 +356,13 @@ export default function ChatPanel() {
     setLoading(true);
 
     try {
-      // Prepare workspace context if sharing is enabled
+      // Prepare workspace context if sharing is enabled (active tab only)
       let contextInfo = null;
       if (workspaceContext?.enabled && workspaceContext.query) {
         contextInfo = {
           currentQuery: workspaceContext.query,
+          activeTabTitle: workspaceContext.tabTitle, // Include tab title
+          activeTabId: workspaceContext.tabId, // Include tab ID for reference
           results: workspaceContext.results
             ? {
                 columns: workspaceContext.results.columns,
@@ -397,19 +475,30 @@ export default function ChatPanel() {
                 <div
                   className={`max-w-[80%] px-3 py-2 rounded-lg text-sm ${
                     message.role === "user"
-                      ? "bg-blue-600 text-white"
+                      ? "bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 border border-gray-300 dark:border-gray-600"
                       : message.isSuggestion
                         ? "bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 text-foreground"
                         : "bg-muted text-foreground"
                   }`}
                 >
-                  <div className="whitespace-pre-wrap">{message.content}</div>
+                  {message.role === "user" ? (
+                    <div className="whitespace-pre-wrap">{message.content}</div>
+                  ) : (
+                    <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:mt-2 prose-headings:mb-2 prose-p:mb-2 prose-code:text-sm prose-pre:bg-gray-800 prose-pre:text-green-400">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeHighlight]}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  )}
 
                   {/* Suggestion Action Buttons */}
                   {message.isSuggestion && message.suggestedSQL && (
                     <div className="mt-3 flex gap-2">
                       <button
-                        className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1 transition-colors"
+                        className="px-3 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded flex items-center gap-1 transition-colors cursor-pointer"
                         onClick={async () => {
                           if (
                             window.electronAPI?.createSqlTab &&
@@ -443,7 +532,7 @@ export default function ChatPanel() {
                         ▶ Yes, run it
                       </button>
                       <button
-                        className="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded transition-colors"
+                        className="px-3 py-1 text-xs bg-gray-200 hover:bg-gray-300 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 rounded transition-colors cursor-pointer"
                         onClick={() => {
                           // Remove the suggestion message
                           setMessages(prev =>
@@ -462,7 +551,7 @@ export default function ChatPanel() {
                         <div className="flex gap-2">
                           {/* Run Query Button */}
                           <button
-                            className="text-green-400 hover:text-green-300 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1"
+                            className="text-green-400 hover:text-green-300 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1 cursor-pointer"
                             onClick={async () => {
                               console.log("🔥 RUN BUTTON CLICKED");
                               console.log("Debug info:", {
@@ -531,7 +620,7 @@ export default function ChatPanel() {
 
                           {/* Copy SQL Button */}
                           <button
-                            className="text-blue-400 hover:text-blue-300 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1"
+                            className="text-blue-400 hover:text-blue-300 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 flex items-center gap-1 cursor-pointer"
                             onClick={async () => {
                               if (message.finalSQL) {
                                 try {
@@ -559,7 +648,7 @@ export default function ChatPanel() {
 
                           {/* Insert to New Tab Button */}
                           <button
-                            className="text-yellow-400 hover:text-yellow-300 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600"
+                            className="text-yellow-400 hover:text-yellow-300 text-xs px-2 py-1 rounded bg-slate-700 hover:bg-slate-600 cursor-pointer"
                             onClick={async () => {
                               console.log("📄 INSERT BUTTON CLICKED");
                               console.log("Debug info:", {
@@ -694,7 +783,7 @@ export default function ChatPanel() {
             <button
               onClick={handleSend}
               disabled={loading || !inputText.trim()}
-              className="px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`px-3 py-1 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 focus:outline-none focus:ring-1 focus:ring-blue-500 ${loading || !inputText.trim() ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
             >
               {loading ? "Sending..." : "Send"}
             </button>

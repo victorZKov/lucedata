@@ -2,6 +2,14 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import Editor from "@monaco-editor/react";
 import { format as sqlFormat } from "sql-formatter";
 import type * as Monaco from "monaco-editor";
+import {
+  Play,
+  HelpCircle,
+  Database,
+  AlignLeft,
+  Loader2,
+  ArrowRight,
+} from "lucide-react";
 
 import { useTheme } from "../contexts/ThemeContext";
 
@@ -93,6 +101,10 @@ type Tab = {
   columnWidths?: Record<string, number>; // px per column key
   editorPos?: { line: number; column: number };
   editorFocused?: boolean;
+  // Tab-specific loading states
+  isRunLoading?: boolean;
+  isExplainLoading?: boolean;
+  isAnalyzeLoading?: boolean;
 };
 
 // Utility function to parse SQL text into individual queries
@@ -173,9 +185,7 @@ export default function WorkArea() {
 
   const [tabs, setTabs] = useState<Tab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [isExplainLoading, setIsExplainLoading] = useState(false);
-  const [isRunLoading, setIsRunLoading] = useState(false);
-  const [isFormatLoading, setIsFormatLoading] = useState(false);
+  const [_isFormatLoading, setIsFormatLoading] = useState(false);
   const [sortFields, setSortFields] = useState<
     Array<{ column: string; direction: "asc" | "desc" }>
   >([]);
@@ -194,6 +204,7 @@ export default function WorkArea() {
       id: string;
       name: string;
       type: string;
+      isDefault: boolean;
     }>
   >([]);
   // Loading states for button ordering
@@ -278,7 +289,7 @@ export default function WorkArea() {
   });
 
   // AI Context Sharing state
-  const [shareContextWithAI, setShareContextWithAI] = useState(() => {
+  const [shareContextWithAI, _setShareContextWithAI] = useState(() => {
     const saved = localStorage.getItem("sqlhelper-share-context-with-ai");
     return saved ? JSON.parse(saved) : false;
   });
@@ -712,6 +723,44 @@ export default function WorkArea() {
     }
   };
 
+  const createNewTab = () => {
+    const id = Date.now().toString();
+
+    // Use connection info from active tab if available, otherwise use first connection
+    const connectionInfo = activeTab
+      ? {
+          connectionId: activeTab.connectionId,
+          connectionName: activeTab.connectionName,
+          connectionType: activeTab.connectionType,
+          database: activeTab.database,
+        }
+      : connections.length > 0
+        ? {
+            connectionId: connections[0].id,
+            connectionName: connections[0].name,
+            connectionType: connections[0].type,
+            database: undefined,
+          }
+        : {
+            connectionId: undefined,
+            connectionName: undefined,
+            connectionType: undefined,
+            database: undefined,
+          };
+
+    const newTab: Tab = {
+      id,
+      type: "sql",
+      title: "New Query",
+      sql: "",
+      activeResultTab: "results",
+      ...connectionInfo,
+    } as Tab;
+
+    setTabs(prev => [...prev, newTab]);
+    setActiveTabId(id);
+  };
+
   // Tab management functions
   const closeAllTabs = () => {
     setTabs([]);
@@ -725,6 +774,7 @@ export default function WorkArea() {
 
   const handleTabRightClick = (e: React.MouseEvent, tabId: string) => {
     e.preventDefault();
+    e.stopPropagation(); // Prevent global click handler
     setTabContextMenu({
       x: e.clientX,
       y: e.clientY,
@@ -1028,7 +1078,7 @@ export default function WorkArea() {
     if (queries.length === 0) return;
 
     try {
-      setIsRunLoading(true);
+      setActiveTabRunLoading(true);
       updateActiveTab({ status: "running", startedAt: Date.now() });
 
       const results: QueryResult[] = [];
@@ -1114,7 +1164,7 @@ export default function WorkArea() {
         activeResultTab: "messages",
       });
     } finally {
-      setIsRunLoading(false);
+      setActiveTabRunLoading(false);
     }
   };
 
@@ -1125,7 +1175,7 @@ export default function WorkArea() {
     if (!query) return;
 
     try {
-      setIsExplainLoading(true);
+      setActiveTabExplainLoading(true);
       updateActiveTab({ status: "running", startedAt: Date.now() });
 
       let res: any;
@@ -1589,6 +1639,8 @@ export default function WorkArea() {
         activeResultTab: "messages", // Automatically switch to Messages tab
       });
       setShowResults(true);
+
+      // Execution plan is now stored in the results for manual analysis
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       updateActiveTab({
@@ -1606,7 +1658,12 @@ export default function WorkArea() {
         activeResultTab: "messages",
       });
     } finally {
-      setIsExplainLoading(false);
+      console.log(
+        "🏁 explainQuery function finishing - resetting button state..."
+      );
+      setActiveTabExplainLoading(false);
+      console.log("✅ Explain button state reset to idle");
+      console.log("🏁 explainQuery function completed");
     }
   };
 
@@ -1629,30 +1686,598 @@ export default function WorkArea() {
     }
   };
 
+  const analyzeQueryWithAI = async () => {
+    if (!activeTab || !activeTab.sql?.trim() || !aiEnginesLoaded) return;
+
+    if (!activeTab.connectionId) {
+      console.error("❌ No connection ID available for analysis");
+      console.log("💡 Active tab info:", {
+        hasActiveTab: !!activeTab,
+        tabId: activeTab?.id,
+        tabTitle: activeTab?.title,
+        connectionId: activeTab?.connectionId,
+        connectionName: activeTab?.connectionName,
+      });
+
+      // Send error to ChatPanel with helpful guidance
+      window.dispatchEvent(
+        new CustomEvent("external-chat-message", {
+          detail: {
+            type: "error",
+            content: `Cannot analyze query: No database connection available.
+
+**To fix this:**
+1. Open the **Explorer** panel (left sidebar)
+2. **Connect** to a database by clicking the connect button next to a connection
+3. Create a **New Query** tab from the connected database
+4. Write your SQL query and try the analysis again
+
+Currently active tab has no connection information.`,
+            title: "❌ Analysis Error",
+            source: "query-analysis",
+          },
+        })
+      );
+      return;
+    }
+
+    try {
+      updateActiveTab({ isAnalyzeLoading: true });
+      console.log(
+        "🔍 Starting query analysis with connection ID:",
+        activeTab.connectionId
+      );
+
+      // Create analysis message focused on query optimization
+      const message = `Please analyze this SQL query for optimization opportunities:
+
+**Query:**
+\`\`\`sql
+${activeTab.sql}
+\`\`\`
+
+**Database Type:** ${activeTab.connectionType || "Unknown"}
+${activeTab.connectionName ? `**Connection:** ${activeTab.connectionName}` : ""}
+${activeTab.database ? `**Database:** ${activeTab.database}` : ""}
+
+Please provide:
+1. **Query Analysis**: What the query does and its current approach
+2. **Performance Assessment**: Potential performance bottlenecks or inefficiencies  
+3. **Optimization Suggestions**: Specific recommendations to improve performance
+4. **Index Recommendations**: Suggested indexes that could improve execution
+5. **Alternative Approaches**: If applicable, suggest alternative query patterns
+6. **Best Practices**: Any SQL best practices that could be applied
+
+Focus on practical, actionable recommendations for better query performance.`;
+
+      // Send to AI Assistant immediately
+      const userMessage = {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        content: `🔍 **Analyzing SQL Query for Optimization**
+
+Requesting analysis of this query:
+
+\`\`\`sql
+${activeTab.sql}
+\`\`\``,
+        timestamp: new Date().toISOString(),
+      };
+
+      // Emit event to update ChatPanel with user message immediately
+      document.dispatchEvent(
+        new CustomEvent("external-chat-message", {
+          detail: {
+            userMessage,
+            conversationId: null, // Will be auto-created
+          },
+        })
+      );
+
+      console.log("📤 Query analysis request sent to chat panel");
+
+      // Get AI engine using the same logic as ChatPanel
+      let selectedEngineId: string | null = null;
+
+      try {
+        // Get current chat state to find selected engine and conversation ID
+        const chatData = await window.electronAPI.chat.loadList();
+        const activeChatData = chatData.find(
+          (chat: any) => chat.connectionId === activeTab?.connectionId
+        );
+        selectedEngineId = activeChatData?.engineId || null;
+        console.log(
+          "🔍 Found selected engine from chat data:",
+          selectedEngineId
+        );
+      } catch (error) {
+        console.warn(
+          "⚠️ Could not load chat data to find selected engine:",
+          error
+        );
+      }
+
+      // If no selected engine found, use the default engine as fallback (same logic as ChatPanel)
+      if (!selectedEngineId && aiEngines.length > 0) {
+        const defaultEngine = aiEngines.find(e => e.isDefault) || aiEngines[0];
+        selectedEngineId = defaultEngine.id;
+        console.log(
+          "📱 Using default engine as fallback:",
+          selectedEngineId,
+          defaultEngine.isDefault ? "(is default)" : "(first available)"
+        );
+      }
+
+      if (!selectedEngineId) {
+        throw new Error("No AI engine available");
+      }
+
+      // Get conversation ID for context (like ChatPanel does)
+      let currentConversationId: string | null = null;
+      try {
+        const chatData = await window.electronAPI.chat.loadList();
+        const activeChatData = chatData.find(
+          (chat: any) => chat.connectionId === activeTab?.connectionId
+        );
+        currentConversationId = activeChatData?.id || null;
+      } catch (error) {
+        console.warn("⚠️ Could not load conversation ID:", error);
+      }
+
+      console.log("📞 Sending AI request with:", {
+        messageLength: message.length,
+        connectionId: activeTab.connectionId,
+        engineId: selectedEngineId,
+        conversationId: currentConversationId,
+        hasWorkspaceContext: true,
+      });
+
+      const response = await window.electronAPI.chat.sendMessage({
+        message,
+        connectionId: activeTab.connectionId,
+        engineId: selectedEngineId,
+        conversationId: currentConversationId || undefined, // Pass conversation ID like ChatPanel does
+        workspaceContext: {
+          currentQuery: activeTab.sql,
+          activeTabTitle: activeTab.title,
+          activeTabId: activeTab.id,
+        },
+      });
+
+      console.log("✅ AI response received:", {
+        responseType: typeof response,
+        hasContent: !!response?.content,
+        contentLength: response?.content?.length || 0,
+        hasId: !!response?.id,
+        conversationId: response?.conversationId,
+      });
+
+      // Emit AI response to ChatPanel
+      const assistantMessage = {
+        id: response.id || crypto.randomUUID(),
+        role: "assistant" as const,
+        content: response.content || "I'm sorry, I couldn't analyze the query.",
+        timestamp: response.timestamp || new Date().toISOString(),
+        finalSQL: response.finalSQL,
+      };
+
+      document.dispatchEvent(
+        new CustomEvent("external-chat-message", {
+          detail: {
+            assistantMessage,
+            conversationId: response.conversationId,
+          },
+        })
+      );
+
+      console.log("✅ Query analysis completed");
+    } catch (error) {
+      console.error("❌ Failed to analyze query with AI:", error);
+
+      // Show error in chat
+      const errorMessage = {
+        id: crypto.randomUUID(),
+        role: "assistant" as const,
+        content:
+          "I'm sorry, I couldn't analyze the query at this time. Please check your AI configuration and try again.",
+        timestamp: new Date().toISOString(),
+      };
+
+      document.dispatchEvent(
+        new CustomEvent("external-chat-message", {
+          detail: {
+            assistantMessage: errorMessage,
+            conversationId: null,
+          },
+        })
+      );
+    } finally {
+      updateActiveTab({ isAnalyzeLoading: false });
+    }
+  };
+
+  // Function to analyze execution plan with AI Assistant
+  const analyzeExecutionPlanWithAI = async (executionData: {
+    query: string;
+    xmlPlan?: string;
+    textPlan?: string[];
+    connectionType: string;
+    executionTime?: number;
+    estimatedCost?: string;
+  }) => {
+    if (!executionData || !aiEnginesLoaded) return;
+
+    if (!activeTab?.connectionId) {
+      console.error(
+        "❌ No connection ID available for execution plan analysis"
+      );
+      console.log("💡 Active tab info:", {
+        hasActiveTab: !!activeTab,
+        tabId: activeTab?.id,
+        tabTitle: activeTab?.title,
+        connectionId: activeTab?.connectionId,
+        connectionName: activeTab?.connectionName,
+      });
+
+      // Send error to ChatPanel with helpful guidance
+      window.dispatchEvent(
+        new CustomEvent("external-chat-message", {
+          detail: {
+            type: "error",
+            content: `Cannot analyze execution plan: No database connection available.
+
+**To fix this:**
+1. Open the **Explorer** panel (left sidebar)
+2. **Connect** to a database by clicking the connect button next to a connection
+3. Create a **New Query** tab from the connected database
+4. Execute your SQL query first to get an execution plan
+5. Then try the execution plan analysis
+
+Currently active tab has no connection information.`,
+            title: "❌ Analysis Error",
+            source: "execution-plan-analysis",
+          },
+        })
+      );
+      return;
+    }
+
+    try {
+      updateActiveTab({ isAnalyzeLoading: true });
+      console.log(
+        "🔍 Starting execution plan analysis with connection ID:",
+        activeTab.connectionId
+      );
+
+      // Create analysis message focused on execution plan analysis
+      const message = `Please analyze this SQL execution plan and provide detailed insights:
+
+**Query:**
+\`\`\`sql
+${executionData.query}
+\`\`\`
+
+**Database Type:** ${executionData.connectionType}
+${executionData.executionTime ? `**Execution Time:** ${executionData.executionTime}ms` : ""}
+${executionData.estimatedCost ? `**Estimated Cost:** ${executionData.estimatedCost}` : ""}
+
+${
+  executionData.xmlPlan
+    ? `**XML Execution Plan:**
+\`\`\`xml
+${executionData.xmlPlan.substring(0, 6000)}${executionData.xmlPlan.length > 6000 ? "\n... (truncated for size)" : ""}
+\`\`\`
+`
+    : ""
+}
+
+${
+  executionData.textPlan?.length
+    ? `**Execution Plan Details:**
+\`\`\`
+${executionData.textPlan.join("\n")}
+\`\`\`
+`
+    : ""
+}
+
+Please provide:
+1. **Execution Plan Analysis**: Explain what the plan shows and the strategy used
+2. **Performance Bottlenecks**: Identify expensive operations, scans, or joins
+3. **Cost Analysis**: Break down where time/resources are spent
+4. **Optimization Opportunities**: Specific suggestions to improve performance
+5. **Index Recommendations**: Missing indexes or index improvements
+6. **Query Alternatives**: Better approaches if the current plan is inefficient
+
+Focus on the actual execution plan data to provide specific, actionable recommendations.`;
+
+      // Send to AI Assistant
+      console.log("🤖 Attempting to share execution plan with AI...", {
+        aiEnginesCount: aiEngines.length,
+        aiEnginesLoaded,
+        hasActiveTab: !!activeTab,
+        activeTabConnectionId: activeTab?.connectionId,
+        executionDataKeys: Object.keys(executionData),
+        hasXmlPlan: !!executionData.xmlPlan,
+        hasTextPlan: !!executionData.textPlan?.length,
+        messageLength: message.length,
+      });
+
+      // Debug the execution data
+      console.log("🔍 Execution Plan Analysis Data:", {
+        hasQuery: !!executionData.query,
+        query: executionData.query,
+        hasXmlPlan: !!executionData.xmlPlan,
+        xmlPlanLength: executionData.xmlPlan?.length,
+        xmlPlanPreview: executionData.xmlPlan?.substring(0, 200),
+        hasTextPlan: !!executionData.textPlan?.length,
+        textPlanLength: executionData.textPlan?.length,
+        connectionType: executionData.connectionType,
+      });
+
+      // Declare conversation ID at function scope
+      let conversationId: string | null = null;
+
+      // Immediately show user message in chat
+      const userMessage = {
+        id: crypto.randomUUID(),
+        role: "user" as const,
+        content: `🔍 **Analyzing SQL Execution Plan**
+
+Requesting analysis of the execution plan for this query:
+
+\`\`\`sql
+${executionData.query}
+\`\`\``,
+        timestamp: new Date().toISOString(),
+      };
+
+      console.log("📝 User message content:", userMessage.content);
+
+      // Emit event to update ChatPanel with user message immediately
+      document.dispatchEvent(
+        new CustomEvent("external-chat-message", {
+          detail: {
+            userMessage,
+            conversationId,
+          },
+        })
+      );
+      console.log("📤 User message added to chat panel");
+
+      // Try to get the currently selected AI engine and conversation ID from chat data
+      let selectedEngineId: string | null = null;
+      let selectedEngine: any = null;
+
+      try {
+        // Get current chat state to find selected engine and conversation ID
+        const chatData = await window.electronAPI.chat.loadList();
+        const activeChatData = chatData.find(
+          (chat: any) => chat.connectionId === activeTab?.connectionId
+        );
+        selectedEngineId = activeChatData?.engineId || null;
+        conversationId = activeChatData?.id || null;
+        console.log(
+          "🔍 Found selected engine from chat data:",
+          selectedEngineId
+        );
+        console.log("🔍 Found conversation ID from chat data:", conversationId);
+      } catch (error) {
+        console.warn(
+          "⚠️ Could not load chat data to find selected engine:",
+          error
+        );
+      }
+
+      // If no selected engine found, use the default engine as fallback (same logic as ChatPanel)
+      if (!selectedEngineId) {
+        const defaultEngine = aiEngines.find(e => e.isDefault) || aiEngines[0];
+        selectedEngineId = defaultEngine?.id || null;
+        console.log(
+          "📱 Using default engine as fallback:",
+          selectedEngineId,
+          defaultEngine?.isDefault ? "(is default)" : "(first available)"
+        );
+      }
+
+      // Find the engine object
+      selectedEngine =
+        aiEngines.find(engine => engine.id === selectedEngineId) ||
+        aiEngines[0];
+
+      if (!selectedEngine) {
+        console.warn("⚠️ No AI engine available for sharing execution plan", {
+          selectedEngineId,
+          aiEngines,
+          aiEnginesLoaded,
+        });
+        return;
+      }
+
+      console.log(
+        "📤 Sending execution plan to AI engine:",
+        selectedEngine.name
+      );
+      console.log("📋 Message preview:", message.substring(0, 200) + "...");
+      console.log("🔗 Connection ID:", activeTab?.connectionId);
+      console.log("🎯 Engine ID:", selectedEngine.id);
+
+      // Check if this is Ollama and warn about potential issues
+      if (selectedEngine.name?.toLowerCase().includes("ollama")) {
+        console.log("🦙 Using Ollama - checking if service is available...");
+      }
+
+      // Add timeout for AI request - longer for local models like Ollama
+      const AI_TIMEOUT = 90000; // 90 seconds for local AI models
+      console.log(
+        "⏰ Starting AI request with timeout:",
+        AI_TIMEOUT / 1000,
+        "seconds"
+      );
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `AI request timed out after ${AI_TIMEOUT / 1000} seconds`
+              )
+            ),
+          AI_TIMEOUT
+        )
+      );
+
+      console.log("🚀 Creating main AI analysis request...");
+      const sendMessagePromise = window.electronAPI.chat.sendMessage({
+        message,
+        connectionId: activeTab?.connectionId || "",
+        engineId: selectedEngine.id,
+        conversationId: conversationId || undefined,
+        workspaceContext: {
+          currentQuery: activeTab?.sql || "",
+          activeTabTitle: activeTab?.title,
+          activeTabId: activeTab?.id,
+          results: executionData.textPlan?.length
+            ? {
+                columns: ["ExecutionPlan"],
+                rowCount: executionData.textPlan.length,
+                executionTime: executionData.executionTime || 0,
+                sampleData: [],
+              }
+            : undefined,
+        },
+      });
+      console.log("📨 Main AI request created, now racing with timeout...");
+
+      console.log("📡 Waiting for AI response...");
+      console.log(
+        "🚀 Starting Promise.race between sendMessage and timeout..."
+      );
+
+      // Add progress logging for long-running requests
+      const progressInterval = setInterval(() => {
+        console.log(
+          "⏳ Still waiting for AI response... (this is normal for local models like Ollama)"
+        );
+      }, 15000); // Log every 15 seconds
+
+      let _response: any;
+      try {
+        _response = await Promise.race([sendMessagePromise, timeoutPromise]);
+        clearInterval(progressInterval);
+        console.log("🎯 Promise.race resolved! Response received.");
+      } catch (error) {
+        clearInterval(progressInterval);
+        throw error;
+      }
+
+      console.log("✅ Execution plan shared with AI Assistant successfully!");
+      console.log(
+        "📨 AI Response preview:",
+        typeof _response === "string"
+          ? _response.substring(0, 200) + "..."
+          : _response
+      );
+      console.log("📨 AI Response type:", typeof _response);
+
+      // Emit event to add AI response to ChatPanel
+      const assistantMessage = {
+        id: _response.id || crypto.randomUUID(),
+        role: "assistant" as const,
+        content:
+          _response.content ||
+          "I'm sorry, I couldn't analyze the execution plan.",
+        timestamp: _response.timestamp || new Date().toISOString(),
+        finalSQL: _response.finalSQL,
+      };
+
+      document.dispatchEvent(
+        new CustomEvent("external-chat-message", {
+          detail: {
+            assistantMessage,
+            conversationId: _response.conversationId || conversationId,
+          },
+        })
+      );
+      console.log("📝 AI response added to chat panel");
+    } catch (error) {
+      console.error("❌ Failed to share execution plan with AI:");
+      console.error("🚨 Error details:", error);
+      console.error("🔍 Error type:", typeof error);
+      console.error(
+        "📊 Error properties:",
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              stack: error.stack?.substring(0, 500),
+            }
+          : error
+      );
+
+      // Show user-friendly error message
+      if (error instanceof Error && error.message.includes("timed out")) {
+        console.warn(
+          "⚠️ AI request timed out - this can happen with local AI models like Ollama"
+        );
+        console.warn(
+          "💡 Try switching to a faster AI engine or increasing the timeout"
+        );
+
+        // Add timeout message to AI chat via event
+        const timeoutMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+          content: `⚠️ **Analysis Timeout**\n\nThe AI analysis timed out after 90 seconds. This is common with local AI models like Ollama when processing complex execution plans.\n\n**Suggestions:**\n• Try a cloud-based AI engine (OpenAI, Anthropic)\n• Wait a moment and try again\n• Check if Ollama is running properly`,
+          timestamp: new Date().toISOString(),
+        };
+
+        document.dispatchEvent(
+          new CustomEvent("external-chat-message", {
+            detail: {
+              assistantMessage: timeoutMessage,
+              conversationId: null,
+            },
+          })
+        );
+        console.log("📝 Added timeout message to chat panel");
+      } else {
+        // Show generic error message
+        const errorMessage = {
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+          content:
+            "I'm sorry, I couldn't analyze the execution plan at this time. Please check your AI configuration and try again.",
+          timestamp: new Date().toISOString(),
+        };
+
+        document.dispatchEvent(
+          new CustomEvent("external-chat-message", {
+            detail: {
+              assistantMessage: errorMessage,
+              conversationId: null,
+            },
+          })
+        );
+      }
+    } finally {
+      updateActiveTab({ isAnalyzeLoading: false });
+    }
+  };
+
   const updateActiveTab = (patch: Partial<Tab>) => {
     setTabs(prev =>
       prev.map(t => (t.id === activeTabId ? { ...t, ...patch } : t))
     );
   };
 
-  // Handle database selection change for current tab
-  const handleDatabaseChange = (connectionId: string) => {
-    if (!activeTab || !connectionId) return;
+  // Helper functions for tab-specific loading states
+  const setActiveTabRunLoading = (loading: boolean) => {
+    updateActiveTab({ isRunLoading: loading });
+  };
 
-    const selectedConnection = connections.find(
-      conn => conn.id === connectionId
-    );
-    if (selectedConnection) {
-      updateActiveTab({
-        connectionId: selectedConnection.id,
-        connectionName: selectedConnection.name,
-        connectionType: selectedConnection.type,
-        // Clear results when changing database
-        result: undefined,
-        results: undefined,
-        status: "idle",
-      });
-    }
+  const setActiveTabExplainLoading = (loading: boolean) => {
+    updateActiveTab({ isExplainLoading: loading });
   };
 
   // Function to format XML execution plan in a new tab
@@ -2178,11 +2803,196 @@ export default function WorkArea() {
           );
           break;
         }
+        case "new-query":
+          createNewTab();
+          break;
       }
     };
     window.electronAPI?.onMenuAction(handler);
     return () => window.electronAPI?.removeAllListeners?.("menu-action");
-  }, [activeTab]);
+  }, [activeTab, createNewTab]);
+
+  // Listen for toolbar actions
+  useEffect(() => {
+    const handleToolbarAction = (event: CustomEvent) => {
+      const { action } = event.detail;
+
+      switch (action) {
+        case "new-query":
+          createNewTab();
+          break;
+        case "save-query":
+          if (activeTab) {
+            const link = document.createElement("a");
+            const blob = new Blob([activeTab.sql], { type: "text/plain" });
+            link.href = URL.createObjectURL(blob);
+            link.download = `${activeTab.title || "query"}.sql`;
+            link.click();
+          }
+          break;
+        case "open-query": {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = ".sql";
+          input.onchange = e => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = e => {
+                const content = e.target?.result as string;
+                if (activeTab) {
+                  updateActiveTab({
+                    sql: content,
+                    title: file.name.replace(".sql", ""),
+                  });
+                } else {
+                  // Create new tab if no active tab
+                  const id = Date.now().toString();
+                  const newTab = {
+                    id,
+                    type: "sql" as const,
+                    title: file.name.replace(".sql", ""),
+                    sql: content,
+                    activeResultTab: "results" as const,
+                  };
+                  setTabs(prev => [...prev, newTab]);
+                  setActiveTabId(id);
+                }
+              };
+              reader.readAsText(file);
+            }
+          };
+          input.click();
+          break;
+        }
+        case "run-query":
+          if (activeTab?.connectionId) {
+            runQuery();
+          }
+          break;
+        case "explain-query":
+          if (activeTab?.connectionId) {
+            explainQuery();
+          }
+          break;
+        case "format-query":
+          if (activeTab) {
+            formatSql();
+          }
+          break;
+        case "copy-query":
+          if (activeTab) {
+            navigator.clipboard.writeText(activeTab.sql);
+          }
+          break;
+        case "clear-query":
+          if (activeTab) {
+            updateActiveTab({ sql: "" });
+          }
+          break;
+        case "cut-text":
+          if (monacoEditorRef.current) {
+            const editor = monacoEditorRef.current;
+            const selection = editor.getSelection();
+            if (selection && !selection.isEmpty()) {
+              const selectedText =
+                editor.getModel()?.getValueInRange(selection) || "";
+              navigator.clipboard.writeText(selectedText);
+              editor.executeEdits("cut", [{ range: selection, text: "" }]);
+            }
+          }
+          break;
+        case "copy-text":
+          if (monacoEditorRef.current) {
+            const editor = monacoEditorRef.current;
+            const selection = editor.getSelection();
+            if (selection && !selection.isEmpty()) {
+              const selectedText =
+                editor.getModel()?.getValueInRange(selection) || "";
+              navigator.clipboard.writeText(selectedText);
+            }
+          }
+          break;
+        case "paste-text":
+          if (monacoEditorRef.current) {
+            const editor = monacoEditorRef.current;
+            navigator.clipboard.readText().then(text => {
+              const selection = editor.getSelection();
+              if (selection) {
+                editor.executeEdits("paste", [
+                  { range: selection, text: text },
+                ]);
+              }
+            });
+          }
+          break;
+      }
+    };
+
+    document.addEventListener(
+      "toolbar-action",
+      handleToolbarAction as EventListener
+    );
+    return () => {
+      document.removeEventListener(
+        "toolbar-action",
+        handleToolbarAction as EventListener
+      );
+    };
+  }, [
+    activeTab,
+    createNewTab,
+    runQuery,
+    explainQuery,
+    formatSql,
+    updateActiveTab,
+    setTabs,
+    setActiveTabId,
+  ]);
+
+  // Monitor tab state and broadcast changes for toolbar buttons
+  useEffect(() => {
+    if (!monacoEditorRef.current) return;
+
+    const editor = monacoEditorRef.current;
+    const updateTabState = () => {
+      const hasContent = activeTab?.sql?.trim() !== "";
+      const hasConnection = !!activeTab?.connectionId;
+      const selection = editor.getSelection();
+      const hasSelection = selection && !selection.isEmpty();
+      const isRunning =
+        activeTab?.status === "running" || activeTab?.isRunLoading || false;
+      const isFormatting = _isFormatLoading || false;
+
+      document.dispatchEvent(
+        new CustomEvent("tab-state-changed", {
+          detail: {
+            hasContent,
+            hasConnection,
+            hasSelection,
+            isRunning,
+            isFormatting,
+          },
+        })
+      );
+    };
+
+    // Initial state
+    updateTabState();
+
+    // Listen for selection changes
+    const disposable = editor.onDidChangeCursorSelection(updateTabState);
+
+    return () => {
+      disposable.dispose();
+    };
+  }, [
+    activeTab?.sql,
+    activeTab?.connectionId,
+    activeTab?.status,
+    activeTab?.isRunLoading,
+    _isFormatLoading,
+  ]);
 
   // Broadcast workspace context to AI when sharing is enabled
   useEffect(() => {
@@ -2195,10 +3005,12 @@ export default function WorkArea() {
       return;
     }
 
-    // Get current query and results
+    // Get current query and results for ONLY the active tab
     const currentResult = getCurrentResult(activeTab);
     const context = {
       enabled: true,
+      tabTitle: activeTab.title || null, // Include tab title for context
+      tabId: activeTab.id || null, // Include tab ID for reference
       query: activeTab.sql?.trim() || null,
       results: currentResult
         ? {
@@ -2228,6 +3040,30 @@ export default function WorkArea() {
     activeTab?.results,
     activeResultIndex,
   ]);
+
+  // Listen for clear workspace context events (e.g., from new chat)
+  useEffect(() => {
+    const handleClearWorkspaceContext = () => {
+      console.log("🔄 Clearing workspace context for new chat");
+      // Broadcast cleared context
+      const event = new CustomEvent("workspace-context-change", {
+        detail: { enabled: false, context: null },
+      });
+      document.dispatchEvent(event);
+    };
+
+    document.addEventListener(
+      "clear-workspace-context",
+      handleClearWorkspaceContext
+    );
+
+    return () => {
+      document.removeEventListener(
+        "clear-workspace-context",
+        handleClearWorkspaceContext
+      );
+    };
+  }, []);
 
   // Listen for new tab creation events from main process
   useEffect(() => {
@@ -2466,7 +3302,7 @@ export default function WorkArea() {
         {tabs.length > 0 && (
           <div className="relative">
             <button
-              className="h-8 px-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent border-l border-border flex items-center gap-1"
+              className="h-8 px-2 text-sm text-muted-foreground hover:text-foreground hover:bg-accent border-l border-border flex items-center gap-1 cursor-pointer"
               onClick={e => {
                 e.stopPropagation();
                 setShowTabDropdown(!showTabDropdown);
@@ -2479,7 +3315,7 @@ export default function WorkArea() {
 
             {/* Tab Dropdown Menu */}
             {showTabDropdown && (
-              <div className="absolute right-0 top-full mt-1 bg-background border border-border rounded-lg shadow-lg z-50 min-w-[200px] max-h-[300px] overflow-y-auto">
+              <div className="absolute right-0 top-full mt-1 bg-white dark:bg-gray-800 border border-border rounded-lg shadow-lg z-50 min-w-[200px] max-h-[300px] overflow-y-auto backdrop-blur-sm">
                 <div className="py-1">
                   {tabs.map((tab, index) => (
                     <button
@@ -2512,85 +3348,6 @@ export default function WorkArea() {
           </div>
         )}
       </div>
-
-      {/* Toolbar (only when a tab is active and not edit-data or content-viewer) */}
-      {activeTab &&
-        activeTab.type !== "edit-data" &&
-        activeTab.type !== "content-viewer" && (
-          <div className="border-b border-border px-4 py-3 bg-muted flex-shrink-0 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <button
-                onClick={runQuery}
-                disabled={!activeTab?.connectionId || isRunLoading}
-                className="h-8 px-3 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isRunLoading && (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                )}
-                Run
-              </button>
-              <button
-                onClick={explainQuery}
-                disabled={!activeTab?.connectionId || isExplainLoading}
-                className="h-8 px-3 bg-green-600 text-white rounded text-sm hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isExplainLoading && (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                )}
-                Explain
-              </button>
-              <button
-                onClick={formatSql}
-                disabled={isFormatLoading}
-                className="h-8 px-3 bg-amber-600 text-white rounded text-sm hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {isFormatLoading && (
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                )}
-                Format
-              </button>
-
-              {/* AI Context Sharing Toggle */}
-              <div className="flex items-center gap-2 ml-2 pl-2 border-l border-border">
-                <label
-                  htmlFor="ai-context-toggle"
-                  className="flex items-center gap-2 cursor-pointer text-xs text-muted-foreground hover:text-foreground"
-                  title={
-                    shareContextWithAI
-                      ? "Query and results are shared with AI Assistant"
-                      : "Click to share query and results with AI Assistant"
-                  }
-                >
-                  <input
-                    id="ai-context-toggle"
-                    type="checkbox"
-                    checked={shareContextWithAI}
-                    onChange={e => setShareContextWithAI(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 bg-background border-border rounded focus:ring-blue-500 focus:ring-2"
-                  />
-                  <span className="whitespace-nowrap">🤖 Share with AI</span>
-                </label>
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <label className="text-xs text-muted-foreground whitespace-nowrap">
-                Database:
-              </label>
-              <select
-                value={activeTab?.connectionId || ""}
-                onChange={e => handleDatabaseChange(e.target.value)}
-                className="px-2 py-1 text-xs border border-border rounded bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500 max-w-xs"
-              >
-                <option value="">Select Database...</option>
-                {connections.map(conn => (
-                  <option key={conn.id} value={conn.id}>
-                    {conn.name} ({conn.type})
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
 
       {/* Editor + Results / EditableDataGrid */}
       {activeTab ? (
@@ -2651,7 +3408,7 @@ export default function WorkArea() {
                         navigator.clipboard.writeText(contentToCopy);
                       }
                     }}
-                    className="px-2 py-1 bg-muted text-foreground rounded hover:bg-accent transition-colors"
+                    className="px-2 py-1 bg-muted text-foreground rounded hover:bg-accent transition-colors cursor-pointer"
                     title="Copy to clipboard"
                   >
                     📋 Copy
@@ -2662,7 +3419,7 @@ export default function WorkArea() {
                         showFormatted: !activeTab.showFormatted,
                       });
                     }}
-                    className="px-2 py-1 bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors"
+                    className="px-2 py-1 bg-primary/10 text-primary rounded hover:bg-primary/20 transition-colors cursor-pointer"
                     title={
                       activeTab.showFormatted
                         ? "Show raw content"
@@ -2758,123 +3515,274 @@ export default function WorkArea() {
                   }
                   style={resultsVisible ? { height: sqlHeight } : undefined}
                 >
-                  <div className="h-full border border-border rounded bg-background overflow-hidden min-w-0">
-                    <Editor
-                      height="100%"
-                      defaultLanguage="sql"
-                      value={activeTab.sql}
-                      onChange={v => updateActiveTab({ sql: v || "" })}
-                      options={{
-                        minimap: { enabled: false },
-                        fontSize: 13,
-                        wordWrap: "on",
-                      }}
-                      theme={
-                        theme === "dark"
-                          ? "sql-custom-dark"
-                          : "sql-custom-light"
-                      }
-                      onMount={(editor, monaco) => {
-                        // Store editor and monaco references for highlighting
-                        monacoEditorRef.current = editor;
-                        monacoRef.current = monaco;
+                  <div className="h-full border border-border rounded bg-background overflow-hidden min-w-0 flex flex-col">
+                    {/* Tab-specific toolbar */}
+                    <div className="flex items-center gap-1 px-3 py-2 bg-muted/50 border-b border-border">
+                      {/* Run Query Button */}
+                      <button
+                        onClick={runQuery}
+                        disabled={
+                          activeTab.isRunLoading || !activeTab.connectionId
+                        }
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                          activeTab.isRunLoading || !activeTab.connectionId
+                            ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
+                            : "bg-transparent hover:bg-accent text-foreground border-transparent hover:border-border hover:shadow-sm cursor-pointer"
+                        }`}
+                        title="Run Query (Ctrl+Enter or F5)"
+                      >
+                        <Play
+                          className={`w-4 h-4 ${
+                            !(activeTab.isRunLoading || !activeTab.connectionId)
+                              ? "text-green-600"
+                              : ""
+                          }`}
+                        />
+                        {activeTab.isRunLoading ? "Running..." : "Run"}
+                      </button>
 
-                        // Define simplified SQL syntax highlighting themes - following style3.txt
-                        monaco.editor.defineTheme("sql-custom-light", {
-                          base: "vs",
-                          inherit: true,
-                          rules: [
-                            { token: "keyword.sql", foreground: "2563EB" }, // Keywords - blue
-                            { token: "string.sql", foreground: "059669" }, // Strings - green
-                            {
-                              token: "comment.sql",
-                              foreground: "6B7280",
-                              fontStyle: "italic",
-                            }, // Comments - gray
-                          ],
-                          colors: {
-                            "editor.background": "#FFFFFF",
-                            "editor.foreground": "#000000", // Pure black for light mode
-                            "editorLineNumber.foreground": "#6B7280",
-                            "editor.selectionBackground": "#DBEAFE",
-                            "editor.lineHighlightBackground": "#F8FAFC",
-                          },
-                        });
+                      {/* Explain Query Button */}
+                      <button
+                        onClick={explainQuery}
+                        disabled={
+                          activeTab.isExplainLoading || !activeTab.connectionId
+                        }
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                          activeTab.isExplainLoading || !activeTab.connectionId
+                            ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
+                            : "bg-transparent hover:bg-accent text-foreground border-transparent hover:border-border hover:shadow-sm cursor-pointer"
+                        }`}
+                        title="Explain Query (Ctrl+Shift+Enter)"
+                      >
+                        {activeTab.isExplainLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <HelpCircle
+                            className={`w-4 h-4 ${
+                              !(
+                                activeTab.isExplainLoading ||
+                                !activeTab.connectionId
+                              )
+                                ? "text-orange-600"
+                                : ""
+                            }`}
+                          />
+                        )}
+                        {activeTab.isExplainLoading
+                          ? "Explaining..."
+                          : "Explain"}
+                      </button>
 
-                        monaco.editor.defineTheme("sql-custom-dark", {
-                          base: "vs-dark",
-                          inherit: true,
-                          rules: [
-                            { token: "keyword.sql", foreground: "60A5FA" }, // Keywords - blue
-                            { token: "string.sql", foreground: "10B981" }, // Strings - green
-                            {
-                              token: "comment.sql",
-                              foreground: "9CA3AF",
-                              fontStyle: "italic",
-                            }, // Comments - gray
-                          ],
-                          colors: {
-                            "editor.background": "#1F2937",
-                            "editor.foreground": "#FFFFFF", // Pure white for dark mode
-                            "editorLineNumber.foreground": "#9CA3AF",
-                            "editor.selectionBackground": "#243B66",
-                            "editor.lineHighlightBackground": "#374151",
-                          },
-                        });
+                      {/* Format SQL Button */}
+                      <button
+                        onClick={formatSql}
+                        disabled={_isFormatLoading || !activeTab.sql?.trim()}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                          _isFormatLoading || !activeTab.sql?.trim()
+                            ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
+                            : "bg-transparent hover:bg-accent text-foreground border-transparent hover:border-border hover:shadow-sm cursor-pointer"
+                        }`}
+                        title="Format SQL"
+                      >
+                        <AlignLeft className="text-pink-600 w-4 h-4" />
+                        {_isFormatLoading ? "Formatting..." : "Format"}
+                      </button>
 
-                        editor.addCommand(
-                          monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
-                          () => {
-                            if (!isRunLoading) {
+                      {/* Analyze Query with AI Button */}
+                      <button
+                        onClick={analyzeQueryWithAI}
+                        disabled={
+                          activeTab.isAnalyzeLoading ||
+                          !activeTab.sql?.trim() ||
+                          !aiEnginesLoaded
+                        }
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                          activeTab.isAnalyzeLoading ||
+                          !activeTab.sql?.trim() ||
+                          !aiEnginesLoaded
+                            ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
+                            : "bg-transparent hover:bg-accent text-foreground border-transparent hover:border-border hover:shadow-sm cursor-pointer"
+                        }`}
+                        title="Analyze Query with AI"
+                      >
+                        {activeTab.isAnalyzeLoading ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <ArrowRight
+                            className={`w-4 h-4 ${
+                              !(
+                                activeTab.isAnalyzeLoading ||
+                                !activeTab.sql?.trim() ||
+                                !aiEnginesLoaded
+                              )
+                                ? "text-blue-600"
+                                : ""
+                            }`}
+                          />
+                        )}
+                        {activeTab.isAnalyzeLoading
+                          ? "Analyzing..."
+                          : "Analyse with AI"}
+                      </button>
+
+                      {/* Database Selection Dropdown */}
+                      <div className="flex items-center gap-2 ml-4">
+                        <Database className="w-4 h-4 text-muted-foreground" />
+                        <select
+                          value={activeTab.connectionId || ""}
+                          onChange={e => {
+                            const connectionId = e.target.value;
+                            if (connectionId) {
+                              const selectedConnection = connections.find(
+                                conn => conn.id === connectionId
+                              );
+                              if (selectedConnection) {
+                                updateActiveTab({
+                                  connectionId: selectedConnection.id,
+                                  connectionName: selectedConnection.name,
+                                  connectionType: selectedConnection.type,
+                                  // Clear results when changing database
+                                  result: undefined,
+                                  results: undefined,
+                                  status: "idle",
+                                });
+                              }
+                            }
+                          }}
+                          className="px-2 py-1 text-sm bg-transparent border border-border rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-blue-500/50"
+                          title="Select Database Connection"
+                        >
+                          <option value="" disabled>
+                            Select database...
+                          </option>
+                          {connections.map(conn => (
+                            <option key={conn.id} value={conn.id}>
+                              {conn.name} ({conn.type})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* SQL Editor */}
+                    <div className="flex-1 min-h-0">
+                      <Editor
+                        height="100%"
+                        defaultLanguage="sql"
+                        value={activeTab.sql}
+                        onChange={v => updateActiveTab({ sql: v || "" })}
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: 13,
+                          wordWrap: "on",
+                        }}
+                        theme={
+                          theme === "dark"
+                            ? "sql-custom-dark"
+                            : "sql-custom-light"
+                        }
+                        onMount={(editor, monaco) => {
+                          // Store editor and monaco references for highlighting
+                          monacoEditorRef.current = editor;
+                          monacoRef.current = monaco;
+
+                          // Define simplified SQL syntax highlighting themes - following style3.txt
+                          monaco.editor.defineTheme("sql-custom-light", {
+                            base: "vs",
+                            inherit: true,
+                            rules: [
+                              { token: "keyword.sql", foreground: "2563EB" }, // Keywords - blue
+                              { token: "string.sql", foreground: "059669" }, // Strings - green
+                              {
+                                token: "comment.sql",
+                                foreground: "6B7280",
+                                fontStyle: "italic",
+                              }, // Comments - gray
+                            ],
+                            colors: {
+                              "editor.background": "#FFFFFF",
+                              "editor.foreground": "#000000", // Pure black for light mode
+                              "editorLineNumber.foreground": "#6B7280",
+                              "editor.selectionBackground": "#DBEAFE",
+                              "editor.lineHighlightBackground": "#F8FAFC",
+                            },
+                          });
+
+                          monaco.editor.defineTheme("sql-custom-dark", {
+                            base: "vs-dark",
+                            inherit: true,
+                            rules: [
+                              { token: "keyword.sql", foreground: "60A5FA" }, // Keywords - blue
+                              { token: "string.sql", foreground: "10B981" }, // Strings - green
+                              {
+                                token: "comment.sql",
+                                foreground: "9CA3AF",
+                                fontStyle: "italic",
+                              }, // Comments - gray
+                            ],
+                            colors: {
+                              "editor.background": "#1F2937",
+                              "editor.foreground": "#FFFFFF", // Pure white for dark mode
+                              "editorLineNumber.foreground": "#9CA3AF",
+                              "editor.selectionBackground": "#243B66",
+                              "editor.lineHighlightBackground": "#374151",
+                            },
+                          });
+
+                          editor.addCommand(
+                            monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
+                            () => {
+                              if (!activeTab.isRunLoading) {
+                                runQuery();
+                              }
+                            }
+                          );
+                          editor.addCommand(
+                            monaco.KeyMod.CtrlCmd |
+                              monaco.KeyMod.Shift |
+                              monaco.KeyCode.Enter,
+                            () => {
+                              if (!activeTab.isExplainLoading) {
+                                explainQuery();
+                              }
+                            }
+                          );
+                          // F5 to run query inside editor
+                          editor.addCommand(monaco.KeyCode.F5, () => {
+                            if (!activeTab.isRunLoading) {
                               runQuery();
                             }
-                          }
-                        );
-                        editor.addCommand(
-                          monaco.KeyMod.CtrlCmd |
-                            monaco.KeyMod.Shift |
-                            monaco.KeyCode.Enter,
-                          () => {
-                            if (!isExplainLoading) {
-                              explainQuery();
-                            }
-                          }
-                        );
-                        // F5 to run query inside editor
-                        editor.addCommand(monaco.KeyCode.F5, () => {
-                          if (!isRunLoading) {
-                            runQuery();
-                          }
-                        });
-                        editor.addCommand(
-                          monaco.KeyMod.CtrlCmd |
-                            monaco.KeyMod.Shift |
-                            monaco.KeyCode.KeyF,
-                          () => formatSql()
-                        );
+                          });
+                          editor.addCommand(
+                            monaco.KeyMod.CtrlCmd |
+                              monaco.KeyMod.Shift |
+                              monaco.KeyCode.KeyF,
+                            () => formatSql()
+                          );
 
-                        const updatePos = () => {
-                          const pos = editor.getPosition();
-                          if (pos)
-                            updateActiveTab({
-                              editorPos: {
-                                line: pos.lineNumber,
-                                column: pos.column,
-                              },
-                            });
-                        };
-                        updatePos();
-                        editor.onDidChangeCursorPosition(() => updatePos());
-                        editor.onDidFocusEditorText(() => {
-                          updateActiveTab({ editorFocused: true });
-                          // Clear query highlighting when user clicks in editor
-                          clearQueryHighlighting();
-                        });
-                        editor.onDidBlurEditorText(() =>
-                          updateActiveTab({ editorFocused: false })
-                        );
-                      }}
-                    />
+                          const updatePos = () => {
+                            const pos = editor.getPosition();
+                            if (pos)
+                              updateActiveTab({
+                                editorPos: {
+                                  line: pos.lineNumber,
+                                  column: pos.column,
+                                },
+                              });
+                          };
+                          updatePos();
+                          editor.onDidChangeCursorPosition(() => updatePos());
+                          editor.onDidFocusEditorText(() => {
+                            updateActiveTab({ editorFocused: true });
+                            // Clear query highlighting when user clicks in editor
+                            clearQueryHighlighting();
+                          });
+                          editor.onDidBlurEditorText(() =>
+                            updateActiveTab({ editorFocused: false })
+                          );
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               );
@@ -2898,7 +3806,7 @@ export default function WorkArea() {
                   <div className="flex items-center justify-between border-b border-gray-200 dark:border-gray-700 px-3 py-2 text-sm">
                     <div className="flex items-center gap-1">
                       <button
-                        className={`h-8 px-2.5 rounded font-medium ${
+                        className={`h-8 px-2.5 rounded font-medium cursor-pointer ${
                           (activeTab.activeResultTab ?? "results") === "results"
                             ? "bg-accent text-accent-foreground"
                             : "text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -2910,7 +3818,7 @@ export default function WorkArea() {
                         Results
                       </button>
                       <button
-                        className={`h-8 px-2.5 rounded font-medium ${
+                        className={`h-8 px-2.5 rounded font-medium cursor-pointer ${
                           (activeTab.activeResultTab ?? "results") ===
                           "messages"
                             ? "bg-accent text-accent-foreground"
@@ -2926,7 +3834,7 @@ export default function WorkArea() {
                     <div className="flex items-center gap-2">
                       {sortFields.length > 0 && (
                         <button
-                          className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium transition-colors duration-150 shadow-sm text-xs"
+                          className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium transition-colors duration-150 shadow-sm text-xs cursor-pointer"
                           onClick={() => setShowSortManager(true)}
                           title={`Manage ${sortFields.length} sort field${sortFields.length > 1 ? "s" : ""}`}
                         >
@@ -2934,14 +3842,14 @@ export default function WorkArea() {
                         </button>
                       )}
                       <button
-                        className="px-3 py-1.5 bg-muted text-foreground rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors duration-150 shadow-sm"
+                        className="px-3 py-1.5 bg-muted text-foreground rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors duration-150 shadow-sm cursor-pointer"
                         onClick={autoFitColumns}
                         disabled={!activeTab?.result?.columns?.length}
                       >
                         Auto-fit
                       </button>
                       <button
-                        className="px-3 py-1.5 bg-muted text-foreground rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors duration-150 shadow-sm"
+                        className="px-3 py-1.5 bg-muted text-foreground rounded-md hover:bg-accent disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors duration-150 shadow-sm cursor-pointer"
                         onClick={resetColumnWidths}
                         disabled={!activeTab?.result?.columns?.length}
                       >
@@ -2982,8 +3890,78 @@ export default function WorkArea() {
                             {/* Show ExecutionPlanViewer if we have XML plan data */}
                             {hasXmlPlan && currentResult.xmlExecutionPlan && (
                               <div>
-                                <div className="text-sm text-green-600 mb-2">
-                                  🌳 SQL Server Execution Plan
+                                <div className="flex items-center justify-between mb-2">
+                                  <div className="text-sm text-green-600">
+                                    🌳 SQL Server Execution Plan
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      console.log(
+                                        "🔍 Execution Plan Analysis Debug:",
+                                        {
+                                          activeTabSql: activeTab.sql,
+                                          currentResultQuery:
+                                            currentResult.query,
+                                          hasXmlPlan:
+                                            !!currentResult.xmlExecutionPlan,
+                                          xmlPlanLength:
+                                            currentResult.xmlExecutionPlan
+                                              ?.length,
+                                          xmlPlanPreview:
+                                            currentResult.xmlExecutionPlan?.substring(
+                                              0,
+                                              100
+                                            ),
+                                          messagesLength:
+                                            currentResult.messages?.length,
+                                          connectionType:
+                                            activeTab.connectionType,
+                                          executionTime:
+                                            currentResult.executionTime,
+                                        }
+                                      );
+
+                                      analyzeExecutionPlanWithAI({
+                                        query:
+                                          activeTab.sql || currentResult.query,
+                                        xmlPlan: currentResult.xmlExecutionPlan,
+                                        textPlan: currentResult.messages || [],
+                                        connectionType:
+                                          activeTab.connectionType || "unknown",
+                                        executionTime:
+                                          currentResult.executionTime,
+                                      });
+                                    }}
+                                    disabled={
+                                      activeTab.isAnalyzeLoading ||
+                                      !aiEnginesLoaded
+                                    }
+                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-all duration-200 border ${
+                                      activeTab.isAnalyzeLoading ||
+                                      !aiEnginesLoaded
+                                        ? "opacity-40 cursor-not-allowed bg-muted/30 text-muted-foreground border-muted"
+                                        : "bg-transparent hover:bg-accent text-foreground border-border hover:border-border hover:shadow-sm cursor-pointer"
+                                    }`}
+                                    title="Analyze Execution Plan with AI"
+                                  >
+                                    {activeTab.isAnalyzeLoading ? (
+                                      <Loader2 className="w-4 h-4 animate-spin" />
+                                    ) : (
+                                      <ArrowRight
+                                        className={`w-4 h-4 ${
+                                          !(
+                                            activeTab.isAnalyzeLoading ||
+                                            !aiEnginesLoaded
+                                          )
+                                            ? "text-blue-600"
+                                            : ""
+                                        }`}
+                                      />
+                                    )}
+                                    {activeTab.isAnalyzeLoading
+                                      ? "Analyzing..."
+                                      : "Analyse with AI"}
+                                  </button>
                                 </div>
                                 <ExecutionPlanViewer
                                   xmlContent={currentResult.xmlExecutionPlan}
@@ -3449,14 +4427,9 @@ export default function WorkArea() {
                   {/* Tab Context Menu */}
                   {tabContextMenu.show && (
                     <div
-                      className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-[hsl(var(--modal))] text-[hsl(var(--modal-foreground))]"
+                      className="fixed z-50 border border-border rounded shadow-lg text-xs isolate mix-blend-normal overflow-hidden bg-white dark:bg-gray-800 text-foreground"
                       style={{ left: tabContextMenu.x, top: tabContextMenu.y }}
-                      onMouseLeave={() =>
-                        setTabContextMenu(prev => ({ ...prev, show: false }))
-                      }
-                      onClick={() =>
-                        setTabContextMenu(prev => ({ ...prev, show: false }))
-                      }
+                      onClick={e => e.stopPropagation()}
                     >
                       <MenuItem
                         label="Close Tab"
@@ -3464,6 +4437,7 @@ export default function WorkArea() {
                           if (tabContextMenu.tabId) {
                             closeTab(tabContextMenu.tabId);
                           }
+                          setTabContextMenu(prev => ({ ...prev, show: false }));
                         }}
                       />
                       <MenuItem
@@ -3472,12 +4446,16 @@ export default function WorkArea() {
                           if (tabContextMenu.tabId) {
                             closeOtherTabs(tabContextMenu.tabId);
                           }
+                          setTabContextMenu(prev => ({ ...prev, show: false }));
                         }}
                         disabled={tabs.length <= 1}
                       />
                       <MenuItem
                         label="Close All Tabs"
-                        onClick={closeAllTabs}
+                        onClick={() => {
+                          closeAllTabs();
+                          setTabContextMenu(prev => ({ ...prev, show: false }));
+                        }}
                         disabled={tabs.length === 0}
                       />
                     </div>
@@ -3535,7 +4513,7 @@ export default function WorkArea() {
                                         return updated;
                                       });
                                     }}
-                                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                                    className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 cursor-pointer"
                                   >
                                     {field.direction.toUpperCase()}
                                   </button>
@@ -3543,7 +4521,7 @@ export default function WorkArea() {
                                     onClick={() =>
                                       removeSortField(field.column)
                                     }
-                                    className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700"
+                                    className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 cursor-pointer"
                                   >
                                     ×
                                   </button>
@@ -3557,19 +4535,19 @@ export default function WorkArea() {
                           <button
                             onClick={applyMultiSort}
                             disabled={sortFields.length === 0}
-                            className="flex-1 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className={`flex-1 px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 ${sortFields.length === 0 ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                           >
                             Apply Sort ({sortFields.length} fields)
                           </button>
                           <button
                             onClick={clearAllSorts}
-                            className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+                            className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700 cursor-pointer"
                           >
                             Clear All
                           </button>
                           <button
                             onClick={() => setShowSortManager(false)}
-                            className="px-3 py-1 text-sm border border-border rounded hover:bg-gray-100 dark:hover:bg-gray-600"
+                            className="px-3 py-1 text-sm border border-border rounded hover:bg-gray-100 dark:hover:bg-gray-600 cursor-pointer"
                           >
                             Close
                           </button>

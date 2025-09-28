@@ -752,6 +752,19 @@ export default function Explorer() {
   };
 
   const handleDeleteConnection = async (id: string) => {
+    // Find connection name for confirmation dialog
+    const connection = connections.find(conn => conn.id === id);
+    const connectionName = connection?.name || "this connection";
+
+    // Show confirmation dialog
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${connectionName}"?\n\nThis action cannot be undone.`
+    );
+
+    if (!confirmed) {
+      return; // User cancelled
+    }
+
     try {
       if (!window.electronAPI || !window.electronAPI.connections) {
         throw new Error("ElectronAPI not available");
@@ -1118,10 +1131,7 @@ export default function Explorer() {
             def = `-- To modify this trigger, drop and recreate it\n${def.replace(/^(\s*)CREATE(\s+)TRIGGER/im, `$1DROP TRIGGER ${qualified};\nGO\n\n$1CREATE$2TRIGGER`)}`;
           } else if (ctx.routineType === "view") {
             // Convert CREATE to ALTER for views
-            def = def.replace(
-              /^(\s*)CREATE(\s+)VIEW/im,
-              "$1ALTER$2VIEW"
-            );
+            def = def.replace(/^(\s*)CREATE(\s+)VIEW/im, "$1ALTER$2VIEW");
           }
           return def;
         }
@@ -1431,7 +1441,12 @@ export default function Explorer() {
       const groupType = node.name;
 
       // Schema-level groups (under Programmability)
-      const schemaLevelGroups = ["Stored Procedures", "Functions", "Types", "Sequences"];
+      const schemaLevelGroups = [
+        "Stored Procedures",
+        "Functions",
+        "Types",
+        "Sequences",
+      ];
       const isSchemaLevel = schemaLevelGroups.includes(groupType);
 
       if (isSchemaLevel && parentSchema) {
@@ -1580,11 +1595,18 @@ export default function Explorer() {
     if (node.type === "group") {
       // Exclude the Programmability parent node
       if (node.name === "Programmability") return false;
-      
+
       // Allow specific sub-groups under programmability and table groups
       const allowedGroups = [
-        "Columns", "Keys", "Constraints", "Triggers", "Indexes", // Table groups
-        "Stored Procedures", "Functions", "Types", "Sequences"    // Schema groups
+        "Columns",
+        "Keys",
+        "Constraints",
+        "Triggers",
+        "Indexes", // Table groups
+        "Stored Procedures",
+        "Functions",
+        "Types",
+        "Sequences", // Schema groups
       ];
       return allowedGroups.includes(node.name);
     }
@@ -1606,18 +1628,22 @@ export default function Explorer() {
     if (node.type === "table") return true;
 
     // Individual schema objects have "Modify" functionality
-    if (node.type === "column" || 
-        node.type === "key" || 
-        node.type === "constraint" || 
-        node.type === "trigger" || 
-        node.type === "index") {
+    if (
+      node.type === "column" ||
+      node.type === "key" ||
+      node.type === "constraint" ||
+      node.type === "trigger" ||
+      node.type === "index"
+    ) {
       return true;
     }
 
     // Views, procedures, and functions have "Edit" functionality
-    if (node.type === "view" || 
-        node.type === "procedure" || 
-        node.type === "function") {
+    if (
+      node.type === "view" ||
+      node.type === "procedure" ||
+      node.type === "function"
+    ) {
       return true;
     }
 
@@ -1625,7 +1651,11 @@ export default function Explorer() {
   };
 
   // Handle edit action for editable nodes
-  const handleEditAction = (node: any, connectionId: string, nodeKey: string) => {
+  const handleEditAction = (
+    node: any,
+    connectionId: string,
+    nodeKey: string
+  ) => {
     const conn = connections.find(c => c.id === connectionId);
     if (!conn) return;
 
@@ -1639,42 +1669,48 @@ export default function Explorer() {
         schema: (node as TableNode).schema,
         table: node.name,
       };
-      document.dispatchEvent(
-        new CustomEvent("open-edit-data-tab", { detail })
-      );
+      document.dispatchEvent(new CustomEvent("open-edit-data-tab", { detail }));
       return;
     }
 
     // For schema objects (columns, keys, constraints, triggers, indexes), open modify DDL
-    if (node.type === "column" || 
-        node.type === "key" || 
-        node.type === "constraint" || 
-        node.type === "trigger" || 
-        node.type === "index") {
-      
-      // Extract parent table and schema information 
+    if (
+      node.type === "column" ||
+      node.type === "key" ||
+      node.type === "constraint" ||
+      node.type === "trigger" ||
+      node.type === "index"
+    ) {
+      // Extract parent table and schema information
       // First try the nodeKey format, then search through schema data
       let parentTable = findParentTable(nodeKey);
       let parentSchema = findParentSchema(nodeKey);
       const database = getDatabaseNameForConnection(connectionId);
-      
+
       // If nodeKey doesn't have the full hierarchy, search through expanded schema data
       if (!parentTable || !parentSchema) {
-        const result = findParentTableFromSchemaData(connectionId, node.name, node.type);
+        const result = findParentTableFromSchemaData(
+          connectionId,
+          node.name,
+          node.type
+        );
         if (result) {
           parentTable = result.table;
           parentSchema = result.schema;
         }
       }
-      
+
       if (!parentTable || !parentSchema) {
-        console.error("Could not find parent table or schema for node:", nodeKey);
+        console.error(
+          "Could not find parent table or schema for node:",
+          nodeKey
+        );
         return;
       }
-      
+
       let sql = "";
       let title = "";
-      
+
       switch (node.type) {
         case "column":
           sql = generateColumnDDL(
@@ -1688,7 +1724,7 @@ export default function Explorer() {
           break;
         case "key":
           sql = generateKeyDDL(
-            conn.type || "sqlserver", 
+            conn.type || "sqlserver",
             "update",
             parentTable,
             parentSchema,
@@ -1699,7 +1735,7 @@ export default function Explorer() {
         case "constraint":
           sql = generateConstraintDDL(
             conn.type || "sqlserver",
-            "update", 
+            "update",
             parentTable,
             parentSchema,
             node
@@ -1721,7 +1757,7 @@ export default function Explorer() {
             conn.type || "sqlserver",
             "update",
             parentTable,
-            parentSchema, 
+            parentSchema,
             node
           );
           title = `${database}.modify_index`;
@@ -1742,10 +1778,14 @@ export default function Explorer() {
     }
 
     // For views, procedures, and functions, fetch definition and open script tab
-    if (node.type === "view" || node.type === "procedure" || node.type === "function") {
+    if (
+      node.type === "view" ||
+      node.type === "procedure" ||
+      node.type === "function"
+    ) {
       const routineNode = node as ViewNode | ProcedureNode | FunctionNode;
       const database = getDatabaseNameForConnection(connectionId);
-      
+
       const contextData = {
         connId: connectionId,
         schema: routineNode.schema,
@@ -1756,14 +1796,16 @@ export default function Explorer() {
         db: database,
       };
 
-      fetchRoutineDefinition(contextData).then(definition => {
-        if (definition) {
-          const title = `Edit ${node.type}: ${routineNode.schema}.${routineNode.name}`;
-          openScriptTab(contextData, title, definition);
-        }
-      }).catch(error => {
-        console.error("Failed to fetch routine definition:", error);
-      });
+      fetchRoutineDefinition(contextData)
+        .then(definition => {
+          if (definition) {
+            const title = `Edit ${node.type}: ${routineNode.schema}.${routineNode.name}`;
+            openScriptTab(contextData, title, definition);
+          }
+        })
+        .catch(error => {
+          console.error("Failed to fetch routine definition:", error);
+        });
     }
   };
 
@@ -1824,36 +1866,36 @@ export default function Explorer() {
           node.name === "Triggers" ||
           node.name === "Indexes"));
 
-
-
     const getIcon = () => {
       // Following style3.txt: Icons carry the semantic meaning and color
       const isDarkMode =
         document.documentElement.classList.contains("dark") ||
         window.matchMedia("(prefers-color-scheme: dark)").matches;
-      
+
       const isSelected = activeNodeKey === nodeKey;
-      
+
       // Get semantic colors for different node types
       const getIconColor = () => {
         const baseColors = {
           database: isDarkMode ? "#60A5FA" : "#1D4ED8", // Blue - stronger contrast when selected
           schema: isDarkMode ? "#9CA3AF" : "#374151", // Gray
           table: isDarkMode ? "#F59E0B" : "#B45309", // Orange/Amber - darker in light mode
-          view: isDarkMode ? "#10B981" : "#047857", // Green - darker in light mode  
+          view: isDarkMode ? "#10B981" : "#047857", // Green - darker in light mode
           procedure: isDarkMode ? "#8B5CF6" : "#6D28D9", // Purple - darker in light mode
           function: isDarkMode ? "#F97316" : "#C2410C", // Orange - darker in light mode
           group: isDarkMode ? "#06B6D4" : "#0E7490", // Cyan - darker in light mode
           column: isDarkMode ? "#84CC16" : "#65A30D", // Lime - darker in light mode
         };
-        
-        const color = baseColors[node.type as keyof typeof baseColors] || (isDarkMode ? "#9CA3AF" : "#6B7280");
-        
+
+        const color =
+          baseColors[node.type as keyof typeof baseColors] ||
+          (isDarkMode ? "#9CA3AF" : "#6B7280");
+
         // For selected nodes, make icons more prominent
         if (isSelected) {
           return isDarkMode ? "#FFFFFF" : "#000000"; // High contrast for selected
         }
-        
+
         return color;
       };
 
@@ -2027,7 +2069,11 @@ export default function Explorer() {
           db: getDatabaseNameForConnection(connectionId),
           nodeKey,
         });
-      } else if (node.type === "view" || node.type === "procedure" || node.type === "function") {
+      } else if (
+        node.type === "view" ||
+        node.type === "procedure" ||
+        node.type === "function"
+      ) {
         setContextMenu({
           x: e.clientX,
           y: e.clientY,
@@ -2072,7 +2118,12 @@ export default function Explorer() {
         const parentSchema = findParentSchema(nodeKey);
 
         // Schema-level groups (under Programmability)
-        const schemaLevelGroups = ["Stored Procedures", "Functions", "Types", "Sequences"];
+        const schemaLevelGroups = [
+          "Stored Procedures",
+          "Functions",
+          "Types",
+          "Sequences",
+        ];
         const isSchemaLevel = schemaLevelGroups.includes(groupNode.name);
 
         if (isSchemaLevel && parentSchema) {
@@ -2185,12 +2236,15 @@ export default function Explorer() {
           )}
           {!hasChildren && <span className="mr-3" />}
           <span className="mr-2">{getIcon()}</span>
-          <span 
+          <span
             className="flex-1 truncate"
-            style={{ 
-              color: activeNodeKey === nodeKey 
-                ? "#ffffff" // White text for selected state (works on blue background)
-                : (document.documentElement.classList.contains("dark") ? "#ffffff" : "#000000") // Theme-based text for normal state
+            style={{
+              color:
+                activeNodeKey === nodeKey
+                  ? "#ffffff" // White text for selected state (works on blue background)
+                  : document.documentElement.classList.contains("dark")
+                    ? "#ffffff"
+                    : "#000000", // Theme-based text for normal state
             }}
             title={getDisplayText()}
           >
@@ -2200,7 +2254,7 @@ export default function Explorer() {
           {/* Plus icon for nodes that have "New" options */}
           {canNodeHaveNewOptions(node) && (
             <button
-              className={`new-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-2 transition-opacity duration-150 ${
+              className={`new-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-2 transition-opacity duration-150 cursor-pointer ${
                 activeNodeKey === nodeKey
                   ? "opacity-100"
                   : "opacity-0 group-hover:opacity-100"
@@ -2220,8 +2274,8 @@ export default function Explorer() {
               <Plus
                 className={`w-3 h-3 ${
                   activeNodeKey === nodeKey
-                    ? "text-gray-800 dark:text-gray-300"
-                    : "text-gray-600 dark:text-gray-400 hover:text-white"
+                    ? "text-blue-600 dark:text-blue-400"
+                    : "text-blue-500 dark:text-blue-400 hover:text-blue-300"
                 }`}
               />
             </button>
@@ -2230,7 +2284,7 @@ export default function Explorer() {
           {/* New Query icon for schema nodes */}
           {canNodeHaveNewQueryOptions(node) && node.type === "schema" && (
             <button
-              className={`new-query-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 ${
+              className={`new-query-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 cursor-pointer ${
                 activeNodeKey === nodeKey
                   ? "opacity-100"
                   : "opacity-0 group-hover:opacity-100"
@@ -2244,8 +2298,8 @@ export default function Explorer() {
               <FileText
                 className={`w-3 h-3 ${
                   activeNodeKey === nodeKey
-                    ? "text-gray-800 dark:text-gray-300"
-                    : "text-gray-600 dark:text-gray-400 hover:text-white"
+                    ? "text-green-600 dark:text-green-400"
+                    : "text-green-500 dark:text-green-400 hover:text-green-300"
                 }`}
               />
             </button>
@@ -2254,7 +2308,7 @@ export default function Explorer() {
           {/* Edit icon for nodes that can be edited */}
           {canNodeBeEdited(node) && (
             <button
-              className={`edit-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 ${
+              className={`edit-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 cursor-pointer ${
                 activeNodeKey === nodeKey
                   ? "opacity-100"
                   : "opacity-0 group-hover:opacity-100"
@@ -2263,13 +2317,15 @@ export default function Explorer() {
                 e.stopPropagation();
                 handleEditAction(node, connectionId, nodeKey);
               }}
-              title={node.type === "table" ? "Edit data" : `Modify ${node.type}`}
+              title={
+                node.type === "table" ? "Edit data" : `Modify ${node.type}`
+              }
             >
               <Pencil
                 className={`w-3 h-3 ${
                   activeNodeKey === nodeKey
-                    ? "text-gray-800 dark:text-gray-300"
-                    : "text-gray-600 dark:text-gray-400 hover:text-white"
+                    ? "text-orange-600 dark:text-orange-400"
+                    : "text-orange-500 dark:text-orange-400 hover:text-orange-300"
                 }`}
               />
             </button>
@@ -2278,7 +2334,7 @@ export default function Explorer() {
           {/* Refresh icon for nodes that can be refreshed - always last */}
           {canNodeBeRefreshed(node) && (
             <button
-              className={`refresh-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 ${
+              className={`refresh-icon p-1 rounded hover:bg-gray-200/80 dark:hover:bg-indigo-800/60 ml-1 transition-opacity duration-150 cursor-pointer ${
                 activeNodeKey === nodeKey
                   ? "opacity-100"
                   : "opacity-0 group-hover:opacity-100"
@@ -2292,8 +2348,8 @@ export default function Explorer() {
               <RefreshCw
                 className={`w-3 h-3 ${
                   activeNodeKey === nodeKey
-                    ? "text-gray-800 dark:text-gray-300"
-                    : "text-gray-600 dark:text-gray-400 hover:text-white"
+                    ? "text-purple-600 dark:text-purple-400"
+                    : "text-purple-500 dark:text-purple-400 hover:text-purple-300"
                 }`}
               />
             </button>
@@ -2454,7 +2510,7 @@ export default function Explorer() {
             {isConnected ? (
               <button
                 onClick={() => handleDisconnect(connection.id)}
-                className="p-1.5 rounded hover:bg-accent text-red-600"
+                className="p-1.5 rounded hover:bg-accent text-red-600 cursor-pointer"
                 title="Disconnect"
                 aria-label="Disconnect"
               >
@@ -2464,7 +2520,7 @@ export default function Explorer() {
               <button
                 onClick={() => handleConnect(connection.id)}
                 disabled={isConnecting}
-                className="p-1.5 rounded hover:bg-accent text-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                className={`p-1.5 rounded hover:bg-accent text-green-600 ${isConnecting ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
                 title="Connect"
                 aria-label="Connect"
               >
@@ -2473,7 +2529,7 @@ export default function Explorer() {
             )}
             <button
               onClick={() => handleEditConnection(connection)}
-              className="p-1.5 rounded hover:bg-accent text-blue-600"
+              className="p-1.5 rounded hover:bg-accent text-blue-600 cursor-pointer"
               title="Edit connection"
               aria-label="Edit connection"
             >
@@ -2481,7 +2537,7 @@ export default function Explorer() {
             </button>
             <button
               onClick={() => handleDeleteConnection(connection.id)}
-              className="p-1.5 rounded hover:bg-accent text-gray-600"
+              className="p-1.5 rounded hover:bg-accent text-red-500 cursor-pointer"
               title="Delete connection"
               aria-label="Delete connection"
             >
@@ -2602,8 +2658,8 @@ export default function Explorer() {
 
   // Search through schema data to find parent table and schema for a metadata item
   const findParentTableFromSchemaData = (
-    connectionId: string, 
-    itemName: string, 
+    connectionId: string,
+    itemName: string,
     itemType: string
   ): { table: string; schema: string } | null => {
     const connState = connectionStates.get(connectionId);
@@ -2623,7 +2679,7 @@ export default function Explorer() {
                     if (item.name === itemName && item.type === itemType) {
                       return {
                         table: table.name,
-                        schema: (table as TableNode).schema
+                        schema: (table as TableNode).schema,
                       };
                     }
                   }
@@ -2887,7 +2943,7 @@ DROP TABLE ${qualifiedDrop};`;
 
     const newProcName = procedureName || "NewStoredProcedure";
     const qualified = `${ident(schemaName)}.${ident(newProcName)}`;
-    
+
     return `-- Create new stored procedure ${qualified}
 CREATE PROCEDURE ${qualified}
     @Parameter1 NVARCHAR(255) = NULL,
@@ -2919,7 +2975,7 @@ END;
 
     const newFuncName = functionName || "NewFunction";
     const qualified = `${ident(schemaName)}.${ident(newFuncName)}`;
-    
+
     return `-- Create new scalar function ${qualified}
 CREATE FUNCTION ${qualified}
 (
@@ -2952,7 +3008,7 @@ END;
 
     const newViewName = viewName || "NewView";
     const qualified = `${ident(schemaName)}.${ident(newViewName)}`;
-    
+
     return `-- Create new view ${qualified}
 CREATE VIEW ${qualified}
 AS
@@ -2980,7 +3036,7 @@ SELECT
 
     const newTypeName = typeName || "NewUserDefinedType";
     const qualified = `${ident(schemaName)}.${ident(newTypeName)}`;
-    
+
     return `-- Create new user-defined table type ${qualified}
 CREATE TYPE ${qualified} AS TABLE
 (
@@ -3011,7 +3067,7 @@ CREATE TYPE ${qualified} AS TABLE
 
     const newSeqName = sequenceName || "NewSequence";
     const qualified = `${ident(schemaName)}.${ident(newSeqName)}`;
-    
+
     return `-- Create new sequence ${qualified}
 CREATE SEQUENCE ${qualified}
     AS BIGINT
@@ -3086,7 +3142,7 @@ CREATE SEQUENCE ${qualified}
           {contextMenu.mode === "table" && (
             <>
               <button
-                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150 cursor-pointer"
                 onClick={async () => {
                   if (!contextMenu.connId) return;
                   // Pass the node data for table refresh
@@ -3189,7 +3245,7 @@ CREATE SEQUENCE ${qualified}
               {/* New submenu for DDL Generation Options */}
               <div className="relative">
                 <button
-                  className="flex items-center justify-between w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
+                  className="flex items-center justify-between w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150 cursor-pointer"
                   onMouseEnter={e => {
                     const rect = e.currentTarget.getBoundingClientRect();
                     setSubmenu({
@@ -3489,13 +3545,24 @@ CREATE SEQUENCE ${qualified}
               <button
                 className="block w-full text-left px-3 py-1 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-blue-900/20 dark:hover:text-blue-300 transition-colors duration-150"
                 onClick={() => {
-                  if (!contextMenu.connId || !contextMenu.schema || !contextMenu.groupType)
+                  if (
+                    !contextMenu.connId ||
+                    !contextMenu.schema ||
+                    !contextMenu.groupType
+                  )
                     return;
 
                   // Schema-level groups (Stored Procedures, Functions, etc.) don't need table
-                  const schemaLevelGroups = ["Stored Procedures", "Functions", "Types", "Sequences"];
-                  const isSchemaLevel = schemaLevelGroups.includes(contextMenu.groupType);
-                  
+                  const schemaLevelGroups = [
+                    "Stored Procedures",
+                    "Functions",
+                    "Types",
+                    "Sequences",
+                  ];
+                  const isSchemaLevel = schemaLevelGroups.includes(
+                    contextMenu.groupType
+                  );
+
                   // Table-level groups need table parameter
                   if (!isSchemaLevel && !contextMenu.table) return;
 
@@ -3549,8 +3616,8 @@ CREATE SEQUENCE ${qualified}
                       );
                       title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_index`;
                       break;
-                    
-                    // Schema-level groups  
+
+                    // Schema-level groups
                     case "Stored Procedures":
                       sql = generateStoredProcedureDDL(
                         contextMenu.type || "sqlserver",
@@ -3598,13 +3665,19 @@ CREATE SEQUENCE ${qualified}
                   setContextMenu(c => ({ ...c, visible: false }));
                 }}
               >
-                New {(() => {
+                New{" "}
+                {(() => {
                   switch (contextMenu.groupType) {
-                    case "Stored Procedures": return "Stored Procedure";
-                    case "Functions": return "Function";
-                    case "Types": return "Type";
-                    case "Sequences": return "Sequence";
-                    default: return contextMenu.groupType?.slice(0, -1); // Remove 's' for others
+                    case "Stored Procedures":
+                      return "Stored Procedure";
+                    case "Functions":
+                      return "Function";
+                    case "Types":
+                      return "Type";
+                    case "Sequences":
+                      return "Sequence";
+                    default:
+                      return contextMenu.groupType?.slice(0, -1); // Remove 's' for others
                   }
                 })()}
               </button>

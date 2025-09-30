@@ -16,7 +16,8 @@ declare global {
         get: (id: string) => Promise<any>;
         delete: (id: string) => Promise<boolean>;
         test: (
-          connection: any
+          connection: any,
+          database?: string | null
         ) => Promise<{ success: boolean; message: string }>;
       };
       database: {
@@ -24,7 +25,8 @@ declare global {
           connectionId: string
         ) => Promise<{ success: boolean; message: string }>;
         disconnect: (
-          connectionId: string
+          connectionId: string,
+          database?: string | null
         ) => Promise<{ success: boolean; message: string }>;
         getSchema: (connectionId: string) => Promise<{
           databases: Array<{
@@ -348,6 +350,7 @@ declare global {
           }>;
           connectionId?: string;
           engineId?: string;
+          database?: string | null;
         }) => Promise<{ success: boolean; id: string }>;
         loadList: () => Promise<
           Array<{
@@ -357,7 +360,9 @@ declare global {
             updatedAt: string;
             connectionId?: string;
             engineId?: string;
+            database?: string | null;
             messageCount: number;
+            pinned?: boolean;
           }>
         >;
         load: (chatId: string) => Promise<{
@@ -373,10 +378,19 @@ declare global {
           }>;
           connectionId?: string;
           engineId?: string;
+          database?: string | null;
           createdAt: string;
           updatedAt: string;
         }>;
         delete: (chatId: string) => Promise<{ success: boolean }>;
+        updateTitle: (
+          chatId: string,
+          title: string
+        ) => Promise<{ success: boolean }>;
+        togglePin: (
+          chatId: string,
+          pinned: boolean
+        ) => Promise<{ success: boolean }>;
         searchHistory: (params: {
           query?: string;
           connectionId?: string;

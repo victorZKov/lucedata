@@ -1,0 +1,100 @@
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  NodeVersion: "20.x"
+  PNPM_CACHE_FOLDER: '$(Pipeline.Workspace)\\.pnpm-store'
+  ELECTRON_CACHE: '$(Pipeline.Workspace)\\.electron-cache'
+  ELECTRON_BUILDER_CACHE: '$(Pipeline.Workspace)\\.electron-builder-cache'
+  AzureServiceConnection: "azure-devops-service-connection-name"
+  StorageAccountName: "storage-account-name"
+  StorageResourceGroup: "storage-resource-group"
+  StorageContainerName: "releases"
+  StorageBlobPrefix: "windows"
+
+pool:
+  vmImage: "windows-latest"
+
+steps:
+  - checkout: self
+    clean: true
+
+  - task: NodeTool@0
+    inputs:
+      versionSpec: "$(NodeVersion)"
+    displayName: "Use Node.js $(NodeVersion)"
+
+  - script: |
+      corepack enable
+      corepack prepare pnpm@8.12.1 --activate
+    displayName: "Enable pnpm via corepack"
+
+  - task: Cache@2
+    inputs:
+      key: 'pnpm | "$(Agent.OS)" | pnpm-lock.yaml'
+      restoreKeys: |
+        pnpm | "$(Agent.OS)"
+      path: "$(PNPM_CACHE_FOLDER)"
+    displayName: "Cache pnpm store"
+
+  - script: |
+      pnpm config set store-dir $(PNPM_CACHE_FOLDER)
+      pnpm install --frozen-lockfile
+    displayName: "Install dependencies with pnpm"
+
+  - script: |
+      pnpm -w --filter @sqlhelper/renderer build
+      pnpm -w --filter @sqlhelper/desktop build
+    displayName: "Build renderer and desktop bundles"
+
+  - script: |
+      pnpm --filter @sqlhelper/desktop exec -- electron-rebuild -f -w better-sqlite3 -w keytar
+    displayName: "Rebuild native modules for Windows"
+    env:
+      ELECTRON_CACHE: $(ELECTRON_CACHE)
+      ELECTRON_BUILDER_CACHE: $(ELECTRON_BUILDER_CACHE)
+
+  - script: |
+      node apps/desktop/scripts/prepare-workspace-modules.mjs
+    displayName: "Prepare packaged workspace modules"
+
+  - task: Cache@2
+    inputs:
+      key: 'electron-builder | "$(Agent.OS)"'
+      path: |
+        $(ELECTRON_CACHE)
+        $(ELECTRON_BUILDER_CACHE)
+    displayName: "Cache Electron build artifacts"
+
+  - script: |
+      pnpm --filter @sqlhelper/desktop exec -- electron-builder --win nsis --x64 --arm64 --publish never
+    displayName: "Build Windows installers (x64 + arm64)"
+    env:
+      ELECTRON_CACHE: $(ELECTRON_CACHE)
+      ELECTRON_BUILDER_CACHE: $(ELECTRON_BUILDER_CACHE)
+
+  - task: PublishBuildArtifacts@1
+    inputs:
+      PathtoPublish: "release"
+      ArtifactName: "windows"
+      publishLocation: "Container"
+    displayName: "Publish Windows release artifacts"
+
+  - task: AzureFileCopy@6
+    displayName: "Upload release artifacts to Azure Blob Storage"
+    condition: succeeded()
+    inputs:
+      SourcePath: "$(System.DefaultWorkingDirectory)/release"
+      azureSubscription: "$(AzureServiceConnection)"
+      Destination: "AzureBlob"
+      storage: "$(StorageAccountName)"
+      ResourceGroup: "$(StorageResourceGroup)"
+      ContainerName: "$(StorageContainerName)"
+      BlobPrefix: "$(StorageBlobPrefix)/$(Build.BuildNumber)"

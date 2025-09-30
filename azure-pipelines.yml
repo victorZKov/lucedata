@@ -50,8 +50,8 @@ steps:
     displayName: "Install dependencies with pnpm"
 
   - script: |
-      pnpm -w --filter @sqlhelper/renderer build
-      pnpm -w --filter @sqlhelper/desktop build
+      pnpm --filter @sqlhelper/renderer build
+      pnpm --filter @sqlhelper/desktop build
     displayName: "Build renderer and desktop bundles"
 
   - script: |

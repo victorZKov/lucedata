@@ -13,10 +13,10 @@ variables:
   PNPM_CACHE_FOLDER: '$(Pipeline.Workspace)\\.pnpm-store'
   ELECTRON_CACHE: '$(Pipeline.Workspace)\\.electron-cache'
   ELECTRON_BUILDER_CACHE: '$(Pipeline.Workspace)\\.electron-builder-cache'
-  AzureServiceConnection: "azure-devops-service-connection-name"
-  StorageAccountName: "storage-account-name"
-  StorageResourceGroup: "storage-resource-group"
-  StorageContainerName: "releases"
+  AzureServiceConnection: "SP1"
+  StorageAccountName: "nedevcolst01"
+  StorageResourceGroup: "ne-dev-col-rg01"
+  StorageContainerName: "$web"
   StorageBlobPrefix: "windows"
 
 pool:

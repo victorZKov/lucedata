@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import Editor from "@monaco-editor/react";
 import { format as sqlFormat } from "sql-formatter";
 import type * as Monaco from "monaco-editor";
@@ -189,6 +189,84 @@ export default function WorkArea() {
     null
   );
   const monacoRef = useRef<typeof Monaco | null>(null);
+  const monacoThemesDefinedRef = useRef(false);
+
+  const ensureMonacoThemes = useCallback((monacoInstance: typeof Monaco) => {
+    if (monacoThemesDefinedRef.current) {
+      return;
+    }
+
+    monacoInstance.editor.defineTheme("sql-custom-light", {
+      base: "vs",
+      inherit: true,
+      rules: [
+        { token: "keyword.sql", foreground: "2563EB" },
+        { token: "string.sql", foreground: "059669" },
+        {
+          token: "comment.sql",
+          foreground: "6B7280",
+          fontStyle: "italic",
+        },
+      ],
+      colors: {
+        "editor.background": "#FFFFFF",
+        "editor.foreground": "#000000",
+        "editorLineNumber.foreground": "#6B7280",
+        "editor.selectionBackground": "#DBEAFE",
+        "editor.lineHighlightBackground": "#F8FAFC",
+      },
+    });
+
+    monacoInstance.editor.defineTheme("sql-custom-dark", {
+      base: "vs-dark",
+      inherit: true,
+      rules: [
+        { token: "keyword.sql", foreground: "60A5FA" },
+        { token: "string.sql", foreground: "10B981" },
+        {
+          token: "comment.sql",
+          foreground: "9CA3AF",
+          fontStyle: "italic",
+        },
+      ],
+      colors: {
+        "editor.background": "#1F2937",
+        "editor.foreground": "#FFFFFF",
+        "editorLineNumber.foreground": "#9CA3AF",
+        "editor.selectionBackground": "#243B66",
+        "editor.lineHighlightBackground": "#374151",
+      },
+    });
+
+    monacoThemesDefinedRef.current = true;
+  }, []);
+
+  useEffect(() => {
+    const monacoInstance = monacoRef.current;
+    if (!monacoInstance) {
+      return;
+    }
+
+    ensureMonacoThemes(monacoInstance);
+
+    const targetTheme =
+      theme === "dark" ? "sql-custom-dark" : "sql-custom-light";
+
+    try {
+      monacoInstance.editor.setTheme(targetTheme);
+    } catch (error) {
+      console.error("Failed to apply Monaco theme:", error);
+    }
+
+    const editor = monacoEditorRef.current;
+    if (editor) {
+      const domNode = editor.getDomNode();
+      if (domNode) {
+        domNode.style.backgroundColor =
+          theme === "dark" ? "#1F2937" : "#FFFFFF";
+      }
+    }
+  }, [theme, ensureMonacoThemes]);
   const decorationIdsRef = useRef<string[]>([]);
   const lastConnectionRef = useRef<{
     id?: string;
@@ -3965,48 +4043,12 @@ ${executionData.query}
                           monacoEditorRef.current = editor;
                           monacoRef.current = monaco;
 
-                          // Define simplified SQL syntax highlighting themes - following style3.txt
-                          monaco.editor.defineTheme("sql-custom-light", {
-                            base: "vs",
-                            inherit: true,
-                            rules: [
-                              { token: "keyword.sql", foreground: "2563EB" }, // Keywords - blue
-                              { token: "string.sql", foreground: "059669" }, // Strings - green
-                              {
-                                token: "comment.sql",
-                                foreground: "6B7280",
-                                fontStyle: "italic",
-                              }, // Comments - gray
-                            ],
-                            colors: {
-                              "editor.background": "#FFFFFF",
-                              "editor.foreground": "#000000", // Pure black for light mode
-                              "editorLineNumber.foreground": "#6B7280",
-                              "editor.selectionBackground": "#DBEAFE",
-                              "editor.lineHighlightBackground": "#F8FAFC",
-                            },
-                          });
-
-                          monaco.editor.defineTheme("sql-custom-dark", {
-                            base: "vs-dark",
-                            inherit: true,
-                            rules: [
-                              { token: "keyword.sql", foreground: "60A5FA" }, // Keywords - blue
-                              { token: "string.sql", foreground: "10B981" }, // Strings - green
-                              {
-                                token: "comment.sql",
-                                foreground: "9CA3AF",
-                                fontStyle: "italic",
-                              }, // Comments - gray
-                            ],
-                            colors: {
-                              "editor.background": "#1F2937",
-                              "editor.foreground": "#FFFFFF", // Pure white for dark mode
-                              "editorLineNumber.foreground": "#9CA3AF",
-                              "editor.selectionBackground": "#243B66",
-                              "editor.lineHighlightBackground": "#374151",
-                            },
-                          });
+                          ensureMonacoThemes(monaco);
+                          const initialTheme =
+                            theme === "dark"
+                              ? "sql-custom-dark"
+                              : "sql-custom-light";
+                          monaco.editor.setTheme(initialTheme);
 
                           editor.addCommand(
                             monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter,
@@ -4367,13 +4409,13 @@ ${executionData.query}
                             )}
 
                           {/* Search/Filter Interface */}
-                          <div className="h-10 px-4 flex items-center border-b border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800">
+                          <div className="h-10 px-4 flex items-center border-b border-border bg-background">
                             <div className="flex items-center gap-3 w-full">
-                              <label className="text-sm text-black dark:text-white font-medium flex-shrink-0">
+                              <label className="text-sm text-foreground font-medium flex-shrink-0">
                                 Search:
                               </label>
                               <select
-                                className="h-8 text-sm px-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-black dark:text-white min-w-[140px] focus:outline-2 focus:outline-blue-500 focus:outline-offset-2"
+                                className="h-8 text-sm px-3 border border-border rounded bg-background text-foreground min-w-[140px] focus:outline-2 focus:outline-blue-500 focus:outline-offset-2"
                                 value={searchFilter.column}
                                 onChange={e =>
                                   setSearchFilter(prev => ({
@@ -4391,7 +4433,7 @@ ${executionData.query}
                               </select>
                               <input
                                 type="text"
-                                className="h-8 text-sm px-3 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-black dark:text-white flex-1 min-w-[200px] focus:outline-2 focus:outline-blue-500 focus:outline-offset-2 placeholder-gray-400"
+                                className="h-8 text-sm px-3 border border-border rounded bg-background text-foreground flex-1 min-w-[200px] focus:outline-2 focus:outline-blue-500 focus:outline-offset-2 placeholder-muted-foreground"
                                 placeholder={
                                   searchFilter.column
                                     ? `Search in ${searchFilter.column}...`
@@ -4407,7 +4449,7 @@ ${executionData.query}
                               />
                               {searchFilter.value && (
                                 <button
-                                  className="text-sm px-3 py-1 bg-gray-100 dark:bg-gray-800 text-black dark:text-white rounded hover:bg-gray-200 dark:hover:bg-gray-700"
+                                  className="text-sm px-3 py-1 bg-muted text-foreground rounded hover:bg-muted/80"
                                   onClick={() =>
                                     setSearchFilter({ column: "", value: "" })
                                   }
@@ -4417,7 +4459,7 @@ ${executionData.query}
                                 </button>
                               )}
                               {/* Filter result count */}
-                              <span className="text-sm text-[#6B7280] dark:text-[#9CA3AF] font-medium flex-shrink-0">
+                              <span className="text-sm text-muted-foreground font-medium flex-shrink-0">
                                 {searchFilter.value
                                   ? `${currentResult.rows.length} of ${rawResult?.rows.length || 0} rows`
                                   : `${currentResult.rows.length} rows`}
@@ -4440,7 +4482,7 @@ ${executionData.query}
                             }}
                           >
                             <table className="w-full text-sm">
-                              <thead className="sticky top-0 bg-white dark:bg-gray-800 z-10">
+                              <thead className="sticky top-0 bg-background z-10">
                                 <tr>
                                   {currentResult.columns.map((c, i) => (
                                     <th
@@ -4448,7 +4490,7 @@ ${executionData.query}
                                       ref={el => {
                                         (headerRefs as any)[c] = el;
                                       }}
-                                      className="h-10 text-left px-2.5 border-b border-gray-200 dark:border-gray-600 whitespace-nowrap relative cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 font-medium text-black dark:text-white"
+                                      className="h-10 text-left px-2.5 border-b border-border whitespace-nowrap relative cursor-pointer bg-background hover:bg-muted font-medium text-foreground"
                                       style={
                                         activeTab.columnWidths?.[c]
                                           ? { width: activeTab.columnWidths[c] }
@@ -4492,10 +4534,8 @@ ${executionData.query}
                                 {currentResult.rows.map((r, i) => (
                                   <tr
                                     key={i}
-                                    className={`hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors ${
-                                      i % 2 === 0
-                                        ? "bg-white dark:bg-gray-800"
-                                        : "bg-gray-50 dark:bg-gray-750"
+                                    className={`transition-colors hover:bg-muted ${
+                                      i % 2 === 0 ? "bg-background" : "bg-muted"
                                     }`}
                                   >
                                     {currentResult.columns.map((c, j) => {
@@ -4507,7 +4547,7 @@ ${executionData.query}
                                       return (
                                         <td
                                           key={j}
-                                          className="px-2.5 py-2.5 align-top border-b border-gray-200 dark:border-gray-600"
+                                          className="px-2.5 py-2.5 align-top border-b border-border"
                                           style={
                                             activeTab.columnWidths?.[c]
                                               ? {
@@ -4538,7 +4578,7 @@ ${executionData.query}
                                               } else {
                                                 return (
                                                   <span
-                                                    className="text-sm text-black dark:text-white break-words"
+                                                    className="text-sm text-foreground break-words"
                                                     title={
                                                       shouldTruncate
                                                         ? String(cellValue)

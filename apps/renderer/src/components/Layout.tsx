@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Plus,
   Save,
   FolderOpen,
-  ClipboardList,
+  Bookmark,
   PanelLeft,
   MessageSquare,
   Sun,
@@ -29,7 +29,7 @@ import WorkArea from "./WorkArea";
 import ChatPanel from "./ChatPanel";
 import Resizer from "./Resizer";
 import { SaveChatDialog } from "./SaveChatDialog";
-import { LoadChatDialog } from "./LoadChatDialog";
+import { SavedChatsPanel } from "./SavedChatsPanel";
 import TipsDialog from "./TipsDialog";
 import { ChatHistoryTab } from "./ChatHistoryTab";
 import VersionDialog from "./VersionDialog";
@@ -43,10 +43,16 @@ interface LayoutState {
 
 interface DialogState {
   saveChatDialog: boolean;
-  loadChatDialog: boolean;
   chatHistoryTab: boolean;
   versionDialog: boolean;
   tipsDialog: boolean;
+}
+
+interface ConnectionInfo {
+  id: string;
+  name: string;
+  type?: string;
+  database?: string | null;
 }
 
 export default function Layout() {
@@ -72,22 +78,19 @@ export default function Layout() {
 
   const [dialogs, setDialogs] = useState<DialogState>({
     saveChatDialog: false,
-    loadChatDialog: false,
     chatHistoryTab: false,
     versionDialog: false,
     tipsDialog: false,
   });
 
-  // Mock data - in real app, these would come from your store
-  const [connections] = useState([
-    { id: "conn1", name: "Local SQL Server" },
-    { id: "conn2", name: "Production DB" },
-  ]);
+  const [showSavedChats, setShowSavedChats] = useState(false);
+  const [savedChatsRefreshToken, setSavedChatsRefreshToken] = useState(0);
+  const [
+    wasExplorerVisibleBeforeSavedChats,
+    setWasExplorerVisibleBeforeSavedChats,
+  ] = useState<boolean | null>(null);
 
-  const [engines] = useState([
-    { id: "openai", name: "OpenAI GPT-4" },
-    { id: "ollama", name: "Ollama CodeLlama" },
-  ]);
+  const [connections, setConnections] = useState<ConnectionInfo[]>([]);
 
   // Track current tab state for toolbar buttons
   const [currentTabState, setCurrentTabState] = useState({
@@ -143,7 +146,7 @@ export default function Layout() {
             setDialogs(prev => ({ ...prev, saveChatDialog: true }));
             break;
           case "load-chat":
-            setDialogs(prev => ({ ...prev, loadChatDialog: true }));
+            openSavedChatsPanel();
             break;
           case "chat-history":
             setDialogs(prev => ({ ...prev, chatHistoryTab: true }));
@@ -161,8 +164,8 @@ export default function Layout() {
     const handleShowVersion = () => {
       setDialogs(prev => ({ ...prev, versionDialog: true }));
     };
-    const handleShowLoadChatDialog = () => {
-      setDialogs(prev => ({ ...prev, loadChatDialog: true }));
+    const handleShowSavedChats = () => {
+      openSavedChatsPanel();
     };
 
     const handleShowTipsDialog = () => {
@@ -172,10 +175,7 @@ export default function Layout() {
     document.addEventListener("toggle-explorer", handleToggleExplorer);
     document.addEventListener("toggle-chat", handleToggleChat);
     document.addEventListener("show-version", handleShowVersion);
-    document.addEventListener(
-      "show-load-chat-dialog",
-      handleShowLoadChatDialog
-    );
+    document.addEventListener("show-load-chat-dialog", handleShowSavedChats);
     document.addEventListener("show-tips-dialog", handleShowTipsDialog);
 
     return () => {
@@ -184,7 +184,7 @@ export default function Layout() {
       document.removeEventListener("show-version", handleShowVersion);
       document.removeEventListener(
         "show-load-chat-dialog",
-        handleShowLoadChatDialog
+        handleShowSavedChats
       );
       document.removeEventListener("show-tips-dialog", handleShowTipsDialog);
     };
@@ -195,7 +195,43 @@ export default function Layout() {
   };
 
   const toggleChat = () => {
-    setLayout(prev => ({ ...prev, showChat: !prev.showChat }));
+    setLayout(prev => {
+      const nextShowChat = !prev.showChat;
+      if (!nextShowChat) {
+        setShowSavedChats(false);
+      }
+      return { ...prev, showChat: nextShowChat };
+    });
+  };
+
+  const ensureChatVisible = () => {
+    setLayout(prev => (prev.showChat ? prev : { ...prev, showChat: true }));
+  };
+
+  const openSavedChatsPanel = () => {
+    ensureChatVisible();
+    setWasExplorerVisibleBeforeSavedChats(prev =>
+      prev === null ? layout.showExplorer : prev
+    );
+    setLayout(prev => ({ ...prev, showExplorer: false }));
+    setShowSavedChats(true);
+  };
+
+  const closeSavedChatsPanel = () => {
+    setShowSavedChats(false);
+    setLayout(prev => ({
+      ...prev,
+      showExplorer: wasExplorerVisibleBeforeSavedChats ?? prev.showExplorer,
+    }));
+    setWasExplorerVisibleBeforeSavedChats(null);
+  };
+
+  const toggleSavedChatsPanel = () => {
+    if (showSavedChats) {
+      closeSavedChatsPanel();
+    } else {
+      openSavedChatsPanel();
+    }
   };
 
   const toggleToolbar = () => {
@@ -217,6 +253,64 @@ export default function Layout() {
     }));
   };
 
+  const refreshConnections = useCallback(async () => {
+    if (!window.electronAPI?.connections?.list) {
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI.connections.list();
+
+      if (Array.isArray(result)) {
+        const normalized = result
+          .filter(connection => Boolean(connection?.id))
+          .map(connection => ({
+            id: connection.id as string,
+            name:
+              connection.name ||
+              connection.displayName ||
+              connection.connectionName ||
+              "Unnamed Connection",
+            type: connection.type,
+            database:
+              connection.database ??
+              connection.defaultDatabase ??
+              connection.initialDatabase ??
+              null,
+          }));
+
+        setConnections(normalized);
+      } else {
+        setConnections([]);
+      }
+    } catch (error) {
+      console.error("Failed to load connections for saved chats:", error);
+      setConnections([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshConnections();
+  }, [refreshConnections]);
+
+  useEffect(() => {
+    const handleConnectionsUpdated = () => {
+      void refreshConnections();
+    };
+
+    document.addEventListener(
+      "database-connections-updated",
+      handleConnectionsUpdated
+    );
+
+    return () => {
+      document.removeEventListener(
+        "database-connections-updated",
+        handleConnectionsUpdated
+      );
+    };
+  }, [refreshConnections]);
+
   const [currentChatMessages, setCurrentChatMessages] = useState<
     Array<{
       id: string;
@@ -230,6 +324,7 @@ export default function Layout() {
   const [currentChatContext, setCurrentChatContext] = useState<{
     connectionId?: string;
     engineId?: string;
+    database?: string | null;
   }>({});
 
   // Listen for chat messages and context updates
@@ -307,8 +402,18 @@ export default function Layout() {
 
   // Chat dialog handlers
   const handleNewChat = () => {
-    // Reset chat state - this would be implemented in ChatPanel
-    document.dispatchEvent(new CustomEvent("new-chat"));
+    const suggestedName = `Conversation ${new Date().toLocaleString()}`;
+    const input = window.prompt("Name your new conversation", suggestedName);
+
+    if (input === null) {
+      return;
+    }
+
+    const trimmed = input.trim();
+    const title = trimmed || suggestedName;
+
+    // Reset chat state - this will be handled in ChatPanel
+    document.dispatchEvent(new CustomEvent("new-chat", { detail: { title } }));
     // Clear workspace context for fresh chat
     document.dispatchEvent(new CustomEvent("clear-workspace-context"));
   };
@@ -320,6 +425,7 @@ export default function Layout() {
         messages: currentChatMessages,
         connectionId: currentChatContext.connectionId,
         engineId: currentChatContext.engineId,
+        database: currentChatContext.database ?? null,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
@@ -327,6 +433,7 @@ export default function Layout() {
       await window.electronAPI.chat.save(chatData);
       console.log("Chat saved successfully:", title);
       setDialogs(prev => ({ ...prev, saveChatDialog: false }));
+      setSavedChatsRefreshToken(token => token + 1);
     } catch (error) {
       console.error("Failed to save chat:", error);
     }
@@ -351,7 +458,6 @@ export default function Layout() {
       document.dispatchEvent(
         new CustomEvent("load-chat", { detail: chatData })
       );
-      setDialogs(prev => ({ ...prev, loadChatDialog: false }));
     } catch (error) {
       console.error("Failed to load chat:", error);
       // Keep the dialog open so user can see the error and try again
@@ -725,6 +831,57 @@ export default function Layout() {
                 {toolbarExpanded && <span className="text-xs">Clear</span>}
               </button>
             </div>
+
+            {/* Chat Utilities */}
+            <div
+              className={`flex items-center gap-1 border-l border-border pl-3 ml-3 ${
+                toolbarExpanded ? "" : ""
+              }
+              }`}
+            >
+              <button
+                onClick={handleNewChat}
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } hover:bg-accent text-muted-foreground hover:text-foreground cursor-pointer`}
+                title="New Chat"
+                aria-label="New Chat"
+              >
+                <Plus className="text-blue-600" size={16} />
+                {toolbarExpanded && <span className="text-xs">New Chat</span>}
+              </button>
+              <button
+                onClick={toggleSavedChatsPanel}
+                className={`p-2 rounded-md transition-colors ${
+                  toolbarExpanded
+                    ? "flex flex-col items-center gap-1 min-w-[60px]"
+                    : "flex items-center justify-center"
+                } ${
+                  showSavedChats
+                    ? "bg-purple-100 text-purple-700 hover:bg-purple-200"
+                    : "hover:bg-accent text-muted-foreground hover:text-foreground"
+                } cursor-pointer`}
+                title={showSavedChats ? "Hide Saved Chats" : "Show Saved Chats"}
+                aria-label={
+                  showSavedChats ? "Hide Saved Chats" : "Show Saved Chats"
+                }
+                aria-pressed={showSavedChats}
+              >
+                <Bookmark
+                  className={
+                    showSavedChats ? "text-purple-700" : "text-purple-600"
+                  }
+                  size={16}
+                />
+                {toolbarExpanded && (
+                  <span className="text-xs">
+                    {showSavedChats ? "Hide Saved" : "Saved Chats"}
+                  </span>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Right Side - Additional Controls */}
@@ -886,53 +1043,34 @@ export default function Layout() {
                     </h2>
                     <button
                       onClick={handleNewChat}
-                      className="inline-flex items-center justify-center h-6 w-6 text-foreground hover:bg-accent"
+                      className="inline-flex items-center justify-center h-6 w-6 rounded border border-border text-blue-600 transition-colors hover:bg-blue-50"
                       title="New Chat"
                       aria-label="New Chat"
                       style={
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      <Plus size={16} />
+                      <Plus size={14} />
                     </button>
                     <button
-                      onClick={() =>
-                        setDialogs(prev => ({ ...prev, saveChatDialog: true }))
+                      onClick={toggleSavedChatsPanel}
+                      className={`inline-flex items-center justify-center h-6 w-6 rounded border border-border transition-colors ${
+                        showSavedChats
+                          ? "bg-purple-50 text-purple-700 hover:bg-purple-100"
+                          : "text-purple-600 hover:bg-purple-50"
+                      }`}
+                      title={
+                        showSavedChats ? "Hide Saved Chats" : "Show Saved Chats"
                       }
-                      className="inline-flex items-center justify-center h-6 w-6 text-foreground hover:bg-accent"
-                      title="Save Chat"
-                      aria-label="Save Chat"
+                      aria-label={
+                        showSavedChats ? "Hide Saved Chats" : "Show Saved Chats"
+                      }
+                      aria-pressed={showSavedChats}
                       style={
                         { WebkitAppRegion: "no-drag" } as React.CSSProperties
                       }
                     >
-                      <Save size={16} />
-                    </button>
-                    <button
-                      onClick={() =>
-                        setDialogs(prev => ({ ...prev, loadChatDialog: true }))
-                      }
-                      className="inline-flex items-center justify-center h-6 w-6 text-foreground hover:bg-accent"
-                      title="Load Chat"
-                      aria-label="Load Chat"
-                      style={
-                        { WebkitAppRegion: "no-drag" } as React.CSSProperties
-                      }
-                    >
-                      <FolderOpen size={16} />
-                    </button>
-                    <button
-                      onClick={() =>
-                        setDialogs(prev => ({ ...prev, chatHistoryTab: true }))
-                      }
-                      className="inline-flex items-center justify-center h-6 w-6 text-foreground hover:bg-accent"
-                      title="Chat History"
-                      aria-label="Chat History"
-                      style={
-                        { WebkitAppRegion: "no-drag" } as React.CSSProperties
-                      }
-                    >
-                      <ClipboardList size={16} />
+                      <Bookmark size={14} />
                     </button>
                   </div>
                   <button
@@ -944,8 +1082,19 @@ export default function Layout() {
                   </button>
                 </div>
                 {/* Chat Content */}
-                <div className="flex-1 min-h-0">
-                  <ChatPanel />
+                <div className="flex-1 min-h-0 flex overflow-hidden">
+                  {showSavedChats && (
+                    <SavedChatsPanel
+                      isVisible={showSavedChats}
+                      refreshToken={savedChatsRefreshToken}
+                      onClose={closeSavedChatsPanel}
+                      onLoad={handleLoadChat}
+                      connections={connections}
+                    />
+                  )}
+                  <div className="flex-1 min-h-0">
+                    <ChatPanel />
+                  </div>
                 </div>
               </div>
             </>
@@ -960,20 +1109,10 @@ export default function Layout() {
         onSave={handleSaveChat}
         messages={currentChatMessages}
       />
-
-      <LoadChatDialog
-        isOpen={dialogs.loadChatDialog}
-        onClose={() => setDialogs(prev => ({ ...prev, loadChatDialog: false }))}
-        onLoad={handleLoadChat}
-        connections={connections}
-        engines={engines}
-      />
-
       <ChatHistoryTab
         isOpen={dialogs.chatHistoryTab}
         onClose={() => setDialogs(prev => ({ ...prev, chatHistoryTab: false }))}
         connections={connections}
-        engines={engines}
       />
 
       <VersionDialog

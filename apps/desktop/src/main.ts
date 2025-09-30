@@ -2294,6 +2294,7 @@ ipcMain.handle(
         engineId: params.engineId,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
+        pinned: false,
       };
 
       // Get existing saved chats
@@ -2316,15 +2317,26 @@ ipcMain.handle("chat-load-list", async () => {
     const savedChats = (store as any).get("savedChats") || [];
 
     // Return list with metadata only (not full messages)
-    const chatList = savedChats.map((chat: any) => ({
-      id: chat.id,
-      title: chat.title,
-      createdAt: chat.createdAt,
-      updatedAt: chat.updatedAt,
-      connectionId: chat.connectionId,
-      engineId: chat.engineId,
-      messageCount: chat.messages?.length || 0,
-    }));
+    const chatList = savedChats
+      .map((chat: any) => ({
+        id: chat.id,
+        title: chat.title,
+        createdAt: chat.createdAt,
+        updatedAt: chat.updatedAt,
+        connectionId: chat.connectionId,
+        engineId: chat.engineId,
+        messageCount: chat.messages?.length || 0,
+        pinned: Boolean(chat.pinned),
+      }))
+      .sort((a: any, b: any) => {
+        if (a.pinned !== b.pinned) {
+          return a.pinned ? -1 : 1;
+        }
+
+        const dateA = new Date(a.updatedAt || a.createdAt).getTime();
+        const dateB = new Date(b.updatedAt || b.createdAt).getTime();
+        return dateB - dateA;
+      });
 
     console.log("📂 Found", chatList.length, "saved chat sessions");
     return chatList;
@@ -2351,6 +2363,61 @@ ipcMain.handle("chat-load", async (_, chatId: string) => {
     throw error;
   }
 });
+
+ipcMain.handle(
+  "chat-update-title",
+  async (_event, params: { chatId: string; title: string }) => {
+    try {
+      const savedChats = (store as any).get("savedChats") || [];
+      const chatIndex = savedChats.findIndex(
+        (chat: any) => chat.id === params.chatId
+      );
+
+      if (chatIndex === -1) {
+        throw new Error("Chat session not found");
+      }
+
+      savedChats[chatIndex].title = params.title;
+      savedChats[chatIndex].updatedAt = new Date().toISOString();
+      (store as any).set("savedChats", savedChats);
+
+      console.log("✏️ Chat title updated:", params.chatId);
+      return { success: true };
+    } catch (error) {
+      console.error("✏️ Error updating chat title:", error);
+      throw error;
+    }
+  }
+);
+
+ipcMain.handle(
+  "chat-toggle-pin",
+  async (_event, params: { chatId: string; pinned: boolean }) => {
+    try {
+      const savedChats = (store as any).get("savedChats") || [];
+      const chatIndex = savedChats.findIndex(
+        (chat: any) => chat.id === params.chatId
+      );
+
+      if (chatIndex === -1) {
+        throw new Error("Chat session not found");
+      }
+
+      savedChats[chatIndex].pinned = params.pinned;
+      savedChats[chatIndex].updatedAt = new Date().toISOString();
+      (store as any).set("savedChats", savedChats);
+
+      console.log(
+        params.pinned ? "📌 Chat pinned:" : "📌 Chat unpinned:",
+        params.chatId
+      );
+      return { success: true };
+    } catch (error) {
+      console.error("📌 Error updating chat pin state:", error);
+      throw error;
+    }
+  }
+);
 
 ipcMain.handle("chat-delete", async (_, chatId: string) => {
   try {

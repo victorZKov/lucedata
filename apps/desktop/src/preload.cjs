@@ -172,6 +172,28 @@ try {
       console.log("🔗 preload.cjs: chat.load called with:", chatId);
       return ipcRenderer.invoke("chat-load", chatId);
     },
+    delete: (chatId) => {
+      console.log("🔗 preload.cjs: chat.delete called with:", chatId);
+      return ipcRenderer.invoke("chat-delete", chatId);
+    },
+    updateTitle: (chatId, title) => {
+      console.log("🔗 preload.cjs: chat.updateTitle called with:", {
+        chatId,
+        titleLength: title ? title.length : 0,
+      });
+      return ipcRenderer.invoke("chat-update-title", { chatId, title });
+    },
+    togglePin: (chatId, pinned) => {
+      console.log("🔗 preload.cjs: chat.togglePin called with:", {
+        chatId,
+        pinned,
+      });
+      return ipcRenderer.invoke("chat-toggle-pin", { chatId, pinned });
+    },
+    getCurrentState: () => {
+      console.log("🔗 preload.cjs: chat.getCurrentState called");
+      return ipcRenderer.invoke("chat-get-current-state");
+    },
   },
 
   // Cleanup

@@ -4,7 +4,6 @@ interface ChatHistoryTabProps {
   isOpen: boolean;
   onClose: () => void;
   connections: Array<{ id: string; name: string }>;
-  engines: Array<{ id: string; name: string }>;
 }
 
 interface HistoryMessage {
@@ -22,7 +21,6 @@ interface HistoryMessage {
 interface SearchFilters {
   query: string;
   connectionId?: string;
-  engineId?: string;
   role?: "user" | "assistant" | "system" | "";
   dateFrom?: string;
   dateTo?: string;
@@ -32,14 +30,12 @@ export function ChatHistoryTab({
   isOpen,
   onClose,
   connections,
-  engines,
 }: ChatHistoryTabProps) {
   const [messages, setMessages] = useState<HistoryMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [filters, setFilters] = useState<SearchFilters>({
     query: "",
     connectionId: "",
-    engineId: "",
     role: "",
     dateFrom: "",
     dateTo: "",
@@ -57,7 +53,6 @@ export function ChatHistoryTab({
       const searchParams = {
         query: filters.query || undefined,
         connectionId: filters.connectionId || undefined,
-        engineId: filters.engineId || undefined,
         role: filters.role || undefined,
         dateFrom: filters.dateFrom || undefined,
         dateTo: filters.dateTo || undefined,
@@ -85,7 +80,6 @@ export function ChatHistoryTab({
     setFilters({
       query: "",
       connectionId: "",
-      engineId: "",
       role: "",
       dateFrom: "",
       dateTo: "",
@@ -95,11 +89,6 @@ export function ChatHistoryTab({
   const getConnectionName = (connectionId?: string) => {
     const connection = connections.find(c => c.id === connectionId);
     return connection?.name || "Unknown Connection";
-  };
-
-  const getEngineName = (engineId?: string) => {
-    const engine = engines.find(e => e.id === engineId);
-    return engine?.name || "Unknown Engine";
   };
 
   const formatDate = (dateString: string) => {
@@ -183,26 +172,6 @@ export function ChatHistoryTab({
                   {connections.map(connection => (
                     <option key={connection.id} value={connection.id}>
                       {connection.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  AI Engine
-                </label>
-                <select
-                  value={filters.engineId}
-                  onChange={e => handleFilterChange("engineId", e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md 
-                           bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100
-                           focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                >
-                  <option value="">All Engines</option>
-                  {engines.map(engine => (
-                    <option key={engine.id} value={engine.id}>
-                      {engine.name}
                     </option>
                   ))}
                 </select>
@@ -343,8 +312,6 @@ export function ChatHistoryTab({
 
                   <div className="flex items-center space-x-4 text-xs text-gray-500 dark:text-gray-400">
                     <span>🔗 {getConnectionName(message.connectionId)}</span>
-                    <span>•</span>
-                    <span>🤖 {getEngineName(message.engineId)}</span>
                   </div>
                 </div>
               ))}

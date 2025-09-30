@@ -8,6 +8,7 @@
   "scripts": {
     "dev": "concurrently \"npm run build:watch\" \"npm run start:dev\"",
     "build": "tsc",
+    "generate:icon": "node ./scripts/generate-icon.mjs",
     "build:watch": "tsc --watch",
     "start": "electron dist/apps/desktop/src/main.js",
     "start:dev": "wait-on dist/apps/desktop/src/main.js && electron dist/apps/desktop/src/main.js --dev",
@@ -33,7 +34,9 @@
     "rimraf": "^6.0.1",
     "typescript": "^5.3.3",
     "wait-on": "^9.0.1",
-    "@tailwindcss/postcss": "^4.1.13"
+    "@tailwindcss/postcss": "^4.1.13",
+    "icon-gen": "^3.0.1",
+    "pngjs": "^7.0.0"
   },
   "author": "SQLHelper Team",
   "license": "MIT"

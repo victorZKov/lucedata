@@ -3,6 +3,30 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 
+const escapeRegex = (value: string) =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const removeFinalSqlFromContent = (content: string, sql: string) => {
+  if (!content || !sql) {
+    return content;
+  }
+
+  const trimmedSql = sql.trim();
+  if (!trimmedSql) {
+    return content;
+  }
+
+  const escapedSql = escapeRegex(trimmedSql);
+  const sqlRegex = new RegExp(`\n?${escapedSql}`, "m");
+  let cleaned = content.replace(sqlRegex, "");
+
+  cleaned = cleaned.replace(/Final SQL query[^\n]*\n?/gi, "");
+  cleaned = cleaned.replace(/SQL Query:\s*$/gi, "");
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
+
+  return cleaned;
+};
+
 interface ToolCall {
   id: string;
   function: {
@@ -89,6 +113,7 @@ export default function ChatPanel() {
   const [currentConversationId, setCurrentConversationId] = useState<
     string | null
   >(null);
+  const [conversationTitle, setConversationTitle] = useState<string>("");
   const [workspaceContext, setWorkspaceContext] =
     useState<WorkspaceContext | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -126,7 +151,7 @@ export default function ChatPanel() {
     };
 
     // Chat management event handlers
-    const handleNewChat = () => {
+    const handleNewChat = (event: CustomEvent<{ title?: string }>) => {
       console.log(
         "🔄 New chat requested, clearing messages and workspace context..."
       );
@@ -134,6 +159,7 @@ export default function ChatPanel() {
       setInputText("");
       setCurrentConversationId(null); // Clear conversation ID for new chat
       setWorkspaceContext(null); // Clear workspace context for fresh start
+      setConversationTitle(event.detail?.title ?? "");
     };
 
     // Handle external chat messages (from execution plan analysis)
@@ -191,7 +217,10 @@ export default function ChatPanel() {
         newMessages.push({
           id: assistantMessage.id || crypto.randomUUID(),
           role: assistantMessage.role || "assistant",
-          content: assistantMessage.content,
+          content: removeFinalSqlFromContent(
+            assistantMessage.content,
+            assistantMessage.finalSQL || ""
+          ),
           timestamp: new Date(assistantMessage.timestamp || new Date()),
           finalSQL: assistantMessage.finalSQL,
           renderMarkdown: assistantMessage.renderMarkdown,
@@ -233,6 +262,9 @@ export default function ChatPanel() {
 
               return {
                 ...msg,
+                content: msg.finalSQL
+                  ? removeFinalSqlFromContent(msg.content, msg.finalSQL)
+                  : msg.content,
                 timestamp,
                 renderMarkdown,
               };
@@ -243,6 +275,7 @@ export default function ChatPanel() {
           );
           setMessages(messagesWithDates);
           setCurrentConversationId(chatData.id); // Set the conversation ID
+          setConversationTitle(chatData.title || "");
 
           if (chatData.connectionId) {
             setSelectedConnection(chatData.connectionId);
@@ -263,7 +296,7 @@ export default function ChatPanel() {
       "database-connections-updated",
       handleConnectionsUpdated
     );
-    document.addEventListener("new-chat", handleNewChat);
+    document.addEventListener("new-chat", handleNewChat as EventListener);
     document.addEventListener("load-chat", handleLoadChat as EventListener);
     document.addEventListener(
       "workspace-context-change",
@@ -281,7 +314,7 @@ export default function ChatPanel() {
         "database-connections-updated",
         handleConnectionsUpdated
       );
-      document.removeEventListener("new-chat", handleNewChat);
+      document.removeEventListener("new-chat", handleNewChat as EventListener);
       document.removeEventListener(
         "load-chat",
         handleLoadChat as EventListener
@@ -432,10 +465,15 @@ export default function ChatPanel() {
         workspaceContext: contextInfo, // Include workspace context
       });
 
+      const cleanedContent = removeFinalSqlFromContent(
+        response.content,
+        response.finalSQL || ""
+      );
+
       const assistantMessage: ChatMessage = {
         id: response.id,
         role: response.role,
-        content: response.content,
+        content: cleanedContent,
         timestamp: new Date(response.timestamp),
         finalSQL: response.finalSQL,
         connectionId: activeConnection?.id || selectedConnection,
@@ -502,7 +540,14 @@ export default function ChatPanel() {
     <div className="h-full flex flex-col bg-background min-h-0">
       <div className="p-3 border-b border-border flex-shrink-0">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-medium text-foreground">AI Assistant</h2>
+          <div>
+            <h2 className="text-sm font-medium text-foreground">
+              AI Assistant
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              {conversationTitle || "Untitled conversation"}
+            </p>
+          </div>
           {workspaceContext?.enabled && (
             <div className="flex items-center gap-1 text-xs text-green-600 bg-green-50 dark:bg-green-900/20 px-2 py-1 rounded-full">
               <span>🔗</span>
@@ -827,44 +872,23 @@ export default function ChatPanel() {
 
       {/* Chat Footer - Selectors and Input */}
       <div className="p-3 border-t border-border space-y-3 flex-shrink-0">
-        {/* Database and Engine Selectors */}
-        <div className="flex space-x-2">
-          <div className="flex-1">
-            <label className="block text-xs text-muted-foreground mb-1">
-              Database
-            </label>
-            <select
-              value={selectedConnection || ""}
-              onChange={e => setSelectedConnection(e.target.value || null)}
-              className="w-full px-2 py-1 text-xs border border-border rounded bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="">Select Database...</option>
-              {connections.map(conn => (
-                <option key={conn.id} value={conn.id}>
-                  {conn.name} ({conn.type})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="flex-1">
-            <label className="block text-xs text-muted-foreground mb-1">
-              AI Engine
-            </label>
-            <select
-              value={selectedEngine || ""}
-              onChange={e => setSelectedEngine(e.target.value || null)}
-              className="w-full px-2 py-1 text-xs border border-border rounded bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
-            >
-              <option value="">Select Engine...</option>
-              {engines.map(engine => (
-                <option key={engine.id} value={engine.id}>
-                  {engine.name} - {engine.defaultModel || "No model"} (
-                  {engine.provider}){engine.isDefault && " ⭐"}
-                </option>
-              ))}
-            </select>
-          </div>
+        {/* Database Selector */}
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1">
+            Database
+          </label>
+          <select
+            value={selectedConnection || ""}
+            onChange={e => setSelectedConnection(e.target.value || null)}
+            className="w-full px-2 py-1 text-xs border border-border rounded bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="">Select Database...</option>
+            {connections.map(conn => (
+              <option key={conn.id} value={conn.id}>
+                {conn.name} ({conn.type})
+              </option>
+            ))}
+          </select>
         </div>
 
         {/* Input Area */}

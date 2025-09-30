@@ -343,12 +343,14 @@ try {
         }>;
         connectionId?: string;
         engineId?: string;
+        database?: string | null;
       }) => {
         console.log("🔗 preload.ts: chat.save called with:", {
           title: params.title,
           messageCount: params.messages.length,
           connectionId: params.connectionId,
           engineId: params.engineId,
+          database: params.database,
         });
         return ipcRenderer.invoke("chat-save", params);
       },
@@ -363,6 +365,20 @@ try {
       delete: (chatId: string) => {
         console.log("🔗 preload.ts: chat.delete called with:", chatId);
         return ipcRenderer.invoke("chat-delete", chatId);
+      },
+      updateTitle: (chatId: string, title: string) => {
+        console.log("🔗 preload.ts: chat.updateTitle called with:", {
+          chatId,
+          titleLength: title.length,
+        });
+        return ipcRenderer.invoke("chat-update-title", { chatId, title });
+      },
+      togglePin: (chatId: string, pinned: boolean) => {
+        console.log("🔗 preload.ts: chat.togglePin called with:", {
+          chatId,
+          pinned,
+        });
+        return ipcRenderer.invoke("chat-toggle-pin", { chatId, pinned });
       },
       getCurrentState: () => {
         console.log("🔗 preload.ts: chat.getCurrentState called");

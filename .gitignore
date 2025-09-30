@@ -123,3 +123,4 @@ temp/
 .husky/_
 
 .turbo/
+apps/desktop/node_modules.packaged/

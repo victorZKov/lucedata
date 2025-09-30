@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* global console */
 import { readFileSync, writeFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
@@ -25,7 +26,7 @@ let versionDialogContent = readFileSync(versionDialogPath, 'utf8');
 const buildDate = new Date().toISOString().split('T')[0];
 
 // Replace the VERSION_INFO constant
-const versionInfoReplacement = `const VERSION_INFO = {
+const versionInfoReplacement = `export const VERSION_INFO = {
   major: ${version.major},
   minor: ${version.minor},
   build: ${version.build},
@@ -34,7 +35,7 @@ const versionInfoReplacement = `const VERSION_INFO = {
 };`;
 
 versionDialogContent = versionDialogContent.replace(
-  /const VERSION_INFO = \{[^}]+\};/s,
+  /export const VERSION_INFO = \{[^}]+\};/s,
   versionInfoReplacement
 );
 

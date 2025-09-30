@@ -5,11 +5,23 @@
     "output": "../../release",
     "buildResources": "assets"
   },
-  "files": ["dist/**/*", "../renderer/dist/**/*", "assets/**/*"],
+  "files": [
+    "dist/**/*",
+    "../renderer/dist/**/*",
+    "assets/**/*",
+    "package.json"
+  ],
+  "asar": false,
+  "npmRebuild": false,
   "extraResources": [
     {
       "from": "assets/",
       "to": "assets/",
+      "filter": ["**/*"]
+    },
+    {
+      "from": "node_modules.packaged/node_modules/",
+      "to": "app/node_modules",
       "filter": ["**/*"]
     }
   ],
@@ -27,7 +39,6 @@
     ],
     "icon": "assets/icon.icns",
     "hardenedRuntime": true,
-    "gatekeeperAssess": false,
     "entitlements": "assets/entitlements.mac.plist",
     "entitlementsInherit": "assets/entitlements.mac.plist"
   },

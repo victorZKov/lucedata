@@ -254,32 +254,28 @@ function createWindow(): void {
       return null;
     };
 
-    // Prefer resolving relative to the application root (unpackaged app path)
-    const candidateFromAppPath = path.resolve(
-      app.getAppPath(),
-      "../renderer/dist/index.html"
-    );
     const repoRoot = findRepoRoot(__dirname);
-    const candidateFromRoot = repoRoot
-      ? path.join(repoRoot, "apps", "renderer", "dist", "index.html")
-      : null;
-    // Packaged or alternative compiled layout fallback
-    const fallbackA = path.resolve(
-      __dirname,
-      "../../../renderer/dist/index.html"
+    const rendererCandidates = [
+      path.join(app.getAppPath(), "dist", "renderer", "index.html"),
+      path.resolve(app.getAppPath(), "../renderer/dist/index.html"),
+      path.join(process.resourcesPath, "renderer", "index.html"),
+      repoRoot
+        ? path.join(repoRoot, "apps", "renderer", "dist", "index.html")
+        : null,
+      path.resolve(__dirname, "../../../renderer/index.html"),
+      path.resolve(__dirname, "../../../renderer/dist/index.html"),
+      path.resolve(__dirname, "../../renderer/dist/index.html"),
+    ]
+      .filter((candidate): candidate is string => Boolean(candidate))
+      .map(candidate => path.normalize(candidate));
+
+    const toLoad = rendererCandidates.find(candidate =>
+      fs.existsSync(candidate)
     );
-    const fallbackB = path.resolve(__dirname, "../../renderer/dist/index.html");
-    const toLoad = [
-      candidateFromAppPath,
-      candidateFromRoot,
-      fallbackA,
-      fallbackB,
-    ].find(p => p && fs.existsSync(p)) as string | undefined;
+
     if (!toLoad) {
       console.error("❌ Could not locate renderer index.html. Checked:", {
-        candidateFromRoot,
-        fallbackA,
-        fallbackB,
+        rendererCandidates,
         __dirname,
       });
       throw new Error("Renderer bundle not found");

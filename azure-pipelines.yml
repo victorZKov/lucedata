@@ -50,6 +50,11 @@ steps:
     displayName: "Install dependencies with pnpm"
 
   - script: |
+      pnpm --filter @sqlhelper/renderer install --frozen-lockfile
+      pnpm --filter @sqlhelper/desktop install --frozen-lockfile
+    displayName: "Ensure workspace package installs"
+
+  - script: |
       pnpm --filter @sqlhelper/renderer build
       pnpm --filter @sqlhelper/desktop build
     displayName: "Build renderer and desktop bundles"

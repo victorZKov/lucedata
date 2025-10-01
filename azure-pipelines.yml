@@ -60,7 +60,7 @@ steps:
     displayName: "Build renderer and desktop bundles"
 
   - script: |
-      pnpm --filter @sqlhelper/desktop exec -- electron-rebuild -f -w better-sqlite3 -w keytar
+      pnpm --filter @sqlhelper/desktop exec -- electron-rebuild -f -w better-sqlite3,keytar
     displayName: "Rebuild native modules for Windows"
     env:
       ELECTRON_CACHE: $(ELECTRON_CACHE)

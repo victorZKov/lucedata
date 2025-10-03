@@ -537,7 +537,7 @@ export default function ChatPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-background min-h-0">
+    <div className="h-full flex flex-col bg-background overflow-hidden">
       <div className="p-3 border-b border-border flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
@@ -558,7 +558,10 @@ export default function ChatPanel() {
       </div>
 
       {/* Chat Messages */}
-      <div className="flex-1 overflow-y-auto p-3 min-h-0">
+      <div
+        className="flex-1 overflow-y-auto overflow-x-hidden p-3"
+        style={{ minHeight: 0 }}
+      >
         <div className="space-y-3">
           {messages.length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-8">
@@ -871,7 +874,7 @@ export default function ChatPanel() {
       </div>
 
       {/* Chat Footer - Selectors and Input */}
-      <div className="p-3 border-t border-border space-y-3 flex-shrink-0">
+      <div className="p-3 border-t border-border space-y-3 flex-shrink-0 bg-background">
         {/* Database Selector */}
         <div>
           <label className="block text-xs text-muted-foreground mb-1">
@@ -900,6 +903,7 @@ export default function ChatPanel() {
             className="w-full px-3 py-2 text-sm border border-border rounded bg-card text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
             placeholder="Ask me anything about your data..."
             rows={3}
+            style={{ maxHeight: "120px" }}
             disabled={loading}
           />
           <div className="flex justify-end mt-2">

@@ -917,8 +917,8 @@ export default function ChatPanel() {
 
       {/* New Engine Dialog - placeholder for when no engines exist */}
       {showNewEngineDialog && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-card p-6 rounded-lg border border-border max-w-md w-full mx-4">
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50">
+          <div className="p-6 rounded-lg border border-border max-w-md w-full mx-4 bg-white dark:bg-[#111318] bg-opacity-100 text-foreground">
             <h3 className="text-lg font-medium text-foreground mb-4">
               No AI Engines Configured
             </h3>

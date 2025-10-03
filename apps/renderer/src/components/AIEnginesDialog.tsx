@@ -236,20 +236,14 @@ export default function AIEnginesDialog({
       className="relative z-[3000] opacity-100"
     >
       {/* Backdrop */}
-      <div className="fixed inset-0 bg-black/60 z-[3000]" aria-hidden="true" />
+      <div className="fixed inset-0 bg-black/80 z-[3000]" aria-hidden="true" />
 
       {/* Panel container */}
       <div className="fixed inset-0 z-[3010] flex items-center justify-center p-4 opacity-100">
         <Dialog.Panel
-          className="relative w-full max-w-4xl max-h-[90vh] rounded-lg bg-modal text-modal-foreground shadow-2xl border border-border dark:border-white/10 opacity-100 isolate mix-blend-normal overflow-hidden"
+          className="relative w-full max-w-4xl max-h-[90vh] rounded-lg shadow-2xl border border-border dark:border-white/10 isolate overflow-hidden"
           style={{ backgroundColor: theme === "dark" ? "#111318" : "#ffffff" }}
         >
-          <div
-            className="absolute inset-0"
-            style={{
-              backgroundColor: theme === "dark" ? "#111318" : "#ffffff",
-            }}
-          />
           <div className="relative">
             {/* Header */}
             <div className="border-b px-6 py-4">

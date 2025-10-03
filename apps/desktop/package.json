@@ -25,16 +25,16 @@
     "keytar": "^7.9.0"
   },
   "devDependencies": {
+    "@tailwindcss/postcss": "^4.1.13",
     "@types/node": "^24.5.2",
     "concurrently": "^9.2.1",
-    "electron": "^38.1.2",
+    "electron": "^38.2.0",
     "electron-builder": "^26.0.12",
     "electron-rebuild": "^3.2.9",
     "electron-reload": "^2.0.0-alpha.1",
     "rimraf": "^6.0.1",
     "typescript": "^5.3.3",
     "wait-on": "^9.0.1",
-    "@tailwindcss/postcss": "^4.1.13",
     "icon-gen": "^3.0.1",
     "pngjs": "^7.0.0"
   },

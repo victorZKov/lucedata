@@ -36,7 +36,93 @@ import {
   AIProvider,
 } from "@sqlhelper/ai-integration";
 
+// ============================================================================
+// STARTUP LOGGING SYSTEM
+// ============================================================================
+// Create a dedicated log file that's accessible even if the app crashes
+const logFilePath = path.join(
+  app.getPath("temp"),
+  `sqlhelper-startup-${Date.now()}.log`
+);
+const logStream = fs.createWriteStream(logFilePath, { flags: "a" });
+
+function log(message: string, data?: any) {
+  const timestamp = new Date().toISOString();
+  const logMessage = `[${timestamp}] ${message}${data ? "\n" + JSON.stringify(data, null, 2) : ""}\n`;
+
+  // Write to file
+  logStream.write(logMessage);
+
+  // Also write to console
+  console.log(message, data || "");
+}
+
+function logError(message: string, error?: any) {
+  const timestamp = new Date().toISOString();
+  const errorDetails = error
+    ? {
+        message: error.message,
+        stack: error.stack,
+        name: error.name,
+        code: error.code,
+      }
+    : null;
+  const logMessage = `[${timestamp}] ❌ ERROR: ${message}${errorDetails ? "\n" + JSON.stringify(errorDetails, null, 2) : ""}\n`;
+
+  logStream.write(logMessage);
+  console.error(message, error || "");
+}
+
+// Log startup information
+log("=".repeat(80));
+log("SQL Helper Application Starting");
+log("=".repeat(80));
+log("Log file location:", { logFilePath });
+log("Platform:", {
+  platform: process.platform,
+  arch: process.arch,
+  version: process.version,
+  electronVersion: process.versions.electron,
+  chromeVersion: process.versions.chrome,
+});
+log("Environment:", {
+  NODE_ENV: process.env.NODE_ENV,
+  argv: process.argv,
+  cwd: process.cwd(),
+  execPath: process.execPath,
+});
+
+// Catch all unhandled errors
+process.on("uncaughtException", error => {
+  logError("Uncaught Exception", error);
+
+  // Show error dialog to user
+  dialog.showErrorBox(
+    "SQL Helper - Fatal Error",
+    `The application encountered a fatal error and cannot continue.\n\n` +
+      `Error: ${error.message}\n\n` +
+      `A detailed log has been saved to:\n${logFilePath}\n\n` +
+      `Please share this log file when reporting this issue.`
+  );
+
+  logStream.end(() => {
+    app.exit(1);
+  });
+});
+
+process.on("unhandledRejection", (reason, promise) => {
+  logError("Unhandled Promise Rejection", { reason, promise });
+});
+
+// Log when app is ready
+app.on("ready", () => {
+  log("✅ Electron app.ready event fired");
+});
+
+// ============================================================================
+
 // Set application name immediately and comprehensively
+log("Setting application name...");
 app.setName("SQL Helper");
 
 // On macOS, also set the app user model ID which can affect the display name
@@ -59,18 +145,20 @@ if (process.platform === "darwin") {
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+log("Application paths:", { __filename, __dirname });
 
 // Enable live reload for development
 if (process.env.NODE_ENV === "development") {
-  console.log("🔧 DEVELOPMENT MODE DETECTED");
+  log("🔧 DEVELOPMENT MODE DETECTED");
   try {
     const { default: electronReload } = await import("electron-reload");
     electronReload(__dirname, {
       electron: path.join(process.cwd(), "node_modules", ".bin", "electron"),
       hardResetMethod: "exit",
     });
+    log("✅ electron-reload enabled");
   } catch (_error) {
-    console.log("electron-reload not available");
+    log("⚠️ electron-reload not available");
   }
 }
 
@@ -83,18 +171,37 @@ interface StoreSchema {
 }
 
 // Initialize electron store for settings
-const store = new Store<StoreSchema>({
-  defaults: {
-    windowBounds: { width: 1200, height: 800 },
-    theme: "system",
-    telemetry: false,
-  },
-});
+log("Initializing electron-store...");
+let store: Store<StoreSchema>;
+try {
+  store = new Store<StoreSchema>({
+    defaults: {
+      windowBounds: { width: 1200, height: 800 },
+      theme: "system",
+      telemetry: false,
+    },
+  });
+  log("✅ electron-store initialized");
+} catch (error) {
+  logError("Failed to initialize electron-store", error);
+  throw error;
+}
 
 // Initialize local database
 const dbPath = path.join(app.getPath("userData"), "sqlhelper.db");
-console.log(`🔧 Database path: ${dbPath}`);
-const database = new LocalDatabase(dbPath);
+log(`Initializing database...`, {
+  dbPath,
+  userDataPath: app.getPath("userData"),
+});
+
+let database: LocalDatabase;
+try {
+  database = new LocalDatabase(dbPath);
+  log("✅ Database instance created");
+} catch (error) {
+  logError("Failed to create database instance", error);
+  throw error;
+}
 
 // Define interfaces for AI engines components
 interface IAIEnginesRepository {
@@ -120,10 +227,11 @@ const _enhancedAIManager = new EnhancedAIManager();
 const autonomousAIManager = new AutonomousAIManager();
 
 // Initialize database tables
+log("Initializing database tables...");
 database
   .initialize()
   .then(async () => {
-    console.log("Database initialized successfully");
+    log("✅ Database initialized successfully");
 
     // Test database persistence
     try {
@@ -186,38 +294,52 @@ console.log("🔧 Environment flags:", {
 });
 
 function createWindow(): void {
+  log("Creating main window...");
+
   // Get stored window bounds
   const { width, height } = (store as any).get("windowBounds") as {
     width: number;
     height: number;
   };
+  log("Window bounds:", { width, height });
 
   const preloadPath = path.join(__dirname, "preload.cjs");
-  console.log("🔧 Preload script path:", preloadPath);
-  console.log("🔧 Preload script exists:", fs.existsSync(preloadPath));
+  const preloadExists = fs.existsSync(preloadPath);
+  log("Preload script:", { preloadPath, exists: preloadExists });
+
+  if (!preloadExists) {
+    logError("Preload script not found!", { preloadPath, __dirname });
+  }
 
   // Create the browser window
-  mainWindow = new BrowserWindow({
-    width,
-    height,
-    minWidth: 800,
-    minHeight: 600,
-    title: "SQL Helper",
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: preloadPath,
-      webSecurity: !isDev,
-      sandbox: false, // Keep sandbox disabled to allow preload script
-    },
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
-    show: false, // Don't show until ready
-    icon: path.join(__dirname, "../assets/icon.png"),
-    movable: true,
-    resizable: true,
-    trafficLightPosition:
-      process.platform === "darwin" ? { x: 20, y: 16 } : undefined,
-  });
+  log("Creating BrowserWindow...");
+  try {
+    mainWindow = new BrowserWindow({
+      width,
+      height,
+      minWidth: 800,
+      minHeight: 600,
+      title: "SQL Helper",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        preload: preloadPath,
+        webSecurity: !isDev,
+        sandbox: false, // Keep sandbox disabled to allow preload script
+      },
+      titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+      show: false, // Don't show until ready
+      icon: path.join(__dirname, "../assets/icon.png"),
+      movable: true,
+      resizable: true,
+      trafficLightPosition:
+        process.platform === "darwin" ? { x: 20, y: 16 } : undefined,
+    });
+    log("✅ BrowserWindow created");
+  } catch (error) {
+    logError("Failed to create BrowserWindow", error);
+    throw error;
+  }
 
   // Add error handling for preload script
   mainWindow.webContents.on(
@@ -236,10 +358,13 @@ function createWindow(): void {
   // Load the app
   if (isDev) {
     const rendererUrl = process.env.RENDERER_URL || "http://localhost:3000";
-    console.log(`🌐 Loading development URL: ${rendererUrl}`);
-    mainWindow.loadURL(rendererUrl);
+    log(`Loading development URL: ${rendererUrl}`);
+    mainWindow.loadURL(rendererUrl).catch(error => {
+      logError("Failed to load development URL", error);
+    });
   } else {
-    console.log("📁 Loading production file");
+    log("Loading production renderer file...");
+
     // Resolve renderer build index.html when running unpackaged
     // Try to locate monorepo root (pnpm-workspace.yaml) and load apps/renderer/dist/index.html
     const findRepoRoot = (startDir: string) => {
@@ -255,6 +380,8 @@ function createWindow(): void {
     };
 
     const repoRoot = findRepoRoot(__dirname);
+    log("Repository root search:", { repoRoot, __dirname });
+
     const rendererCandidates = [
       path.join(app.getAppPath(), "dist", "renderer", "index.html"),
       path.resolve(app.getAppPath(), "../renderer/dist/index.html"),
@@ -269,19 +396,46 @@ function createWindow(): void {
       .filter((candidate): candidate is string => Boolean(candidate))
       .map(candidate => path.normalize(candidate));
 
+    log("Searching for renderer index.html...", {
+      appPath: app.getAppPath(),
+      resourcesPath: process.resourcesPath,
+      candidateCount: rendererCandidates.length,
+    });
+
+    // Check each candidate
+    const candidateStatus = rendererCandidates.map(candidate => ({
+      path: candidate,
+      exists: fs.existsSync(candidate),
+    }));
+    log("Candidate status:", candidateStatus);
+
     const toLoad = rendererCandidates.find(candidate =>
       fs.existsSync(candidate)
     );
 
     if (!toLoad) {
-      console.error("❌ Could not locate renderer index.html. Checked:", {
+      logError("❌ Could not locate renderer index.html", {
         rendererCandidates,
         __dirname,
+        appPath: app.getAppPath(),
+        resourcesPath: process.resourcesPath,
       });
+
+      // Show error dialog
+      dialog.showErrorBox(
+        "SQL Helper - Missing Renderer",
+        `Could not locate the application interface files.\n\n` +
+          `A detailed log has been saved to:\n${logFilePath}\n\n` +
+          `Please share this log file when reporting this issue.`
+      );
+
       throw new Error("Renderer bundle not found");
     }
-    console.log("🔧 Resolved renderer index:", toLoad);
-    mainWindow.loadFile(toLoad);
+
+    log("✅ Found renderer index.html:", toLoad);
+    mainWindow.loadFile(toLoad).catch(error => {
+      logError("Failed to load renderer file", error);
+    });
   }
 
   // Do not auto-open DevTools; only open when explicitly requested with --debug
@@ -636,6 +790,10 @@ function createMenu(): void {
 
 // App event handlers
 app.whenReady().then(() => {
+  log("=".repeat(80));
+  log("App Ready - Starting window creation");
+  log("=".repeat(80));
+
   // Ensure app name is set when ready (try multiple approaches)
   app.setName("SQL Helper");
 
@@ -643,13 +801,33 @@ app.whenReady().then(() => {
   if (process.platform === "darwin") {
     // Force the app name in the dock and menu bar
     try {
-      app.dock?.setIcon(path.join(__dirname, "../assets/icon.png"));
+      const iconPath = path.join(__dirname, "../assets/icon.png");
+      log("Setting dock icon:", { iconPath, exists: fs.existsSync(iconPath) });
+      app.dock?.setIcon(iconPath);
     } catch (error) {
-      console.log("Could not set dock icon:", error);
+      logError("Could not set dock icon", error);
     }
   }
 
-  createWindow();
+  try {
+    createWindow();
+    log("✅ Window creation completed");
+  } catch (error) {
+    logError("Failed to create window", error);
+
+    // Show error to user
+    dialog.showErrorBox(
+      "SQL Helper - Startup Failed",
+      `The application failed to start.\n\n` +
+        `Error: ${error instanceof Error ? error.message : String(error)}\n\n` +
+        `A detailed log has been saved to:\n${logFilePath}\n\n` +
+        `Please share this log file when reporting this issue.`
+    );
+
+    logStream.end(() => {
+      app.quit();
+    });
+  }
 
   // Create menu on all platforms
   setTimeout(() => {
@@ -709,6 +887,15 @@ ipcMain.handle("get-app-version", () => {
 
 ipcMain.handle("get-platform", () => {
   return process.platform;
+});
+
+ipcMain.handle("get-log-file-path", () => {
+  return logFilePath;
+});
+
+ipcMain.handle("open-log-file", () => {
+  shell.showItemInFolder(logFilePath);
+  return { success: true, path: logFilePath };
 });
 
 ipcMain.handle("store-get", (_: IpcMainInvokeEvent, key: string) => {

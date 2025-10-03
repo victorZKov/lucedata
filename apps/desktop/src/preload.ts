@@ -12,6 +12,8 @@ try {
     // App information
     getAppVersion: () => ipcRenderer.invoke("get-app-version"),
     getPlatform: () => ipcRenderer.invoke("get-platform"),
+    getLogFilePath: () => ipcRenderer.invoke("get-log-file-path"),
+    openLogFile: () => ipcRenderer.invoke("open-log-file"),
 
     // Store methods
     store: {

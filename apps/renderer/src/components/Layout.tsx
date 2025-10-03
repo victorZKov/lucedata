@@ -1025,6 +1025,7 @@ export default function Layout() {
                 className="flex-shrink-0 flex flex-col min-h-0 rounded-tr-xl border"
                 style={{
                   width: layout.chatWidth,
+                  height: "100%",
                   backgroundColor: "hsl(var(--background))",
                   color: "hsl(var(--foreground))",
                 }}
@@ -1092,7 +1093,14 @@ export default function Layout() {
                       connections={connections}
                     />
                   )}
-                  <div className="flex-1 min-h-0">
+                  <div
+                    className="flex-1 min-h-0"
+                    style={{
+                      height: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                    }}
+                  >
                     <ChatPanel />
                   </div>
                 </div>

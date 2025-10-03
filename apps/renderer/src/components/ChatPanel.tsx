@@ -537,7 +537,15 @@ export default function ChatPanel() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-background overflow-hidden">
+    <div
+      className="h-full flex flex-col bg-background"
+      style={{
+        height: "100%",
+        display: "flex",
+        flexDirection: "column",
+        overflow: "hidden",
+      }}
+    >
       <div className="p-3 border-b border-border flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
@@ -560,7 +568,13 @@ export default function ChatPanel() {
       {/* Chat Messages */}
       <div
         className="flex-1 overflow-y-auto overflow-x-hidden p-3"
-        style={{ minHeight: 0 }}
+        style={{
+          flex: "1 1 auto",
+          minHeight: 0,
+          maxHeight: "100%",
+          overflowY: "auto",
+          overflowX: "hidden",
+        }}
       >
         <div className="space-y-3">
           {messages.length === 0 ? (
@@ -874,7 +888,10 @@ export default function ChatPanel() {
       </div>
 
       {/* Chat Footer - Selectors and Input */}
-      <div className="p-3 border-t border-border space-y-3 flex-shrink-0 bg-background">
+      <div
+        className="p-3 border-t border-border space-y-3 flex-shrink-0 bg-background"
+        style={{ flexShrink: 0, paddingBottom: "16px" }}
+      >
         {/* Database Selector */}
         <div>
           <label className="block text-xs text-muted-foreground mb-1">

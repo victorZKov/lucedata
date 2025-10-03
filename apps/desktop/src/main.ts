@@ -235,7 +235,7 @@ function createWindow(): void {
 
   // Load the app
   if (isDev) {
-    const rendererUrl = process.env.RENDERER_URL || "http://localhost:5173";
+    const rendererUrl = process.env.RENDERER_URL || "http://localhost:3000";
     console.log(`🌐 Loading development URL: ${rendererUrl}`);
     mainWindow.loadURL(rendererUrl);
   } else {
@@ -689,7 +689,7 @@ app.on("web-contents-created", (_: Event, contents: WebContents) => {
 
     if (
       parsedUrl.origin !==
-        (process.env.RENDERER_URL || "http://localhost:5173") &&
+        (process.env.RENDERER_URL || "http://localhost:3000") &&
       parsedUrl.origin !== "file://"
     ) {
       event.preventDefault();

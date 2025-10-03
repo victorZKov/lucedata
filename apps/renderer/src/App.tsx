@@ -140,10 +140,17 @@ function App() {
     };
   }, []);
 
+  // Debug: Log when component renders
+  console.log("🔧 App component rendering...");
+
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <div className="h-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors">
+          <div style={{ padding: "20px", color: "red", fontSize: "18px" }}>
+            🔧 DEBUG: React App is rendering! ElectronAPI available:{" "}
+            {window.electronAPI ? "YES" : "NO"}
+          </div>
           <Layout />
           <AIEnginesDialog
             isOpen={showAIEnginesDialog}

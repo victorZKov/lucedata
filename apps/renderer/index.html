@@ -8,6 +8,18 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      console.log('🔧 index.html: Inline script executing');
+      console.log('🔧 ElectronAPI available:', !!window.electronAPI);
+      window.addEventListener('error', (e) => {
+        console.error('❌ Global error:', e.message, e.filename, e.lineno);
+        document.body.innerHTML += `<div style="color: red; padding: 10px; border: 2px solid red; margin: 10px;">
+          ERROR: ${e.message}<br>
+          File: ${e.filename}<br>
+          Line: ${e.lineno}
+        </div>`;
+      });
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

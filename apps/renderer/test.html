@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SQLHelper - Test</title>
+    <style>
+      body {
+        background-color: #1e1e1e;
+        color: white;
+        font-family: Arial, sans-serif;
+        padding: 20px;
+      }
+      h1 {
+        color: #4CAF50;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>✅ SQLHelper Test Page</h1>
+    <p>If you can see this, the Electron app is loading content from Vite successfully!</p>
+    <p>ElectronAPI available: <span id="electron-check">Checking...</span></p>
+    
+    <script>
+      document.getElementById('electron-check').textContent = 
+        window.electronAPI ? 'YES ✅' : 'NO ❌';
+      
+      console.log('🔧 Test page loaded');
+      console.log('🔧 ElectronAPI:', window.electronAPI);
+    </script>
+  </body>
+</html>

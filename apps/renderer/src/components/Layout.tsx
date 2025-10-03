@@ -63,14 +63,20 @@ export default function Layout() {
     const saved = localStorage.getItem("sqlhelper-layout");
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed = JSON.parse(saved);
+        // Enforce minimum widths
+        return {
+          ...parsed,
+          explorerWidth: Math.max(200, parsed.explorerWidth || 300),
+          chatWidth: Math.max(380, parsed.chatWidth || 420),
+        };
       } catch (_e) {
         console.warn("Failed to parse saved layout, using defaults");
       }
     }
     return {
       explorerWidth: 300,
-      chatWidth: 350,
+      chatWidth: 420,
       showExplorer: true,
       showChat: true,
     };
@@ -248,8 +254,8 @@ export default function Layout() {
   const handleChatResize = (delta: number) => {
     setLayout(prev => ({
       ...prev,
-      // For right-side panel: move left (negative delta) should NARROW chat
-      chatWidth: Math.max(200, Math.min(800, prev.chatWidth - delta)),
+      // For right-side panel: drag left (negative delta) widens chat, drag right (positive delta) narrows it
+      chatWidth: Math.max(380, Math.min(800, prev.chatWidth - delta)),
     }));
   };
 
@@ -470,7 +476,7 @@ export default function Layout() {
   const titleBarPadding = isMac ? "pl-[96px] pr-4" : "px-4"; // slightly closer to traffic lights
 
   return (
-    <div className="flex h-full bg-background text-foreground">
+    <div className="flex flex-col h-full w-full bg-background text-foreground">
       {/* Title Bar */}
       <div
         className={`fixed top-0 left-0 right-0 ${titleBarHeight} flex items-center justify-between ${titleBarPadding} z-50 select-none rounded-t-xl`}
@@ -903,23 +909,24 @@ export default function Layout() {
 
       {/* Main Content */}
       <div
-        className={`flex flex-1 ${isMac ? "pt-20" : "pt-21"} min-h-0 min-w-0 px-3`}
+        className="flex"
         style={{
-          paddingTop: toolbarExpanded
-            ? isMac
-              ? "104px"
-              : "108px" // Title bar + expanded toolbar (44 + 60)
-            : isMac
-              ? "84px"
-              : "88px", // Title bar + collapsed toolbar (44 + 40)
+          paddingLeft: "12px",
+          paddingRight: "12px",
+          paddingTop: toolbarExpanded ? "52px" : "32px",
+          paddingBottom: "82px",
+          height: "100vh",
+          overflow: "hidden",
         }}
       >
         {/* Rounded inner surface under the title bar */}
         <div
-          className="flex flex-1 rounded-t-2xl border-0 overflow-hidden"
+          className="flex flex-1 rounded-2xl border-0"
           style={{
             backgroundColor: "hsl(var(--background))",
             color: "hsl(var(--foreground))",
+            overflow: "hidden",
+            width: "100%",
           }}
         >
           {/* Explorer Panel */}
@@ -1022,9 +1029,11 @@ export default function Layout() {
                 className="border-l border-transparent"
               />
               <div
-                className="flex-shrink-0 flex flex-col min-h-0 rounded-tr-xl border"
+                className="flex-shrink-0 flex flex-col rounded-tr-xl border"
                 style={{
-                  width: layout.chatWidth,
+                  width: showSavedChats
+                    ? layout.chatWidth + 320
+                    : layout.chatWidth,
                   height: "100%",
                   backgroundColor: "hsl(var(--background))",
                   color: "hsl(var(--foreground))",
@@ -1083,7 +1092,10 @@ export default function Layout() {
                   </button>
                 </div>
                 {/* Chat Content */}
-                <div className="flex-1 min-h-0 flex overflow-hidden">
+                <div
+                  className="flex-1 flex overflow-hidden"
+                  style={{ height: "100%" }}
+                >
                   {showSavedChats && (
                     <SavedChatsPanel
                       isVisible={showSavedChats}
@@ -1094,11 +1106,12 @@ export default function Layout() {
                     />
                   )}
                   <div
-                    className="flex-1 min-h-0"
                     style={{
-                      height: "100%",
+                      flex: "1 1 auto",
                       display: "flex",
                       flexDirection: "column",
+                      height: "100%",
+                      overflow: "hidden",
                     }}
                   >
                     <ChatPanel />

@@ -2167,6 +2167,7 @@ ${activeTab.sql}
           currentQuery: activeTab.sql,
           activeTabTitle: activeTab.title,
           activeTabId: activeTab.id,
+          results: null, // No results context in this case
         },
       });
 
@@ -2469,8 +2470,12 @@ ${executionData.query}
                 rowCount: executionData.textPlan.length,
                 executionTime: executionData.executionTime || 0,
                 sampleData: [],
+                error: null,
+                connectionName: null,
+                database: null,
+                connectionType: null,
               }
-            : undefined,
+            : null,
         },
       });
       console.log("📨 Main AI request created, now racing with timeout...");

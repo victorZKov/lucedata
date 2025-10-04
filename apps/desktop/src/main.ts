@@ -864,6 +864,26 @@ function createMenu(): void {
               }
             },
           },
+          {
+            label: "Open Startup Log...",
+            click: () => {
+              console.log("Open Startup Log clicked from menu");
+              try {
+                // Reveal the log file in the system file manager
+                shell.showItemInFolder(logFilePath);
+              } catch (err) {
+                console.error("Failed to open startup log location:", err);
+              }
+
+              if (mainWindow) {
+                mainWindow.webContents.send(
+                  "menu-action",
+                  "open-startup-log",
+                  logFilePath
+                );
+              }
+            },
+          },
         ],
       },
     ];

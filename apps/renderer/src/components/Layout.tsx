@@ -132,7 +132,7 @@ export default function Layout() {
       window.electronAPI.getPlatform().then(setPlatform);
 
       // Listen for menu actions
-      window.electronAPI.onMenuAction((action: string) => {
+      window.electronAPI.onMenuAction((action: string, ...args: any[]) => {
         switch (action) {
           case "manage-ai-engines":
             // Open Settings dialog on AI Engines tab
@@ -160,6 +160,25 @@ export default function Layout() {
           case "show-version":
             setDialogs(prev => ({ ...prev, versionDialog: true }));
             break;
+          case "open-startup-log": {
+            (async () => {
+              try {
+                const logPath =
+                  (args && args[0]) ||
+                  (await (window as any).electronAPI.getLogFilePath());
+                const msg = `A startup log has been created at:\n${logPath}\n\nWould you like to open the folder containing this file?`;
+                if (window.confirm(msg)) {
+                  await (window as any).electronAPI.openLogFile();
+                }
+              } catch (err) {
+                console.error("Failed to open startup log:", err);
+                window.alert(
+                  `Could not open startup log location. The path is: ${String(err)}`
+                );
+              }
+            })();
+            break;
+          }
         }
       });
     }

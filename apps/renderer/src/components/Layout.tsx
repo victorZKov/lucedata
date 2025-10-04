@@ -914,7 +914,7 @@ export default function Layout() {
           paddingLeft: "12px",
           paddingRight: "12px",
           paddingTop: toolbarExpanded ? "52px" : "32px",
-          paddingBottom: "82px",
+          paddingBottom: "102px",
           height: "100vh",
           overflow: "hidden",
         }}

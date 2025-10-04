@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import Layout from "./components/Layout";
+import StatusBar from "./components/StatusBar";
 import AIEnginesDialog from "./components/AIEnginesDialog";
 import SettingsDialog from "./components/SettingsDialog";
 import FirstRunWizard from "./components/FirstRunWizard/FirstRunWizard";
@@ -21,7 +22,9 @@ function App() {
   const [showAIEnginesDialog, setShowAIEnginesDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
   const [showFirstRunWizard, setShowFirstRunWizard] = useState(false);
-  const [firstRunMode, setFirstRunMode] = useState<'first-run' | 'migrate'>('first-run');
+  const [firstRunMode, setFirstRunMode] = useState<"first-run" | "migrate">(
+    "first-run"
+  );
 
   useEffect(() => {
     // Check bootstrap / first-run status
@@ -56,13 +59,16 @@ function App() {
     // Listen for requests from other renderer components to open the first-run wizard
     const handleOpenFirstRunWizard = (ev?: Event) => {
       const custom = ev as CustomEvent<{ mode?: string }> | undefined;
-      const mode = custom?.detail?.mode === 'migrate' ? 'migrate' : 'first-run';
+      const mode = custom?.detail?.mode === "migrate" ? "migrate" : "first-run";
       setFirstRunMode(mode);
       // close settings dialog if open so the wizard can be interactive
       setShowSettingsDialog(false);
       setShowFirstRunWizard(true);
     };
-    document.addEventListener("open-first-run-wizard", handleOpenFirstRunWizard as EventListener);
+    document.addEventListener(
+      "open-first-run-wizard",
+      handleOpenFirstRunWizard as EventListener
+    );
 
     // Set up menu action handlers
     const handleMenuAction = (action: string, ...args: unknown[]) => {
@@ -163,8 +169,11 @@ function App() {
         "open-ai-engines-settings",
         handleOpenAIEnginesSettings
       );
-  document.removeEventListener("open-settings", handleOpenSettings);
-  document.removeEventListener("open-first-run-wizard", handleOpenFirstRunWizard as EventListener);
+      document.removeEventListener("open-settings", handleOpenSettings);
+      document.removeEventListener(
+        "open-first-run-wizard",
+        handleOpenFirstRunWizard as EventListener
+      );
       if (window.electronAPI) {
         window.electronAPI.removeAllListeners("menu-action");
       }
@@ -177,12 +186,26 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <div className="h-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors">
+        <div
+          className="h-screen overflow-hidden bg-[hsl(var(--background))] text-[hsl(var(--foreground))] transition-colors"
+          style={{ paddingBottom: 102 }}
+        >
           <div style={{ padding: "20px", color: "red", fontSize: "18px" }}>
             🔧 DEBUG: React App is rendering! ElectronAPI available:{" "}
             {window.electronAPI ? "YES" : "NO"}
           </div>
-          <Layout />
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              height: "calc(100vh - 0px)",
+            }}
+          >
+            <div style={{ flex: 1, overflow: "auto" }}>
+              <Layout />
+            </div>
+            <StatusBar />
+          </div>
           {showFirstRunWizard && (
             <FirstRunWizard
               mode={firstRunMode}

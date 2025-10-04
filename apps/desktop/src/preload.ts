@@ -11,6 +11,7 @@ try {
   contextBridge.exposeInMainWorld("electronAPI", {
     // App information
     getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+    getAppConfigInfo: () => ipcRenderer.invoke("app-config-info"),
     getPlatform: () => ipcRenderer.invoke("get-platform"),
     getLogFilePath: () => ipcRenderer.invoke("get-log-file-path"),
     openLogFile: () => ipcRenderer.invoke("open-log-file"),
@@ -312,11 +313,18 @@ try {
 
     // First-run wizard helpers
     firstRun: {
-      status: () => ipcRenderer.invoke('first-run-status'),
-      validate: (opts: { backend: string; connString?: string }) => ipcRenderer.invoke('first-run-validate', opts),
-      migrate: (opts: { backend: string; connString?: string; migrateExisting?: boolean }) => ipcRenderer.invoke('first-run-migrate', opts),
-      migrateFromSqlite: (opts: { backend: string; connString?: string }) => ipcRenderer.invoke('first-run-migrate-from-sqlite', opts),
-      complete: (opts: { backend: string }) => ipcRenderer.invoke('first-run-complete', opts),
+      status: () => ipcRenderer.invoke("first-run-status"),
+      validate: (opts: { backend: string; connString?: string }) =>
+        ipcRenderer.invoke("first-run-validate", opts),
+      migrate: (opts: {
+        backend: string;
+        connString?: string;
+        migrateExisting?: boolean;
+      }) => ipcRenderer.invoke("first-run-migrate", opts),
+      migrateFromSqlite: (opts: { backend: string; connString?: string }) =>
+        ipcRenderer.invoke("first-run-migrate-from-sqlite", opts),
+      complete: (opts: { backend: string }) =>
+        ipcRenderer.invoke("first-run-complete", opts),
     },
 
     // Chat functionality

@@ -298,10 +298,22 @@ declare global {
       };
       firstRun: {
         status: () => Promise<{ done: boolean; error?: string }>;
-        validate: (opts: { backend: string; connString?: string }) => Promise<{ ok: boolean; error?: string }>;
-        migrate: (opts: { backend: string; connString?: string; migrateExisting?: boolean }) => Promise<{ ok: boolean; error?: string }>;
-        migrateFromSqlite: (opts: { backend: string; connString?: string }) => Promise<{ ok: boolean; error?: string }>;
-        complete: (opts: { backend: string }) => Promise<{ ok: boolean; error?: string }>;
+        validate: (opts: {
+          backend: string;
+          connString?: string;
+        }) => Promise<{ ok: boolean; error?: string }>;
+        migrate: (opts: {
+          backend: string;
+          connString?: string;
+          migrateExisting?: boolean;
+        }) => Promise<{ ok: boolean; error?: string }>;
+        migrateFromSqlite: (opts: {
+          backend: string;
+          connString?: string;
+        }) => Promise<{ ok: boolean; error?: string }>;
+        complete: (opts: {
+          backend: string;
+        }) => Promise<{ ok: boolean; error?: string }>;
       };
       chat: {
         sendMessage: (params: {
@@ -442,6 +454,40 @@ declare global {
         }) => void
       ) => void;
       removeAllListeners: (channel: string) => void;
+      updates: {
+        checkForUpdates: () => Promise<{
+          available: boolean;
+          updateInfo?: any;
+          message?: string;
+          error?: string;
+        }>;
+        downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
+        installUpdate: () => void;
+        onUpdateChecking: (callback: () => void) => void;
+        onUpdateAvailable: (
+          callback: (info: {
+            version: string;
+            releaseDate?: string;
+            releaseNotes?: string;
+          }) => void
+        ) => void;
+        onUpdateNotAvailable: (
+          callback: (info: { version: string }) => void
+        ) => void;
+        onUpdateError: (callback: (info: { error: string }) => void) => void;
+        onDownloadProgress: (
+          callback: (progress: {
+            percent: number;
+            bytesPerSecond: number;
+            transferred: number;
+            total: number;
+          }) => void
+        ) => void;
+        onUpdateDownloaded: (
+          callback: (info: { version: string }) => void
+        ) => void;
+        removeAllListeners: () => void;
+      };
     };
   }
 }

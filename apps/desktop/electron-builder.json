@@ -1,6 +1,6 @@
 {
-  "appId": "dev.sqlhelper.app",
-  "productName": "SQL Helper",
+  "appId": "com.lucedata.app",
+  "productName": "LuceData",
   "directories": {
     "output": "../../release",
     "buildResources": "assets"
@@ -90,8 +90,7 @@
     ]
   },
   "publish": {
-    "provider": "github",
-    "owner": "sqlhelper",
-    "repo": "sqlhelper"
+    "provider": "generic",
+    "url": "https://nedevcolst01.z16.web.core.windows.net"
   }
 }

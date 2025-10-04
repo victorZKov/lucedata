@@ -431,6 +431,54 @@ try {
         callback(tabData);
       });
     },
+
+    // Auto-update methods
+    updates: {
+      checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+      downloadUpdate: () => ipcRenderer.invoke("download-update"),
+      installUpdate: () => ipcRenderer.invoke("install-update"),
+      onUpdateChecking: (callback: () => void) => {
+        ipcRenderer.on("update-checking", () => callback());
+      },
+      onUpdateAvailable: (
+        callback: (info: {
+          version: string;
+          releaseDate?: string;
+          releaseNotes?: string;
+        }) => void
+      ) => {
+        ipcRenderer.on("update-available", (_, info) => callback(info));
+      },
+      onUpdateNotAvailable: (callback: (info: { version: string }) => void) => {
+        ipcRenderer.on("update-not-available", (_, info) => callback(info));
+      },
+      onUpdateError: (callback: (info: { error: string }) => void) => {
+        ipcRenderer.on("update-error", (_, info) => callback(info));
+      },
+      onDownloadProgress: (
+        callback: (progress: {
+          percent: number;
+          bytesPerSecond: number;
+          transferred: number;
+          total: number;
+        }) => void
+      ) => {
+        ipcRenderer.on("update-download-progress", (_, progress) =>
+          callback(progress)
+        );
+      },
+      onUpdateDownloaded: (callback: (info: { version: string }) => void) => {
+        ipcRenderer.on("update-downloaded", (_, info) => callback(info));
+      },
+      removeAllListeners: () => {
+        ipcRenderer.removeAllListeners("update-checking");
+        ipcRenderer.removeAllListeners("update-available");
+        ipcRenderer.removeAllListeners("update-not-available");
+        ipcRenderer.removeAllListeners("update-error");
+        ipcRenderer.removeAllListeners("update-download-progress");
+        ipcRenderer.removeAllListeners("update-downloaded");
+      },
+    },
   });
   console.log("✅ ElectronAPI exposed successfully to window.electronAPI");
 

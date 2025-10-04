@@ -3287,7 +3287,7 @@ ipcMain.handle(
       let source: any;
       try {
         source = await loadDbAdapter("sqlite", { filename: dbPath });
-      } catch (e) {
+      } catch (_e) {
         const { LocalDatabase: LD } = await import("@sqlhelper/storage");
         source = new LD(dbPath);
       }
@@ -3449,39 +3449,92 @@ ipcMain.handle("ollama-fetch-models", async (_, baseUrl?: string) => {
   }
 });
 
+// Auto-updater configuration
+autoUpdater.autoDownload = false; // Don't auto-download, let user decide
+autoUpdater.autoInstallOnAppQuit = true; // Auto-install on quit if downloaded
+
 // Auto-updater events
 autoUpdater.on("checking-for-update", () => {
-  console.log("Checking for update...");
+  console.log("🔍 Checking for updates...");
+  mainWindow?.webContents.send("update-checking");
 });
 
 autoUpdater.on("update-available", (info: any) => {
-  console.log("Update available.", info);
+  console.log("✨ Update available:", info.version);
+  mainWindow?.webContents.send("update-available", {
+    version: info.version,
+    releaseDate: info.releaseDate,
+    releaseNotes: info.releaseNotes,
+  });
 });
 
 autoUpdater.on("update-not-available", (info: any) => {
-  console.log("Update not available.", info);
+  console.log("✅ App is up to date:", info.version);
+  mainWindow?.webContents.send("update-not-available", {
+    version: info.version,
+  });
 });
 
 autoUpdater.on("error", (err: any) => {
-  console.log("Error in auto-updater. " + err);
+  console.error("❌ Error in auto-updater:", err);
+  mainWindow?.webContents.send("update-error", {
+    error: err.message || String(err),
+  });
 });
 
 autoUpdater.on("download-progress", (progressObj: any) => {
-  let log_message = "Download speed: " + progressObj.bytesPerSecond;
-  log_message = log_message + " - Downloaded " + progressObj.percent + "%";
-  log_message =
-    log_message +
-    " (" +
-    progressObj.transferred +
-    "/" +
-    progressObj.total +
-    ")";
-  console.log(log_message);
+  const percent = Math.round(progressObj.percent);
+  console.log(
+    `⬇️  Downloading update: ${percent}% (${progressObj.bytesPerSecond} bytes/sec)`
+  );
+  mainWindow?.webContents.send("update-download-progress", {
+    percent,
+    bytesPerSecond: progressObj.bytesPerSecond,
+    transferred: progressObj.transferred,
+    total: progressObj.total,
+  });
 });
 
 autoUpdater.on("update-downloaded", (info: any) => {
-  console.log("Update downloaded", info);
-  autoUpdater.quitAndInstall();
+  console.log("✅ Update downloaded successfully:", info.version);
+  mainWindow?.webContents.send("update-downloaded", {
+    version: info.version,
+  });
+});
+
+// IPC handlers for update control
+ipcMain.handle("check-for-updates", async () => {
+  if (isDev) {
+    return {
+      available: false,
+      message: "Updates disabled in development mode",
+    };
+  }
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return {
+      available: result !== null,
+      updateInfo: result?.updateInfo,
+    };
+  } catch (error: any) {
+    console.error("Error checking for updates:", error);
+    return { available: false, error: error.message };
+  }
+});
+
+ipcMain.handle("download-update", async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+    return { success: true };
+  } catch (error: any) {
+    console.error("Error downloading update:", error);
+    return { success: false, error: error.message };
+  }
+});
+
+ipcMain.handle("install-update", () => {
+  // This will quit the app and install the update
+  autoUpdater.quitAndInstall(false, true);
 });
 
 export { mainWindow };

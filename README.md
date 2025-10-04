@@ -68,6 +68,24 @@ This is a monorepo structured as follows:
 
 **Note:** The desktop app and website are completely separate and can run simultaneously.
 
+## Auto-Update System
+
+LuceData includes automatic update functionality:
+
+- **Automatic Checks**: App checks for updates on launch
+- **User Control**: Updates require user approval before downloading
+- **Progress Tracking**: Visual feedback during download and installation
+- **Azure Storage**: Updates hosted on Azure Storage for reliability
+
+**Deploying Updates:**
+
+```bash
+# Build and deploy new version to Azure Storage
+./deploy-update.sh
+```
+
+See [AZURE_UPDATE_DEPLOYMENT.md](AZURE_UPDATE_DEPLOYMENT.md) for detailed deployment instructions and [AUTO_UPDATE_IMPLEMENTATION.md](AUTO_UPDATE_IMPLEMENTATION.md) for technical details.
+
 ## Security & Privacy
 
 - **Read-only by default**: AI-generated SQL requires explicit user action to execute

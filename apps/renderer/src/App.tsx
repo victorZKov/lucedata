@@ -6,6 +6,7 @@ import StatusBar from "./components/StatusBar";
 import AIEnginesDialog from "./components/AIEnginesDialog";
 import SettingsDialog from "./components/SettingsDialog";
 import FirstRunWizard from "./components/FirstRunWizard/FirstRunWizard";
+import { UpdateNotification } from "./components/UpdateNotification";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 // Create a client
@@ -226,6 +227,7 @@ function App() {
               setShowSettingsDialog(false);
             }}
           />
+          <UpdateNotification />
         </div>
       </ThemeProvider>
     </QueryClientProvider>

@@ -52,11 +52,21 @@ This is a monorepo structured as follows:
 
 ### Available Scripts
 
-- `pnpm dev` - Start all development servers
+**Desktop Application:**
+
+- `./dev.sh` - Start desktop app development (Electron + Vite renderer)
+- `./dev.sh prod` - Build and run desktop app in production mode
 - `pnpm build` - Build all packages
 - `pnpm test` - Run all tests
 - `pnpm lint` - Lint all code
 - `pnpm format` - Format code with Prettier
+
+**Product Website:**
+
+- `./runwebsite.sh` - Start the Next.js marketing website (port 3000)
+- See `website/README.md` for more details
+
+**Note:** The desktop app and website are completely separate and can run simultaneously.
 
 ## Security & Privacy
 

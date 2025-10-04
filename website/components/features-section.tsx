@@ -1,26 +1,46 @@
-import { Bot, Database, GitBranch, Grid3x3, Lock, Monitor, PenTool, TreePine } from "lucide-react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Bot,
+  Database,
+  GitBranch,
+  Grid3x3,
+  Lock,
+  Monitor,
+  PenTool,
+  TreePine,
+} from "lucide-react";
+
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 const features = [
   {
     icon: Bot,
     title: "BYOM — Bring Your Own Model",
-    description: "In beta, connect your own AI model — OpenAI, Azure OpenAI, Anthropic Claude, Google Gemini, or even local Ollama. Commercial version will include a custom, database-specialized model updated weekly.",
+    description:
+      "In beta, connect your own AI model — OpenAI, Azure OpenAI, Anthropic Claude, Google Gemini, or even local Ollama. Commercial version will include a custom, database-specialized model updated weekly.",
   },
   {
     icon: Database,
     title: "Multiple Databases",
-    description: "SQL Server, PostgreSQL, and SQLite supported today. Oracle and MySQL are on the way.",
+    description:
+      "SQL Server, PostgreSQL, and SQLite supported today. Oracle and MySQL are on the way.",
   },
   {
     icon: TreePine,
     title: "Visual Explorer",
-    description: "Servers, schemas, tables, columns, keys, triggers, and indexes presented in a modern tree view.",
+    description:
+      "Servers, schemas, tables, columns, keys, triggers, and indexes presented in a modern tree view.",
   },
   {
     icon: PenTool,
     title: "Smart SQL Editor",
-    description: "Monaco-based editor with formatting, linting, autocomplete, and split views.",
+    description:
+      "Monaco-based editor with formatting, linting, autocomplete, and split views.",
   },
   {
     icon: Grid3x3,
@@ -30,19 +50,22 @@ const features = [
   {
     icon: GitBranch,
     title: "AI Assistant — You're in Control",
-    description: "AI proposes SQL queries; you approve and execute them. Every query runs with the permissions you've configured for each connection.",
+    description:
+      "AI proposes SQL queries; you approve and execute them. Every query runs with the permissions you've configured for each connection.",
   },
   {
     icon: Lock,
     title: "Full Power, with Safeguards",
-    description: "Execute DDL (CREATE, ALTER, DROP) and DML (INSERT, UPDATE, DELETE) operations — all under your control. Every write operation requires confirmation.",
+    description:
+      "Execute DDL (CREATE, ALTER, DROP) and DML (INSERT, UPDATE, DELETE) operations — all under your control. Every write operation requires confirmation.",
   },
   {
     icon: Monitor,
     title: "Cross-Platform",
-    description: "Native installers for macOS and Windows with automatic updates. Linux support coming soon.",
+    description:
+      "Native installers for macOS and Windows with automatic updates. Linux support coming soon.",
   },
-]
+];
 
 export function FeaturesSection() {
   return (
@@ -53,15 +76,20 @@ export function FeaturesSection() {
             Everything you need to manage databases
           </h2>
           <p className="text-lg text-muted-foreground">
-            Built for developers, DBAs, and data engineers who demand power and simplicity.
+            Built for developers, DBAs, and data engineers who demand power and
+            simplicity.
           </p>
         </div>
 
         <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
           {features.map((feature, index) => (
-            <Card key={index} className="border-muted hover:border-foreground/20 transition-all">
+            <Card
+              key={index}
+              className="border-muted hover:border-foreground/20 transition-all"
+            >
               <CardHeader>
                 <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+                  {/* @ts-expect-error - React 18/19 type compatibility */}
                   <feature.icon className="h-6 w-6 text-primary" />
                 </div>
                 <CardTitle className="text-xl">{feature.title}</CardTitle>
@@ -76,5 +104,5 @@ export function FeaturesSection() {
         </div>
       </div>
     </section>
-  )
+  );
 }

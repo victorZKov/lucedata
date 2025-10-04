@@ -1,6 +1,13 @@
-import { Card } from "@/components/ui/card"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Code as Code2, Database, MessageSquare, FolderTree } from "lucide-react"
+import {
+  Code as Code2,
+  Database,
+  MessageSquare,
+  FolderTree,
+} from "lucide-react";
+import Image from "next/image";
+
+import { Card } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function DemoSection() {
   return (
@@ -37,61 +44,98 @@ export function DemoSection() {
 
           <TabsContent value="editor" className="mt-8">
             <Card className="overflow-hidden border-2">
-              <div className="aspect-video bg-gradient-to-br from-slate-900 to-slate-800 p-8 flex items-center justify-center">
-                <div className="text-center space-y-4">
-                  <Code2 className="h-16 w-16 mx-auto text-blue-400" />
-                  <p className="text-white text-lg font-medium">Monaco-based SQL Editor</p>
-                  <p className="text-slate-300 text-sm max-w-md">
-                    Syntax highlighting, autocomplete, formatting, linting, and split views for efficient query development.
-                  </p>
-                </div>
+              <div className="relative aspect-video bg-slate-900">
+                {/* @ts-expect-error - React 18/19 type compatibility */}
+                <Image
+                  src="/assets/monaco-editor.png"
+                  alt="Monaco-based SQL Editor with syntax highlighting, autocomplete, and formatting"
+                  fill
+                  className="object-contain"
+                  priority
+                />
+              </div>
+              <div className="p-6 bg-slate-50 border-t">
+                <p className="text-lg font-medium text-slate-900 mb-2">
+                  Monaco-based SQL Editor
+                </p>
+                <p className="text-slate-600 text-sm">
+                  Syntax highlighting, autocomplete, formatting, linting, and
+                  split views for efficient query development.
+                </p>
               </div>
             </Card>
           </TabsContent>
 
           <TabsContent value="assistant" className="mt-8">
             <Card className="overflow-hidden border-2">
-              <div className="aspect-video bg-gradient-to-br from-emerald-900 to-emerald-800 p-8 flex items-center justify-center">
-                <div className="text-center space-y-4">
-                  <MessageSquare className="h-16 w-16 mx-auto text-emerald-400" />
-                  <p className="text-white text-lg font-medium">AI Chat Assistant</p>
-                  <p className="text-emerald-100 text-sm max-w-md">
-                    Ask questions in plain English and get SQL queries back, grounded in your schema with built-in safety guardrails.
-                  </p>
-                </div>
+              <div className="relative aspect-video bg-slate-900">
+                {/* @ts-expect-error - React 18/19 type compatibility */}
+                <Image
+                  src="/assets/aichat-assistant.png"
+                  alt="AI Chat Assistant for SQL queries with natural language understanding"
+                  fill
+                  className="object-contain"
+                />
+              </div>
+              <div className="p-6 bg-emerald-50 border-t">
+                <p className="text-lg font-medium text-emerald-900 mb-2">
+                  AI Chat Assistant
+                </p>
+                <p className="text-emerald-700 text-sm">
+                  Ask questions in plain English and get SQL queries back,
+                  grounded in your schema with built-in safety guardrails.
+                </p>
               </div>
             </Card>
           </TabsContent>
 
           <TabsContent value="explorer" className="mt-8">
             <Card className="overflow-hidden border-2">
-              <div className="aspect-video bg-gradient-to-br from-amber-900 to-amber-800 p-8 flex items-center justify-center">
-                <div className="text-center space-y-4">
-                  <FolderTree className="h-16 w-16 mx-auto text-amber-400" />
-                  <p className="text-white text-lg font-medium">Visual Schema Explorer</p>
-                  <p className="text-amber-100 text-sm max-w-md">
-                    Navigate servers, databases, schemas, tables, columns, keys, indexes, and constraints in an intuitive tree view.
-                  </p>
-                </div>
+              <div className="relative aspect-video bg-slate-900">
+                {/* @ts-expect-error - React 18/19 type compatibility */}
+                <Image
+                  src="/assets/schema-explorer.png"
+                  alt="Visual Schema Explorer with tree view of databases, tables, and columns"
+                  fill
+                  className="object-contain"
+                />
+              </div>
+              <div className="p-6 bg-amber-50 border-t">
+                <p className="text-lg font-medium text-amber-900 mb-2">
+                  Visual Schema Explorer
+                </p>
+                <p className="text-amber-700 text-sm">
+                  Navigate servers, databases, schemas, tables, columns, keys,
+                  indexes, and constraints in an intuitive tree view.
+                </p>
               </div>
             </Card>
           </TabsContent>
 
           <TabsContent value="results" className="mt-8">
             <Card className="overflow-hidden border-2">
-              <div className="aspect-video bg-gradient-to-br from-cyan-900 to-cyan-800 p-8 flex items-center justify-center">
-                <div className="text-center space-y-4">
-                  <Database className="h-16 w-16 mx-auto text-cyan-400" />
-                  <p className="text-white text-lg font-medium">Results Grid</p>
-                  <p className="text-cyan-100 text-sm max-w-md">
-                    Resizable columns, filtering, sorting, and one-click export to CSV for easy data analysis.
-                  </p>
-                </div>
+              <div className="relative aspect-video bg-slate-900">
+                {/* @ts-expect-error - React 18/19 type compatibility */}
+                <Image
+                  src="/assets/results-grid.png"
+                  alt="Results Grid with resizable columns, filtering, and sorting"
+                  fill
+                  className="object-contain"
+                />
+              </div>
+              <div className="p-6 bg-cyan-50 border-t">
+                <p className="text-lg font-medium text-cyan-900 mb-2">
+                  Results Grid
+                </p>
+                <p className="text-cyan-700 text-sm">
+                  Resizable columns, filtering, sorting, and one-click export to
+                  CSV for easy data analysis.
+                </p>
               </div>
             </Card>
           </TabsContent>
         </Tabs>
       </div>
     </section>
-  )
+  );
 }

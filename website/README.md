@@ -8,6 +8,15 @@ The website is **separate from the main desktop app workspace** to avoid build c
 
 ### Development Server
 
+**Option 1: Use the dedicated script (Recommended)**
+
+```bash
+# From the project root
+./runwebsite.sh
+```
+
+**Option 2: Run manually**
+
 ```bash
 # From the project root
 cd website && pnpm install && pnpm dev

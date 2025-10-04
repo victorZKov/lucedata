@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import Layout from "./components/Layout";
 import AIEnginesDialog from "./components/AIEnginesDialog";
 import SettingsDialog from "./components/SettingsDialog";
+import FirstRunWizard from "./components/FirstRunWizard/FirstRunWizard";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
 // Create a client
@@ -19,8 +20,23 @@ const queryClient = new QueryClient({
 function App() {
   const [showAIEnginesDialog, setShowAIEnginesDialog] = useState(false);
   const [showSettingsDialog, setShowSettingsDialog] = useState(false);
+  const [showFirstRunWizard, setShowFirstRunWizard] = useState(false);
+  const [firstRunMode, setFirstRunMode] = useState<'first-run' | 'migrate'>('first-run');
 
   useEffect(() => {
+    // Check bootstrap / first-run status
+    (async () => {
+      try {
+        if (window.electronAPI) {
+          const done = await window.electronAPI.store.get("bootstrap.done");
+          console.log("First-run bootstrap.done:", done);
+          if (!done) setShowFirstRunWizard(true);
+        }
+      } catch (e) {
+        console.warn("Could not read bootstrap status", e);
+      }
+    })();
+
     // Listen for AI engines dialog events
     const handleOpenAIEnginesSettings = () => {
       setShowAIEnginesDialog(true);
@@ -37,10 +53,22 @@ function App() {
     );
 
     document.addEventListener("open-settings", handleOpenSettings);
+    // Listen for requests from other renderer components to open the first-run wizard
+    const handleOpenFirstRunWizard = (ev?: Event) => {
+      const custom = ev as CustomEvent<{ mode?: string }> | undefined;
+      const mode = custom?.detail?.mode === 'migrate' ? 'migrate' : 'first-run';
+      setFirstRunMode(mode);
+      // close settings dialog if open so the wizard can be interactive
+      setShowSettingsDialog(false);
+      setShowFirstRunWizard(true);
+    };
+    document.addEventListener("open-first-run-wizard", handleOpenFirstRunWizard as EventListener);
 
     // Set up menu action handlers
     const handleMenuAction = (action: string, ...args: unknown[]) => {
       console.log("Menu action:", action, args);
+
+      // migrate-configuration will be handled in the switch below
 
       switch (action) {
         case "new-connection":
@@ -124,7 +152,9 @@ function App() {
 
     // Set up the menu action listener
     if (window.electronAPI) {
-      window.electronAPI.onMenuAction(handleMenuAction);
+      // typed callback for the preload API
+      type MenuActionCallback = (action: string, ...args: unknown[]) => void;
+      window.electronAPI.onMenuAction(handleMenuAction as MenuActionCallback);
     }
 
     // Cleanup
@@ -133,7 +163,8 @@ function App() {
         "open-ai-engines-settings",
         handleOpenAIEnginesSettings
       );
-      document.removeEventListener("open-settings", handleOpenSettings);
+  document.removeEventListener("open-settings", handleOpenSettings);
+  document.removeEventListener("open-first-run-wizard", handleOpenFirstRunWizard as EventListener);
       if (window.electronAPI) {
         window.electronAPI.removeAllListeners("menu-action");
       }
@@ -152,6 +183,12 @@ function App() {
             {window.electronAPI ? "YES" : "NO"}
           </div>
           <Layout />
+          {showFirstRunWizard && (
+            <FirstRunWizard
+              mode={firstRunMode}
+              onClose={() => setShowFirstRunWizard(false)}
+            />
+          )}
           <AIEnginesDialog
             isOpen={showAIEnginesDialog}
             onClose={() => {

@@ -148,6 +148,15 @@ try {
     fetchModels: (baseUrl) => ipcRenderer.invoke("ollama-fetch-models", baseUrl),
   },
 
+  // First-run wizard helpers
+  firstRun: {
+    status: () => ipcRenderer.invoke('first-run-status'),
+    validate: (opts) => ipcRenderer.invoke('first-run-validate', opts),
+    migrate: (opts) => ipcRenderer.invoke('first-run-migrate', opts),
+    migrateFromSqlite: (opts) => ipcRenderer.invoke('first-run-migrate-from-sqlite', opts),
+    complete: (opts) => ipcRenderer.invoke('first-run-complete', opts),
+  },
+
   // Chat functionality
   chat: {
     sendMessage: (params) => ipcRenderer.invoke("chat-send-message", params),

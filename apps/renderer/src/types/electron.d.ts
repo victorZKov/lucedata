@@ -296,6 +296,13 @@ declare global {
       ollama: {
         fetchModels: (baseUrl?: string) => Promise<string[]>;
       };
+      firstRun: {
+        status: () => Promise<{ done: boolean; error?: string }>;
+        validate: (opts: { backend: string; connString?: string }) => Promise<{ ok: boolean; error?: string }>;
+        migrate: (opts: { backend: string; connString?: string; migrateExisting?: boolean }) => Promise<{ ok: boolean; error?: string }>;
+        migrateFromSqlite: (opts: { backend: string; connString?: string }) => Promise<{ ok: boolean; error?: string }>;
+        complete: (opts: { backend: string }) => Promise<{ ok: boolean; error?: string }>;
+      };
       chat: {
         sendMessage: (params: {
           message: string;

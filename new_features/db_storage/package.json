@@ -1,0 +1,12 @@
+{
+  "name": "sqlhelper-db-storage-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:pg": "node test_postgres_adapter.mjs"
+  },
+  "devDependencies": {
+    "pg": "^8.11.0",
+    "pg-mem": "^2.1.0"
+  }
+}

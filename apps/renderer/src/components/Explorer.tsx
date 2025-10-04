@@ -159,6 +159,7 @@ export default function Explorer() {
   const [connectionStates, setConnectionStates] = useState<
     Map<string, ConnectionState>
   >(new Map());
+  const [expandedErrorMap, setExpandedErrorMap] = useState<Map<string, boolean>>(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [apiReady, setApiReady] = useState(false);
   const [isElectronEnv, setIsElectronEnv] = useState(false);
@@ -868,35 +869,10 @@ export default function Explorer() {
       console.log(`Refreshing ${nodeType} node: ${nodeKey}`);
 
       switch (nodeType) {
-        case "connection": {
-          // Refresh the entire schema for the connection
-          const rawSchemaData =
-            await window.electronAPI.database.getSchema(connectionId);
-          const schemaData = processSchemaDataForSqlServer(
-            rawSchemaData,
-            connectionState.connection.type
-          );
-
-          setConnectionStates(prev => {
-            const newStates = new Map(prev);
-            const state = newStates.get(connectionId);
-            if (state) {
-              newStates.set(connectionId, {
-                ...state,
-                schemaData,
-                // Keep existing expanded nodes to maintain user's view state
-                expandedNodes: state.expandedNodes,
-              });
-            }
-            return newStates;
-          });
-          break;
-        }
-
+        case "connection":
         case "database":
         case "schema": {
-          // For database and schema nodes, refresh the entire schema
-          // The schema loading will include all databases and their contents
+          // Refresh the entire schema for the connection (keeps UI simpler)
           const rawSchemaData =
             await window.electronAPI.database.getSchema(connectionId);
           const schemaData = processSchemaDataForSqlServer(
@@ -1078,72 +1054,21 @@ export default function Explorer() {
     title: string,
     sql: string
   ) => {
-    if (!ctx.connId) return;
+    // Keep title unique to avoid collisions
+    const uniqueTitle = `${title}_${Date.now()}`;
     const detail = {
-      connectionId: ctx.connId!,
-      connectionType: ctx.type,
-      connectionName: ctx.connName,
-      database: ctx.db,
+      connId: ctx.connId,
+      type: ctx.type,
+      connName: ctx.connName,
+      db: ctx.db,
       schema: ctx.schema,
-      title,
+      title: uniqueTitle,
       sql,
     };
     document.dispatchEvent(new CustomEvent("open-sql-script", { detail }));
   };
 
-  // Helpers: fetch routine definition (SQL Server only for now)
-  const fetchRoutineDefinition = async (ctx: {
-    connId?: string;
-    schema?: string;
-    routine?: string;
-    type?: string;
-    routineType?: "view" | "procedure" | "function" | "trigger";
-  }) => {
-    if (!ctx.connId || !ctx.schema || !ctx.routine) return "-- Missing context";
-    const ident = (n: string) =>
-      ctx.type === "sqlserver" ? `[${n}]` : `"${n}"`;
-    try {
-      if (ctx.type === "sqlserver") {
-        const qualified = `${ident(ctx.schema)}.${ident(ctx.routine)}`;
-        const q = `SELECT OBJECT_DEFINITION(OBJECT_ID('${ctx.schema}.${ctx.routine}')) AS definition;`;
-        const res = await window.electronAPI?.database?.executeQuery(
-          ctx.connId,
-          q
-        );
-        let def = res?.rows?.[0]?.definition as string | undefined;
-
-        if (def && def.trim()) {
-          // Convert CREATE to ALTER for editing
-          if (ctx.routineType === "procedure") {
-            // More robust regex to handle various whitespace and newlines
-            def = def.replace(
-              /^(\s*)CREATE(\s+)PROCEDURE/im,
-              "$1ALTER$2PROCEDURE"
-            );
-          } else if (ctx.routineType === "function") {
-            def = def.replace(
-              /^(\s*)CREATE(\s+)FUNCTION/im,
-              "$1ALTER$2FUNCTION"
-            );
-          } else if (ctx.routineType === "trigger") {
-            // For triggers, we might want to show a DROP and CREATE pattern
-            // since ALTER TRIGGER has limited functionality
-            def = `-- To modify this trigger, drop and recreate it\n${def.replace(/^(\s*)CREATE(\s+)TRIGGER/im, `$1DROP TRIGGER ${qualified};\nGO\n\n$1CREATE$2TRIGGER`)}`;
-          } else if (ctx.routineType === "view") {
-            // Convert CREATE to ALTER for views
-            def = def.replace(/^(\s*)CREATE(\s+)VIEW/im, "$1ALTER$2VIEW");
-          }
-          return def;
-        }
-        return `-- No definition found for ${qualified}`;
-      }
-      return `-- Scripting not yet implemented for ${ctx.type}`;
-    } catch (e: any) {
-      return `-- Failed to fetch definition: ${e?.message || String(e)}`;
-    }
-  };
-
-  // Helpers: basic CREATE TABLE script (SQL Server)
+  // Helpers: basic CREATE TABLE script (multi-dialect)
   const generateCreateTableScript = async (ctx: {
     connId?: string;
     schema?: string;
@@ -1151,59 +1076,179 @@ export default function Explorer() {
     type?: string;
   }) => {
     if (!ctx.connId || !ctx.schema || !ctx.table) return "-- Missing context";
-    const ident = (n: string) =>
-      ctx.type === "sqlserver" ? `[${n}]` : `"${n}"`;
+
+    const quoteIdent = (n: string) => (ctx.type === "sqlserver" ? `[${n}]` : `"${n}"`);
+
     try {
-      if (ctx.type === "sqlserver") {
-        const qi = `SELECT c.COLUMN_NAME AS name, c.DATA_TYPE AS dataType, c.CHARACTER_MAXIMUM_LENGTH AS maxLength, c.NUMERIC_PRECISION AS precision, c.NUMERIC_SCALE AS scale, c.IS_NULLABLE AS isNullable, c.COLUMN_DEFAULT AS columnDefault FROM INFORMATION_SCHEMA.COLUMNS c WHERE c.TABLE_SCHEMA = '${ctx.schema}' AND c.TABLE_NAME = '${ctx.table}' ORDER BY c.ORDINAL_POSITION;`;
-        const res2 = await window.electronAPI?.database?.executeQuery(
+      // Fetch column metadata using provider API which should normalize across DBs
+      let columns: any[] = [];
+      try {
+        columns = (await window.electronAPI.database.getColumns?.(
           ctx.connId,
-          qi
-        );
-        const rows = (res2?.rows as any[]) || [];
-        const lines = rows.map(col => {
-          const name = ident(col.name);
-          const dt = String(col.dataType).toLowerCase();
-          let typeSpec = dt;
-          if (
-            [
-              "varchar",
-              "nvarchar",
-              "char",
-              "nchar",
-              "binary",
-              "varbinary",
-            ].includes(dt)
-          ) {
-            const len = col.maxLength;
-            const lenStr =
-              len === -1 || len === "max"
-                ? "MAX"
-                : len
-                  ? String(len)
-                  : undefined;
-            if (lenStr) typeSpec = `${dt}(${lenStr})`;
+          ctx.table,
+          ctx.schema
+        )) as any[];
+      } catch (err) {
+        // Fallback: for SQL Server legacy code path, try INFORMATION_SCHEMA
+        if (ctx.type === "sqlserver") {
+          const qi = `SELECT c.COLUMN_NAME AS name, c.DATA_TYPE AS dataType, c.CHARACTER_MAXIMUM_LENGTH AS maxLength, c.NUMERIC_PRECISION AS precision, c.NUMERIC_SCALE AS scale, c.IS_NULLABLE AS isNullable, c.COLUMN_DEFAULT AS columnDefault FROM INFORMATION_SCHEMA.COLUMNS c WHERE c.TABLE_SCHEMA = '${ctx.schema}' AND c.TABLE_NAME = '${ctx.table}' ORDER BY c.ORDINAL_POSITION;`;
+          const res2 = await window.electronAPI?.database?.executeQuery(
+            ctx.connId,
+            qi
+          );
+          columns = (res2?.rows as any[]) || [];
+        }
+      }
+
+      if (!columns || columns.length === 0) {
+        return `-- No column metadata available for ${ctx.schema}.${ctx.table}`;
+      }
+
+      // Try to fetch primary key info to include PK constraint
+      let keys: any[] = [];
+      try {
+        keys = (await window.electronAPI.database.getKeys?.(
+          ctx.connId,
+          ctx.table,
+          ctx.schema
+        )) as any[];
+      } catch (err) {
+        // ignore
+      }
+
+      const pk = keys.find(k => k.type === "PRIMARY" || k.type === "PRIMARY KEY");
+      const pkCols: string[] = pk ? (pk.columns || []) : [];
+
+      const lines = columns.map(col => {
+        const name = quoteIdent(col.name);
+        const dt = String(col.dataType || col.dataTypeName || col.DATA_TYPE || "").toLowerCase();
+        let typeSpec = dt;
+
+        // Dialect-specific type mapping
+        if (ctx.type === "postgresql") {
+          if (["nvarchar", "varchar", "char", "nchar"].includes(dt)) {
+            const len = col.maxLength || col.character_maximum_length;
+            const lenStr = len === -1 || len === "max" ? "" : len ? `(${len})` : "";
+            typeSpec = `VARCHAR${lenStr}`;
+          } else if (dt === "datetime2" || dt === "datetime") {
+            typeSpec = "TIMESTAMP";
+          } else if (dt === "int") {
+            // detect serial-like defaults
+            const def = String(col.columnDefault || col.column_default || "").toLowerCase();
+            if (def.includes("nextval") || def.includes("identity")) {
+              // Use identity syntax
+              typeSpec = "INTEGER GENERATED BY DEFAULT AS IDENTITY";
+            } else {
+              typeSpec = "INTEGER";
+            }
+          } else if (dt === "bigint") {
+            typeSpec = "BIGINT";
           } else if (["decimal", "numeric"].includes(dt)) {
-            const p = col.precision ?? 18;
-            const s = col.scale ?? 0;
+            const p = col.precision ?? col.numeric_precision ?? 18;
+            const s = col.scale ?? col.numeric_scale ?? 0;
+            typeSpec = `NUMERIC(${p},${s})`;
+          }
+        } else if (ctx.type === "sqlite") {
+          // SQLite uses dynamic typing; map to common types
+          if (["nvarchar", "varchar", "char", "nchar", "text"].includes(dt)) {
+            typeSpec = "TEXT";
+          } else if (["int", "integer", "bigint", "smallint"].includes(dt)) {
+            typeSpec = "INTEGER";
+          } else if (["decimal", "numeric", "float", "real", "double"].includes(dt)) {
+            typeSpec = "REAL";
+          } else if (["blob", "binary", "varbinary"].includes(dt)) {
+            typeSpec = "BLOB";
+          }
+        } else if (ctx.type === "sqlserver") {
+          // Use original provider type names, preserve lengths/precision
+          if (["varchar","nvarchar","char","nchar"].includes(dt)) {
+            const len = col.maxLength ?? col.character_maximum_length;
+            const lenStr = len === -1 || len === "max" ? "(MAX)" : len ? `(${len})` : "";
+            typeSpec = `${dt}${lenStr}`;
+          } else if (["decimal","numeric"].includes(dt)) {
+            const p = col.precision ?? col.numeric_precision ?? 18;
+            const s = col.scale ?? col.numeric_scale ?? 0;
             typeSpec = `${dt}(${p},${s})`;
           }
-          const nullable =
-            String(col.isNullable).toUpperCase() === "YES"
-              ? "NULL"
-              : "NOT NULL";
-          const def = col.columnDefault ? ` DEFAULT ${col.columnDefault}` : "";
-          return `  ${name} ${typeSpec} ${nullable}${def}`.trimEnd();
-        });
-        const qualified = `${ident(ctx.schema)}.${ident(ctx.table)}`;
-        const script = `CREATE TABLE ${qualified} (\n${lines.join(",\n")}\n);`;
-        return script;
+        }
+
+        const nullable = String(col.isNullable || col.is_nullable || col.IS_NULLABLE || "").toUpperCase() === "YES" ? "NULL" : "NOT NULL";
+        const defRaw = col.columnDefault || col.column_default || col.COLUMN_DEFAULT || "";
+        const def = defRaw ? ` DEFAULT ${defRaw}` : "";
+
+        return `  ${name} ${typeSpec} ${nullable}${def}`.trimEnd();
+      });
+
+      const qualified = `${quoteIdent(ctx.schema)}.${quoteIdent(ctx.table)}`;
+      let script = `CREATE TABLE ${qualified} (\n${lines.join(",\n")}`;
+
+      // Append primary key constraint if available
+      if (pkCols.length > 0) {
+        const pkList = pkCols.map(c => (ctx.type === "sqlserver" ? `[${c}]` : `"${c}"`)).join(", ");
+        script += `,\n  CONSTRAINT ${ctx.type === "sqlserver" ? `[PK_${ctx.table}]` : `"PK_${ctx.table}"`} PRIMARY KEY (${pkList})`;
       }
-      return `-- CREATE TABLE scripting not yet implemented for ${ctx.type}`;
+
+      script += `\n);`;
+      return script;
     } catch (e: any) {
       return `-- Failed to generate CREATE script: ${e?.message || String(e)}`;
     }
   };
+
+  // Fetch routine (procedure/function/view/trigger) definition for editing or scripting
+  async function fetchRoutineDefinition(ctx: {
+    connId?: string;
+    schema?: string;
+    routine?: string;
+    routineType?: string; // 'procedure' | 'function' | 'trigger' | 'view'
+    type?: string; // connection type
+  }): Promise<string> {
+    try {
+      if (!ctx.connId || !ctx.schema || !ctx.routine) return "-- Missing routine context";
+
+      // SQL Server: use OBJECT_DEFINITION
+      if (ctx.type === "sqlserver") {
+        const qualified = `${ctx.schema}.${ctx.routine}`;
+        const q = `SELECT OBJECT_DEFINITION(OBJECT_ID('${ctx.schema}.${ctx.routine}')) AS definition;`;
+        const res = await window.electronAPI?.database?.executeQuery(ctx.connId, q);
+        let def = res?.rows?.[0]?.definition as string | undefined;
+
+        if (def && def.trim()) {
+          if (ctx.routineType === "procedure") {
+            def = def.replace(/^([\s]*)CREATE(\s+)PROCEDURE/im, "$1ALTER$2PROCEDURE");
+          } else if (ctx.routineType === "function") {
+            def = def.replace(/^([\s]*)CREATE(\s+)FUNCTION/im, "$1ALTER$2FUNCTION");
+          } else if (ctx.routineType === "trigger") {
+            def = `-- To modify this trigger, drop and recreate it\n${def.replace(/^([\s]*)CREATE(\s+)TRIGGER/im, `$1DROP TRIGGER ${qualified};\nGO\n\n$1CREATE$2TRIGGER`)}`;
+          } else if (ctx.routineType === "view") {
+            def = def.replace(/^([\s]*)CREATE(\s+)VIEW/im, "$1ALTER$2VIEW");
+          }
+          return def;
+        }
+        return `-- No definition found for ${qualified}`;
+      }
+
+      // PostgreSQL: pg_get_functiondef / pg_get_viewdef
+      if (ctx.type === "postgresql") {
+        if (ctx.routineType === "function" || ctx.routineType === "procedure") {
+          const q = `SELECT pg_get_functiondef(p.oid) AS definition FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname = '${ctx.schema}' AND p.proname = '${ctx.routine}';`;
+          const res = await window.electronAPI?.database?.executeQuery(ctx.connId, q);
+          const def = res?.rows?.[0]?.definition as string | undefined;
+          if (def) return def.replace(/^([\s]*)CREATE(\s+)FUNCTION/im, "$1ALTER$2FUNCTION");
+        }
+        if (ctx.routineType === "view") {
+          const q = `SELECT pg_get_viewdef('${ctx.schema}.${ctx.routine}', true) AS definition;`;
+          const res = await window.electronAPI?.database?.executeQuery(ctx.connId, q);
+          const def = res?.rows?.[0]?.definition as string | undefined;
+          if (def) return def.replace(/^([\s]*)CREATE(\s+)VIEW/im, "$1ALTER$2VIEW");
+        }
+      }
+
+      return `-- No definition found for ${ctx.schema}.${ctx.routine}`;
+    } catch (e: any) {
+      return `-- Failed to fetch definition: ${e?.message || String(e)}`;
+    }
+  }
 
   // Helper function to create metadata branches for tables
   const createTableMetadataBranches = (
@@ -1397,7 +1442,7 @@ export default function Explorer() {
   };
 
   // Handle "New" action for nodes
-  const handleNewAction = (
+  const handleNewAction = async (
     node: any,
     connectionId: string,
     nodeKey: string
@@ -1418,9 +1463,9 @@ export default function Explorer() {
       window.dispatchEvent(new CustomEvent("open-empty-sql-tab", { detail }));
     } else if (node.type === "schema") {
       // Handle schema nodes - default to "New Table" (since + button should be for primary action)
-      const sql = generateTableDDL(
+      const sql = await generateNewTableTemplate(
+        conn?.id,
         conn?.type || "sqlserver",
-        "create",
         node.name || "dbo"
       );
 
@@ -2462,6 +2507,7 @@ export default function Explorer() {
     const connectionState = connectionStates.get(connection.id);
     if (!connectionState) return null;
     const { isConnected, isConnecting, error, schemaData } = connectionState;
+    const expandedError = expandedErrorMap.get(connection.id) || false;
 
     return (
       <div
@@ -2503,8 +2549,46 @@ export default function Explorer() {
             </div>
             <div className="text-xs text-muted-foreground truncate">
               {connection.type} • {connection.database}
-              {error && <span className="text-red-500 ml-2">• {error}</span>}
+              {error && (
+                <span className="text-red-500 ml-2 inline-flex items-center gap-2">
+                  <span
+                    className="truncate cursor-pointer"
+                    title={error}
+                    onClick={() => setExpandedErrorMap(prev => new Map(prev).set(connection.id, !expandedError))}
+                    aria-label="Show full error"
+                  >
+                    • {error}
+                  </span>
+                  <button
+                    className="text-xs text-muted-foreground hover:text-white px-1"
+                    onClick={e => {
+                      e.stopPropagation();
+                      try {
+                        navigator.clipboard.writeText(error || '');
+                      } catch (_e) {
+                        // ignore
+                      }
+                    }}
+                    title="Copy error"
+                  >
+                    Copy
+                  </button>
+                </span>
+              )}
             </div>
+            {error && expandedError && (
+              <div className="mt-2 p-2 bg-gray-800 text-white rounded text-xs">
+                <div className="flex justify-between items-start gap-2">
+                  <div className="whitespace-pre-wrap break-words">{error}</div>
+                  <button
+                    className="ml-2 text-sm underline"
+                    onClick={() => setExpandedErrorMap(prev => { const m = new Map(prev); m.set(connection.id, false); return m; })}
+                  >
+                    Close
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {isConnected ? (
@@ -2694,31 +2778,64 @@ export default function Explorer() {
   };
 
   // DDL Generation Functions
-  const generateColumnDDL = (
+  function generateColumnDDL(
     connectionType: string,
     action: "create" | "drop" | "update",
     tableName: string,
     schemaName: string,
     columnData?: Record<string, unknown>
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
     const qualified = `${ident(schemaName)}.${ident(tableName)}`;
 
     switch (action) {
       case "create":
+        if (connectionType === "postgresql") {
+          return `-- Add new column to ${qualified}
+ALTER TABLE ${qualified}
+ADD COLUMN "NewColumnName" VARCHAR(255) NULL;`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- Add new column to ${qualified}
+ALTER TABLE ${qualified}
+ADD COLUMN "NewColumnName" TEXT; -- SQLite columns are dynamically typed`;
+        }
+        // default: sqlserver
         return `-- Add new column to ${qualified}
 ALTER TABLE ${qualified}
 ADD [NewColumnName] NVARCHAR(255) NULL;`;
 
       case "drop":
         if (!columnData?.name) return "-- Column name required";
+        if (connectionType === "postgresql") {
+          return `-- Drop column ${columnData.name} from ${qualified}
+ALTER TABLE ${qualified}
+DROP COLUMN "${columnData.name as string}";`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- SQLite does not support DROP COLUMN easily. Common approach:
+-- 1) Create new table without the column
+-- 2) Copy data
+-- 3) Drop old table and rename new table
+-- Example: See SQLite docs for ALTER TABLE workarounds.`;
+        }
         return `-- Drop column ${columnData.name} from ${qualified}
 ALTER TABLE ${qualified}
 DROP COLUMN ${ident(columnData.name as string)};`;
 
       case "update":
         if (!columnData?.name) return "-- Column name required";
+        if (connectionType === "postgresql") {
+          return `-- Modify column ${columnData.name} in ${qualified}
+ALTER TABLE ${qualified}
+ALTER COLUMN "${columnData.name as string}" TYPE VARCHAR(255);
+ALTER TABLE ${qualified}
+ALTER COLUMN "${columnData.name as string}" DROP NOT NULL;`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- SQLite: to modify a column, recreate the table. See SQLite ALTER TABLE limitations.`;
+        }
         return `-- Modify column ${columnData.name} in ${qualified}
 ALTER TABLE ${qualified}
 ALTER COLUMN ${ident(columnData.name as string)} NVARCHAR(255) NULL;`;
@@ -2728,25 +2845,41 @@ ALTER COLUMN ${ident(columnData.name as string)} NVARCHAR(255) NULL;`;
     }
   };
 
-  const generateKeyDDL = (
+  function generateKeyDDL(
     connectionType: string,
     action: "create" | "drop" | "update",
     tableName: string,
     schemaName: string,
     keyData?: Record<string, unknown>
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
     const qualified = `${ident(schemaName)}.${ident(tableName)}`;
 
     switch (action) {
       case "create":
+        if (connectionType === "postgresql") {
+          return `-- Add new primary key to ${qualified}
+ALTER TABLE ${qualified}
+ADD CONSTRAINT "PK_${tableName}_NewKey" PRIMARY KEY ("ColumnName");`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- SQLite: Adding a primary key to an existing table requires recreating the table. See SQLite docs.`;
+        }
         return `-- Add new primary key to ${qualified}
 ALTER TABLE ${qualified}
 ADD CONSTRAINT [PK_${tableName}_NewKey] PRIMARY KEY ([ColumnName]);`;
 
       case "drop":
         if (!keyData?.name) return "-- Key name required";
+        if (connectionType === "postgresql") {
+          return `-- Drop constraint ${keyData.name} from ${qualified}
+ALTER TABLE ${qualified}
+DROP CONSTRAINT "${keyData.name as string}";`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- SQLite: Drop primary key requires recreating the table. See SQLite docs.`;
+        }
         return `-- Drop constraint ${keyData.name} from ${qualified}
 ALTER TABLE ${qualified}
 DROP CONSTRAINT ${ident(keyData.name as string)};`;
@@ -2767,25 +2900,41 @@ ADD CONSTRAINT ${ident(keyData.name as string)} PRIMARY KEY ([ColumnName]);`;
     }
   };
 
-  const generateConstraintDDL = (
+  function generateConstraintDDL(
     connectionType: string,
     action: "create" | "drop" | "update",
     tableName: string,
     schemaName: string,
     constraintData?: Record<string, unknown>
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
     const qualified = `${ident(schemaName)}.${ident(tableName)}`;
 
     switch (action) {
       case "create":
+        if (connectionType === "postgresql") {
+          return `-- Add new check constraint to ${qualified}
+ALTER TABLE ${qualified}
+ADD CONSTRAINT "CK_${tableName}_NewConstraint" CHECK ("ColumnName" IS NOT NULL);`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- SQLite: ADD CONSTRAINT is limited; consider recreating the table to add complex constraints.`;
+        }
         return `-- Add new check constraint to ${qualified}
 ALTER TABLE ${qualified}
 ADD CONSTRAINT [CK_${tableName}_NewConstraint] CHECK ([ColumnName] IS NOT NULL);`;
 
       case "drop":
         if (!constraintData?.name) return "-- Constraint name required";
+        if (connectionType === "postgresql") {
+          return `-- Drop constraint ${constraintData.name} from ${qualified}
+ALTER TABLE ${qualified}
+DROP CONSTRAINT "${constraintData.name as string}";`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- SQLite: Drop constraint requires table recreation. See SQLite docs.`;
+        }
         return `-- Drop constraint ${constraintData.name} from ${qualified}
 ALTER TABLE ${qualified}
 DROP CONSTRAINT ${ident(constraintData.name as string)};`;
@@ -2806,19 +2955,40 @@ ADD CONSTRAINT ${ident(constraintData.name as string)} CHECK ([ColumnName] IS NO
     }
   };
 
-  const generateTriggerDDL = (
+  function generateTriggerDDL(
     connectionType: string,
     action: "create" | "drop" | "update",
     tableName: string,
     schemaName: string,
     triggerData?: Record<string, unknown>
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
     const qualified = `${ident(schemaName)}.${ident(tableName)}`;
 
     switch (action) {
       case "create":
+        if (connectionType === "postgresql") {
+          return `-- Create new trigger on ${qualified}
+CREATE FUNCTION ${ident(`${schemaName}.fn_${tableName}_new_trigger`)}() RETURNS trigger AS $$
+BEGIN
+  -- trigger logic here
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER tr_${tableName}_new
+AFTER INSERT OR UPDATE OR DELETE ON ${qualified}
+FOR EACH ROW EXECUTE FUNCTION ${ident(`${schemaName}.fn_${tableName}_new_trigger`)}();`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- Create new trigger on ${qualified}
+CREATE TRIGGER tr_${tableName}_new
+AFTER INSERT ON ${qualified}
+BEGIN
+  -- trigger logic here
+END;`;
+        }
         return `-- Create new trigger on ${qualified}
 CREATE TRIGGER ${ident(`${schemaName}.TR_${tableName}_NewTrigger`)}
 ON ${qualified}
@@ -2832,6 +3002,14 @@ END;`;
 
       case "drop":
         if (!triggerData?.name) return "-- Trigger name required";
+        if (connectionType === "postgresql") {
+          return `-- Drop trigger ${triggerData.name}
+DROP TRIGGER IF EXISTS ${ident(triggerData.name as string)} ON ${qualified};`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- Drop trigger ${triggerData.name}
+DROP TRIGGER IF EXISTS ${triggerData.name as string};`;
+        }
         return `-- Drop trigger ${triggerData.name}
 DROP TRIGGER ${ident(`${schemaName}.${triggerData.name as string}`)};`;
 
@@ -2857,25 +3035,37 @@ END;`;
     }
   };
 
-  const generateIndexDDL = (
+  function generateIndexDDL(
     connectionType: string,
     action: "create" | "drop" | "update",
     tableName: string,
     schemaName: string,
     indexData?: Record<string, unknown>
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
     const qualified = `${ident(schemaName)}.${ident(tableName)}`;
 
     switch (action) {
       case "create":
+        if (connectionType === "postgresql") {
+          return `-- Create new index on ${qualified}
+CREATE INDEX ix_${tableName}_newindex ON ${qualified} ("ColumnName");`;
+        }
+        if (connectionType === "sqlite") {
+          return `-- Create new index on ${qualified}
+CREATE INDEX IF NOT EXISTS ix_${tableName}_newindex ON ${qualified} ("ColumnName");`;
+        }
         return `-- Create new index on ${qualified}
 CREATE NONCLUSTERED INDEX [IX_${tableName}_NewIndex]
 ON ${qualified} ([ColumnName] ASC);`;
 
       case "drop":
         if (!indexData?.name) return "-- Index name required";
+        if (connectionType === "postgresql" || connectionType === "sqlite") {
+          return `-- Drop index ${indexData.name}
+DROP INDEX IF EXISTS ${indexData.name as string};`;
+        }
         return `-- Drop index ${indexData.name} from ${qualified}
 DROP INDEX ${ident(indexData.name as string)} ON ${qualified};`;
 
@@ -2883,23 +3073,22 @@ DROP INDEX ${ident(indexData.name as string)} ON ${qualified};`;
         if (!indexData?.name) return "-- Index name required";
         return `-- Update index ${indexData.name} on ${qualified}
 -- First drop the existing index
-DROP INDEX ${ident(indexData.name as string)} ON ${qualified};
+DROP INDEX ${indexData.name as string};
 
 -- Then recreate with new definition
-CREATE NONCLUSTERED INDEX ${ident(indexData.name as string)}
-ON ${qualified} ([ColumnName] ASC);`;
+CREATE INDEX ${indexData.name as string} ON ${qualified} ("ColumnName");`;
 
       default:
         return "-- Invalid action";
     }
   };
 
-  const generateTableDDL = (
+  function generateTableDDL(
     connectionType: string,
     action: "create" | "drop" | "update",
     schemaName: string,
     tableName?: string
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
 
@@ -2907,6 +3096,31 @@ ON ${qualified} ([ColumnName] ASC);`;
       case "create": {
         const newTableName = tableName || "NewTable";
         const qualified = `${ident(schemaName)}.${ident(newTableName)}`;
+        if (connectionType === "postgresql") {
+          return `-- Create new table ${qualified}
+CREATE TABLE ${qualified} (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Add sample data (optional)
+-- INSERT INTO ${qualified} (name) VALUES ('Sample Record');`;
+        }
+
+        if (connectionType === "sqlite") {
+          return `-- Create new table ${qualified} (SQLite)
+CREATE TABLE ${qualified} (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Add sample data (optional)
+-- INSERT INTO ${qualified} (name) VALUES ('Sample Record');`;
+        }
+
+        // Default: SQL Server-style template
         return `-- Create new table ${qualified}
 CREATE TABLE ${qualified} (
     [Id] INT IDENTITY(1,1) NOT NULL,
@@ -2932,17 +3146,81 @@ DROP TABLE ${qualifiedDrop};`;
     }
   };
 
-  const generateStoredProcedureDDL = (
+  // Generate a new table template using metadata when possible, otherwise fall back to static templates
+  async function generateNewTableTemplate(
+    connId: string | undefined,
+    connectionType: string,
+    schemaName: string
+  ): Promise<string> {
+    // If we have a connection id and the metadata API is available, try to generate a real CREATE TABLE
+  if (connId && window.electronAPI?.database) {
+      // We need a table name for metadata generation; since this is a new table, return a sensible template
+      // by attempting to create columns metadata for a hypothetical table - but the provider requires an existing table.
+      // So instead, attempt to generate a minimal template using dialect-aware defaults.
+      try {
+        // Try to use generateCreateTableScript if the provider supports getting columns for an existing table
+        // But since this is a new table, we can't fetch columns. Instead, synthesize a small template per dialect.
+        if (connectionType === "postgresql") {
+          return `-- Create new table ${schemaName}.new_table
+CREATE TABLE ${schemaName}.new_table (
+  id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- Insert sample data (optional)
+-- INSERT INTO ${schemaName}.new_table (name) VALUES ('Sample');`;
+        }
+
+        if (connectionType === "sqlite") {
+          return `-- Create new table ${schemaName}_new_table (SQLite)
+CREATE TABLE ${schemaName}_new_table (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Insert sample data (optional)
+-- INSERT INTO ${schemaName}_new_table (name) VALUES ('Sample');`;
+        }
+  } catch (_e) {
+        // Fall through to fallback
+      }
+    }
+
+    // Fallback to existing static templates
+    return generateTableDDL(connectionType || "sqlserver", "create", schemaName);
+  };
+
+  function generateStoredProcedureDDL(
     connectionType: string,
     _action: "create",
     schemaName: string,
     procedureName?: string
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
 
     const newProcName = procedureName || "NewStoredProcedure";
     const qualified = `${ident(schemaName)}.${ident(newProcName)}`;
+
+    if (connectionType === "postgresql") {
+      return `-- Create new stored procedure ${qualified} (Postgres uses functions/procedures)
+CREATE OR REPLACE FUNCTION ${qualified}(_parameter1 VARCHAR DEFAULT NULL, _parameter2 INTEGER DEFAULT NULL)
+RETURNS TABLE(parameter1_value VARCHAR, parameter2_value INTEGER, current_datetime TIMESTAMP) AS $$
+BEGIN
+  RETURN QUERY SELECT _parameter1, _parameter2, now();
+END;
+$$ LANGUAGE plpgsql;
+
+-- Example call:
+-- SELECT * FROM ${qualified}('Sample Value', 123);`;
+    }
+
+    if (connectionType === "sqlite") {
+      return `-- Create new stored procedure (SQLite uses functions/triggers) - emulate with a script or use a user defined function
+-- SQLite does not have stored procedures. Use a script or application-side logic.`;
+    }
 
     return `-- Create new stored procedure ${qualified}
 CREATE PROCEDURE ${qualified}
@@ -2964,17 +3242,34 @@ END;
 -- EXEC ${qualified} @Parameter1 = 'Sample Value', @Parameter2 = 123;`;
   };
 
-  const generateFunctionDDL = (
+  function generateFunctionDDL(
     connectionType: string,
     _action: "create",
     schemaName: string,
     functionName?: string
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
 
     const newFuncName = functionName || "NewFunction";
     const qualified = `${ident(schemaName)}.${ident(newFuncName)}`;
+
+    if (connectionType === "postgresql") {
+      return `-- Create new function ${qualified}
+CREATE FUNCTION ${qualified}(parameter1 VARCHAR, parameter2 INTEGER)
+RETURNS VARCHAR AS $$
+BEGIN
+  RETURN parameter1 || ' - ' || parameter2::text;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Example usage:
+-- SELECT ${qualified}('Sample Text', 123) AS FunctionResult;`;
+    }
+
+    if (connectionType === "sqlite") {
+      return `-- SQLite: create a custom function via extension or implement logic in application code.`;
+    }
 
     return `-- Create new scalar function ${qualified}
 CREATE FUNCTION ${qualified}
@@ -2997,17 +3292,29 @@ END;
 -- SELECT ${qualified}('Sample Text', 123) AS FunctionResult;`;
   };
 
-  const generateViewDDL = (
+  function generateViewDDL(
     connectionType: string,
     _action: "create",
     schemaName: string,
     viewName?: string
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
 
     const newViewName = viewName || "NewView";
     const qualified = `${ident(schemaName)}.${ident(newViewName)}`;
+
+    if (connectionType === "postgresql") {
+      return `-- Create new view ${qualified}
+CREATE VIEW ${qualified} AS
+SELECT 1 AS id, 'Sample Data' AS name, now() AS created_date;`;
+    }
+
+    if (connectionType === "sqlite") {
+      return `-- Create new view ${qualified}
+CREATE VIEW ${qualified} AS
+SELECT 1 AS id, 'Sample Data' AS name, datetime('now') AS created_date;`;
+    }
 
     return `-- Create new view ${qualified}
 CREATE VIEW ${qualified}
@@ -3020,22 +3327,35 @@ SELECT
     
     -- FROM YourSourceTable
     -- WHERE YourConditions = 1;
-
 -- Example query:
--- SELECT * FROM ${qualified};`;
-  };
+-- SELECT * FROM ${qualified};
+`;
+  }
 
-  const generateTypeDDL = (
+  function generateTypeDDL(
     connectionType: string,
     _action: "create",
     schemaName: string,
     typeName?: string
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
 
     const newTypeName = typeName || "NewUserDefinedType";
     const qualified = `${ident(schemaName)}.${ident(newTypeName)}`;
+
+    if (connectionType === "postgresql") {
+      return `-- Create a composite type ${qualified}
+CREATE TYPE ${qualified} AS (
+  id bigint,
+  name varchar,
+  value numeric
+);`;
+    }
+
+    if (connectionType === "sqlite") {
+      return `-- SQLite: user-defined table types are not supported; use temporary tables or JSON columns.`;
+    }
 
     return `-- Create new user-defined table type ${qualified}
 CREATE TYPE ${qualified} AS TABLE
@@ -3045,28 +3365,34 @@ CREATE TYPE ${qualified} AS TABLE
     Value DECIMAL(18,2) NULL,
     
     PRIMARY KEY (Id)
-);
-
--- Example usage in stored procedure:
--- CREATE PROCEDURE ExampleProc
---     @TableParam ${qualified} READONLY
--- AS
--- BEGIN
---     SELECT * FROM @TableParam;
--- END;`;
+);`;
   };
 
-  const generateSequenceDDL = (
+  function generateSequenceDDL(
     connectionType: string,
     _action: "create",
     schemaName: string,
     sequenceName?: string
-  ): string => {
+  ): string {
     const ident = (n: string) =>
       connectionType === "sqlserver" ? `[${n}]` : `"${n}"`;
 
     const newSeqName = sequenceName || "NewSequence";
     const qualified = `${ident(schemaName)}.${ident(newSeqName)}`;
+
+    if (connectionType === "postgresql") {
+      return `-- Create new sequence ${qualified}
+CREATE SEQUENCE ${qualified}
+  START WITH 1
+  INCREMENT BY 1
+  NO MINVALUE
+  NO MAXVALUE
+  CACHE 1;`;
+    }
+
+    if (connectionType === "sqlite") {
+      return `-- SQLite: sequences are not supported in older versions; use AUTOINCREMENT on INTEGER PRIMARY KEY.`;
+    }
 
     return `-- Create new sequence ${qualified}
 CREATE SEQUENCE ${qualified}
@@ -3076,26 +3402,17 @@ CREATE SEQUENCE ${qualified}
     MINVALUE 1
     MAXVALUE 9223372036854775807
     NO CYCLE
-    CACHE 10;
-
--- Example usage:
--- SELECT NEXT VALUE FOR ${qualified} AS NextSequenceValue;
--- 
--- -- In table creation:
--- -- CREATE TABLE ExampleTable (
--- --     Id BIGINT DEFAULT (NEXT VALUE FOR ${qualified}) NOT NULL,
--- --     Name NVARCHAR(255)
--- -- );`;
+    CACHE 10;`;
   };
 
-  const openDDLTab = (
+  function openDDLTab(
     sql: string,
     title: string,
     connectionId: string,
     connectionType: string,
     connectionName: string,
     database: string
-  ) => {
+  ) {
     console.log("openDDLTab called with:", {
       title,
       database,
@@ -3115,7 +3432,7 @@ CREATE SEQUENCE ${qualified}
     };
     console.log("Event detail:", detail);
     document.dispatchEvent(new CustomEvent("open-sql-script", { detail }));
-  };
+  }
 
   return (
     <div className="h-full flex flex-col bg-background text-foreground min-h-0">
@@ -3354,22 +3671,24 @@ CREATE SEQUENCE ${qualified}
                   if (!contextMenu.connId || !contextMenu.schema) return;
 
                   // Generate table DDL template
-                  const sql = generateTableDDL(
-                    contextMenu.type || "sqlserver",
-                    "create",
-                    contextMenu.schema
-                  );
+                  (async () => {
+                    const sql = await generateNewTableTemplate(
+                      contextMenu.connId || "",
+                      contextMenu.type || "sqlserver",
+                      contextMenu.schema || "dbo"
+                    );
 
-                  const title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_table`;
+                    const title = `${getDatabaseName(contextMenu.db, contextMenu.nodeKey)}.new_table`;
 
-                  openDDLTab(
-                    sql,
-                    title,
-                    contextMenu.connId,
-                    contextMenu.type || "",
-                    contextMenu.connName || "",
-                    contextMenu.db || ""
-                  );
+                    openDDLTab(
+                      sql,
+                      title,
+                      contextMenu.connId || "",
+                      contextMenu.type || "",
+                      contextMenu.connName || "",
+                      contextMenu.db || ""
+                    );
+                  })();
 
                   setContextMenu(c => ({ ...c, visible: false }));
                 }}

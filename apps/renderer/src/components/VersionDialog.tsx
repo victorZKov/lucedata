@@ -9,9 +9,9 @@ interface VersionDialogProps {
 export const VERSION_INFO = {
   major: 0,
   minor: 1,
-  build: 867,
-  version: "0.1.867",
-  buildDate: "2025-10-03",
+  build: 934,
+  version: "0.1.934",
+  buildDate: "2025-10-04",
 };
 
 export default function VersionDialog({ isOpen, onClose }: VersionDialogProps) {

@@ -504,6 +504,24 @@ export class PostgreSQLProvider implements IDatabaseProvider {
       idleTimeoutMillis: 30000,
     };
 
+    // If a full connection string (URI) is provided, prefer that. When pg
+    // receives a user but no explicit database it will default the database
+    // name to the username — which caused errors like
+    // "database \"<username>\" does not exist" when the intended DB name
+    // was embedded in the connection string. Respect the connectionString to
+    // ensure the intended database is used.
+    if ((connection as any).connectionString) {
+      return {
+        connectionString: (connection as any).connectionString,
+        ssl: connection.ssl ? { rejectUnauthorized: false } : false,
+        min: poolConfig.min,
+        max: poolConfig.max,
+        acquireTimeoutMillis: poolConfig.acquireTimeoutMillis,
+        idleTimeoutMillis: poolConfig.idleTimeoutMillis,
+        ...connection.options,
+      };
+    }
+
     return {
       host: connection.host,
       port: connection.port,

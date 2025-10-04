@@ -1,0 +1,16 @@
+{
+  "feature": "db_storage",
+  "phases": [
+    {"id": 0, "name": "Discovery & Contract", "status": "done", "notes": "Inventory and contract created in plan.md"},
+  {"id": 1, "name": "Scaffolding & Progress Tracking", "status": "done", "notes": "New feature folder and controller created"},
+  {"id": 2, "name": "Adapter Implementation: SQLite (MIGRATE)", "status": "done", "notes": "SQLite adapter extracted, in-memory adapter added, desktop wiring updated and tests added (in-memory)."},
+    {"id": 3, "name": "Adapter Implementation: PostgreSQL", "status": "done", "notes": "Postgres adapter implemented and pg-mem test added."},
+      {"id": 4, "name": "Adapter Implementation: SQL Server", "status": "in_progress", "notes": "SQL Server adapter implemented; test harness available (requires SQLSERVER_CONN)."},
+    {"id": 5, "name": "First-time Run UI & Telemetry", "status": "pending", "notes": "Renderer/desktop UI for selection"},
+    {"id": 6, "name": "Wiring & Runtime Switching", "status": "pending", "notes": "Wire app to adapter and support switching"},
+    {"id": 7, "name": "Docs, Tests, CI", "status": "pending", "notes": "Update docs and CI"},
+    {"id": 8, "name": "Security & Secrets", "status": "pending", "notes": "Use OS secure storage for secrets"}
+  ],
+  "currentPhase": 4,
+  "lastUpdated": "2025-10-03T12:30:00Z"
+}

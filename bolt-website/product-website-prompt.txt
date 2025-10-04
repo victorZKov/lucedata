@@ -1,0 +1,67 @@
+# Prompt for bolt.new — Website for AI-Assisted SQL Desktop App
+
+You are a web product team. Build a **modern product website** for a commercial desktop app that manages SQL databases with integrated AI assistance.  
+
+## PURPOSE
+Create a marketing and documentation website that presents the product clearly, attracts users, and provides download links for Windows/macOS/Linux installers.  
+
+## BRAND & STYLE
+- Professional, clean, dark+light themes (like VS Code / modern dev tools).  
+- Tech-savvy audience (developers, DBAs, data engineers).  
+- Visual identity: screenshots of the app (connections tree, query editor, AI chat panel, results grid, schema explorer).  
+- Tone: concise, confident, developer-friendly.  
+
+## STRUCTURE
+### 1. Landing Page
+- Hero section with **headline**: “The AI-Powered SQL Desktop App”  
+- Subtext: “Manage SQL Server (and more soon) with a modern cross-platform tool that combines query editing, results visualization, and AI-assisted SQL generation.”  
+- Call-to-action: “Download for macOS · Windows · Linux” (buttons).  
+- Screenshot carousel: show editor with results, chat with AI, schema explorer.  
+
+### 2. Features
+- **Database Management**: Connect to SQL Server (PostgreSQL and more coming).  
+- **Intelligent Explorer**: Navigate servers, schemas, tables, columns, indexes.  
+- **SQL Editor**: Monaco-based editor with linting, formatting, split views.  
+- **Results Grid**: Resizable grid with export to CSV.  
+- **AI Chat Assistant**: Natural language to SQL with guardrails, schema awareness, conversation history.  
+- **Secure by Design**: Read-only default, confirmations for writes, secrets stored safely.  
+- **Cross-Platform**: macOS, Windows, Linux with auto-updates.  
+
+### 3. Screenshots / Demo
+- Showcase real screenshots (provided) in a gallery with captions:
+  - Connections tree (servers, databases, schemas).  
+  - Editor with queries + results grid.  
+  - AI Assistant panel analyzing/rewriting SQL.  
+  - Schema explorer with columns, keys, constraints.  
+
+### 4. Downloads
+- Platform-specific download cards:
+  - macOS (.dmg)  
+  - Windows (.msi)  
+  - Linux (.AppImage, .deb)  
+- Include checksums + release notes links.  
+
+### 5. Documentation
+- Link to `/docs`: installation, quick start, configuring AI engines, guardrails, settings.  
+
+### 6. Roadmap & Updates
+- Section: “Coming soon: PostgreSQL, Google Gemini integration, migration support.”  
+- Changelog feed or blog for version releases.  
+
+### 7. Footer
+- Links: Docs, GitHub (if public), Support, Privacy, Terms.  
+- Copyright notice.  
+
+## TECH
+- Build with **Next.js** (or Astro) + Tailwind CSS.  
+- Responsive and fast, SEO-optimized.  
+- Deployable to Vercel (preferred).  
+- Pages: `/`, `/downloads`, `/docs`, `/changelog`.  
+
+## ACCEPTANCE CRITERIA
+- Professional landing with product screenshots and feature highlights.  
+- Clear CTAs to download per OS.  
+- Features list well-structured with icons.  
+- Docs and changelog pages accessible.  
+- SEO tags (title, description, social share images).  
+- Dark/light mode toggle.  

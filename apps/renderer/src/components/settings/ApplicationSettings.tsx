@@ -157,6 +157,32 @@ const ApplicationSettings: React.FC = () => {
           <p>© 2024 SQL Helper</p>
         </div>
       </div>
+
+      {/* Migration action */}
+      <div className="pt-6 border-t border-gray-200 dark:border-gray-700">
+        <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100 mb-3">
+          Migration
+        </h4>
+        <div>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+            Move your existing configuration to a different storage backend
+            (sqlite, postgresql, sqlserver).
+          </p>
+          <button
+            className="inline-flex items-center px-3 py-2 rounded-md bg-blue-600 text-white text-sm font-medium hover:bg-blue-700"
+            onClick={() => {
+              // Signal the App to open the FirstRun wizard in migrate mode
+              try {
+                document.dispatchEvent(new CustomEvent("open-first-run-wizard", { detail: { mode: 'migrate' } }));
+              } catch (e) {
+                console.error("Failed to open first-run wizard", e);
+              }
+            }}
+          >
+            Migrate configuration...
+          </button>
+        </div>
+      </div>
     </div>
   );
 };

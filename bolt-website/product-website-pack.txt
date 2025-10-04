@@ -1,9 +1,9 @@
 # Product Website Prompt for bolt.new
 
-You are a web product team. Build a **modern product website** for a commercial desktop app that manages SQL databases with integrated AI assistance.  
+You are a web product team. Build a **modern product website** for **LuceData**, a commercial desktop app that manages SQL databases with integrated AI assistance.  
 
 ## PURPOSE
-Create a marketing and documentation website that presents the product clearly, attracts users, and provides download links for Windows/macOS/Linux installers.  
+Create a marketing and documentation website that presents the product clearly, attracts users, and provides a beta registration form to receive download links for Windows/macOS installers. The app is currently **free in beta** — users register their interest and receive download access.  
 
 ## BRAND & STYLE
 - Professional, clean, dark+light themes (like VS Code / modern dev tools).  
@@ -19,14 +19,15 @@ Create a marketing and documentation website that presents the product clearly, 
 - Screenshot carousel: show editor with results, chat with AI, schema explorer.  
 
 ### 2. Features
-- **Any AI Engine**: OpenAI, Azure OpenAI, Gemini, Claude, Ollama local, and more.  
+- **BYOM (Bring Your Own Model)**: In beta, connect your own AI model — OpenAI, Azure OpenAI, Gemini, Claude, Ollama local, and more. *Commercial version will include a custom, curated database-specialized model updated weekly.*  
 - **Database Management**: Connect to SQL Server, PostgreSQL, SQLite today. Oracle and MySQL coming soon.  
 - **Intelligent Explorer**: Navigate servers, schemas, tables, columns, indexes.  
 - **SQL Editor**: Monaco-based editor with linting, formatting, split views.  
 - **Results Grid**: Resizable grid with export to CSV.  
-- **AI Chat Assistant**: Natural language to SQL with guardrails, schema awareness, conversation history.  
-- **Secure by Design**: Read-only default, confirmations for writes, secrets stored safely.  
-- **Cross-Platform**: macOS, Windows, Linux with auto-updates.  
+- **AI Chat Assistant**: Natural language to SQL with guardrails, schema awareness, conversation history. **AI proposes queries; you stay in control and execute them.**  
+- **Full Write Access with Safeguards**: Execute DDL and DML operations — create tables, modify schemas, insert/update data. All operations require your confirmation and respect your connection's configured permissions.  
+- **Secure by Design**: Confirmations for write operations, schema-aware guardrails, secrets stored safely.  
+- **Cross-Platform**: macOS and Windows with auto-updates. Linux coming soon.  
 
 ### 3. Screenshots / Demo
 - Showcase screenshots:  
@@ -35,20 +36,35 @@ Create a marketing and documentation website that presents the product clearly, 
   - AI Assistant panel analyzing SQL.  
   - Schema explorer (tables, columns, keys, constraints).  
 
-### 4. Downloads
-- Platform-specific download cards: macOS (.dmg), Windows (.msi), Linux (.AppImage, .deb).  
-- Include checksums + release notes links.  
+### 4. Beta Registration & Downloads
+- **Registration Form**: Collect email, name, and intended use case.  
+- Upon registration, users receive a confirmation email with download links for:  
+  - macOS (.dmg)  
+  - Windows (.msi)  
+- Include checksums + release notes links in the email.  
+- Note: Linux support coming in a future release.  
 
 ### 5. Documentation
-- Link to `/docs`: installation, quick start, configuring AI engines, guardrails, settings.  
+- Link to `/docs`: Complete documentation portal with:
+  - **Getting Started**: [Installation Guide](docs/installation.md)
+  - **Configuration**: [Add AI Engine](docs/add-ai-engine.md), [Add Connection](docs/add-connection.md)
+  - **Using LuceData**: [Connections Tree](docs/connections-tree.md), [Work Area](docs/work-area.md)
+  - **Legal**: [Privacy Policy](privacy-policy.md), [Terms of Use](terms-of-use.md)
+- Documentation home: [docs/README.md](docs/README.md)  
 
 ### 6. Roadmap & Updates
 - Section: “Coming soon: Oracle, MySQL, team features.”  
 - Changelog feed or blog for version releases.  
 
 ### 7. Footer
-- Links: Docs, GitHub (if public), Support, Privacy, Terms.  
-- Copyright notice.  
+- Links: 
+  - **Docs** ([/docs](docs/README.md))
+  - **Support** (support@lucedata.com)
+  - **Privacy Policy** ([/privacy](privacy-policy.md))
+  - **Terms of Use** ([/terms](terms-of-use.md))
+  - **License** ([/license](LICENSE.md))
+  - GitHub (if public)
+- Copyright notice: © 2025 LuceData. All rights reserved.  
 
 ## TECH
 - Build with **Next.js** (or Astro) + Tailwind CSS.  
@@ -71,23 +87,24 @@ Create a marketing and documentation website that presents the product clearly, 
 
 ## Hero Section
 **Headline:**  
-⚡ One App. Any Database. Any AI Engine.  
+⚡ One App. Any Database. Bring Your Own AI.  
+
+**Beta Badge:** 🎉 Free Beta — Register Now  
 
 **Subtext:**  
-A cross-platform SQL desktop client with **AI built in**. Connect to SQL Server, PostgreSQL, or SQLite today. Use OpenAI, Azure, Gemini, Claude, or even local Ollama to generate SQL queries, optimize execution plans, and explore your schema.  
+A cross-platform SQL desktop client with **AI built in**. Connect to SQL Server, PostgreSQL, or SQLite today. Bring your own model (BYOM) — OpenAI, Azure, Gemini, Claude, or even local Ollama — to generate SQL queries, optimize execution plans, and explore your schema.  
 
 **CTA:**  
-- Download for macOS  
-- Download for Windows  
-- Download for Linux  
+- **Register for Beta Access** (primary button → registration form)  
+- *Free download for macOS and Windows • Linux coming soon* 
 
 ---
 
 ## Features Section
 
-### 🌍 Any AI Engine
-**Title:** Works with your favorite LLMs  
-**Description:** Use OpenAI, Azure OpenAI, Anthropic Claude, Google Gemini, or even local Ollama. Configure multiple engines and switch instantly.  
+### 🌍 BYOM — Bring Your Own Model
+**Title:** Your AI, your choice  
+**Description:** In beta, connect your own AI model — OpenAI, Azure OpenAI, Anthropic Claude, Google Gemini, or even local Ollama. Configure multiple engines and switch instantly. *Coming in the commercial version: a custom, database-specialized model curated and updated weekly.*  
 
 ### 🗄️ Multiple Databases
 **Title:** One client for many databases  
@@ -106,22 +123,24 @@ A cross-platform SQL desktop client with **AI built in**. Connect to SQL Server,
 **Description:** Resizable, filterable results with one-click CSV export.  
 
 ### 🤖 AI Assistant
-**Title:** Ask in plain English, get SQL back  
-**Description:** Natural language requests become SQL queries, grounded in your schema with guardrails to ensure safety.  
+**Title:** Ask in plain English, get SQL back — you're in control  
+**Description:** Natural language requests become SQL queries, grounded in your schema with guardrails to ensure safety. **The AI proposes, you approve and execute.** Every query runs with the permissions you've configured for each connection.  
 
-### 🔒 Secure by Default
-**Title:** Guardrails you can trust  
-**Description:** Read-only execution, DDL/DML confirmations, and secure key storage.  
+### 🔒 Secure by Design
+**Title:** Full power, with safeguards  
+**Description:** Execute DDL (CREATE, ALTER, DROP) and DML (INSERT, UPDATE, DELETE) operations — all under your control. Every write operation requires confirmation, and all actions respect the permissions you've set for each database connection. Secure key storage keeps your credentials safe.  
 
 ### 💻 Cross-Platform
 **Title:** Built for every developer  
-**Description:** Native installers for macOS, Windows, and Linux with automatic updates.  
+**Description:** Native installers for macOS and Windows with automatic updates. Linux support coming soon.  
 
 ---
 
 ## Roadmap Section
 **Headline:** Coming soon 🚀  
+- **Custom Database-Specialized AI Model** (commercial version) — curated and updated weekly  
 - Oracle and MySQL support  
+- Linux installer  
 - Advanced migrations and schema versioning  
 - More export formats (Excel, JSON, Parquet)  
 - Shared snippets and team collaboration  
@@ -129,8 +148,11 @@ A cross-platform SQL desktop client with **AI built in**. Connect to SQL Server,
 ---
 
 ## Footer
-- Docs  
-- Downloads  
-- Changelog  
-- Privacy Policy  
-- Terms of Use  
+- **Docs** → [Documentation Home](docs/README.md)
+- **Downloads** → Beta Registration Page
+- **Changelog** → Version History & Release Notes
+- **Privacy Policy** → [privacy-policy.md](privacy-policy.md)
+- **Terms of Use** → [terms-of-use.md](terms-of-use.md)
+- **License** → [LICENSE.md](LICENSE.md)
+- **Support** → support@lucedata.com
+- **Beta Feedback** → beta@lucedata.com  

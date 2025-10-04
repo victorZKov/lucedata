@@ -1,9 +1,16 @@
-# Prompt for bolt.new — Website for AI-Assisted SQL Desktop App
+# Prompt for b### 1. Landing Page
+- Hero section with ### 6. Roadmap & Updates
+- Section: "Coming soon: Custom database-specialized AI model (commercial version, updated weekly), Oracle and MySQL support, Linux installer, migration support."  
+- Changelog feed or blog for version releases.eadline**: "The AI-Powered SQL Desktop App"  
+- Subtext: "Manage SQL Server, PostgreSQL, SQLite (Oracle and MySQL coming soon) with a modern cross-platform tool that combines query editing, results visualization, and AI-assisted SQL generation."  
+- **Beta badge**: "Free Beta — Register to Download"  
+- Call-to-action: "Register for Beta Access" (primary button) leading to registration form to receive download link.  
+- Screenshot carousel: show editor with results, chat with AI, schema explorer.ew — Website for AI-Assisted SQL Desktop App
 
 You are a web product team. Build a **modern product website** for a commercial desktop app that manages SQL databases with integrated AI assistance.  
 
 ## PURPOSE
-Create a marketing and documentation website that presents the product clearly, attracts users, and provides download links for Windows/macOS/Linux installers.  
+Create a marketing and documentation website that presents the product clearly, attracts users, and provides a beta registration form to receive download links for Windows/macOS installers. The app is currently **free in beta** — users register their interest and receive download access.  
 
 ## BRAND & STYLE
 - Professional, clean, dark+light themes (like VS Code / modern dev tools).  
@@ -19,13 +26,15 @@ Create a marketing and documentation website that presents the product clearly, 
 - Screenshot carousel: show editor with results, chat with AI, schema explorer.  
 
 ### 2. Features
-- **Database Management**: Connect to SQL Server (PostgreSQL and more coming).  
+- **BYOM (Bring Your Own Model)**: In beta, connect your own AI model — OpenAI, Azure OpenAI, Gemini, Claude, Ollama local, and more. *Commercial version will include a custom, curated database-specialized model updated weekly.*  
+- **Database Management**: Connect to SQL Server, PostgreSQL, SQLite today. Oracle and MySQL coming soon.  
 - **Intelligent Explorer**: Navigate servers, schemas, tables, columns, indexes.  
 - **SQL Editor**: Monaco-based editor with linting, formatting, split views.  
 - **Results Grid**: Resizable grid with export to CSV.  
-- **AI Chat Assistant**: Natural language to SQL with guardrails, schema awareness, conversation history.  
-- **Secure by Design**: Read-only default, confirmations for writes, secrets stored safely.  
-- **Cross-Platform**: macOS, Windows, Linux with auto-updates.  
+- **AI Chat Assistant**: Natural language to SQL with guardrails, schema awareness, conversation history. **AI proposes queries; you stay in control and execute them.**  
+- **Full Write Access with Safeguards**: Execute DDL and DML operations — create tables, modify schemas, insert/update data. All operations require your confirmation and respect your connection's configured permissions.  
+- **Secure by Design**: Confirmations for write operations, schema-aware guardrails, secrets stored safely.  
+- **Cross-Platform**: macOS and Windows with auto-updates. Linux coming soon.  
 
 ### 3. Screenshots / Demo
 - Showcase real screenshots (provided) in a gallery with captions:
@@ -34,12 +43,13 @@ Create a marketing and documentation website that presents the product clearly, 
   - AI Assistant panel analyzing/rewriting SQL.  
   - Schema explorer with columns, keys, constraints.  
 
-### 4. Downloads
-- Platform-specific download cards:
+### 4. Beta Registration & Downloads
+- **Registration Form**: Collect email, name, and intended use case.  
+- Upon registration, users receive a confirmation email with download links for:  
   - macOS (.dmg)  
   - Windows (.msi)  
-  - Linux (.AppImage, .deb)  
-- Include checksums + release notes links.  
+- Include checksums + release notes links in the email.  
+- Note: Linux support coming in a future release.  
 
 ### 5. Documentation
 - Link to `/docs`: installation, quick start, configuring AI engines, guardrails, settings.  

@@ -2026,10 +2026,8 @@ export default function Explorer() {
       schema: node.type === "schema" ? node.name : "",
     };
 
-    console.log("🔧 [Explorer] Opening new query tab with detail:", detail);
     document.dispatchEvent(new CustomEvent("open-empty-sql-tab", { detail }));
   };
-
   const renderTreeNode = (
     node:
       | DatabaseNode
@@ -2461,12 +2459,6 @@ export default function Explorer() {
                   : "opacity-0 group-hover:opacity-100"
               }`}
               onClick={e => {
-                console.log(
-                  "🔧 [Explorer] Plus button clicked on",
-                  node.type,
-                  "node:",
-                  node.name
-                );
                 e.stopPropagation();
                 handleNewAction(node, connectionId, nodeKey);
               }}
@@ -2497,10 +2489,6 @@ export default function Explorer() {
                   : "opacity-0 group-hover:opacity-100"
               }`}
               onClick={e => {
-                console.log(
-                  "🔧 [Explorer] New Query button clicked for schema:",
-                  node.name
-                );
                 e.stopPropagation();
                 handleNewQueryAction(node, connectionId);
               }}

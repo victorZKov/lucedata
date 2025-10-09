@@ -1,7 +1,7 @@
 {
   "name": "@sqlhelper/desktop",
   "productName": "SQL Helper",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "SQLHelper main process",
   "main": "dist/apps/desktop/src/main.js",
   "type": "module",

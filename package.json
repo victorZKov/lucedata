@@ -1,6 +1,6 @@
 {
   "name": "sqlhelper",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "description": "Cross-platform AI-assisted SQL database desktop application",
   "private": true,
   "workspaces": [
@@ -17,7 +17,11 @@
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
     "clean": "turbo run clean",
     "type-check": "turbo run type-check",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "validate": "node scripts/validate-build.mjs",
+    "build:win": "./scripts/build-windows.sh",
+    "build:mac": "./scripts/build-mac.sh",
+    "build:all": "pnpm run build:win && pnpm run build:mac"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",

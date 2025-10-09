@@ -59,8 +59,14 @@ const ConnectionsSettings: React.FC = () => {
         await window.electronAPI?.connections?.save(connectionData);
       }
 
-      // Reload connections
+      // Reload connections in settings dialog
       await loadConnections();
+
+      // Notify Explorer to refresh its connection list
+      console.log(
+        "📢 [ConnectionsSettings] Dispatching refresh-connections event"
+      );
+      document.dispatchEvent(new CustomEvent("refresh-connections"));
 
       // Close dialog and reset edit state
       setIsDialogOpen(false);
@@ -91,6 +97,12 @@ const ConnectionsSettings: React.FC = () => {
       try {
         await window.electronAPI?.connections?.delete(connection.id);
         await loadConnections();
+
+        // Notify Explorer to refresh its connection list
+        console.log(
+          "📢 [ConnectionsSettings] Dispatching refresh-connections event after delete"
+        );
+        document.dispatchEvent(new CustomEvent("refresh-connections"));
       } catch (error) {
         console.error("Failed to delete connection:", error);
       }

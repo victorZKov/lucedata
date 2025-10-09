@@ -75,12 +75,15 @@ function App() {
     const handleMenuAction = (action: string, ...args: unknown[]) => {
       console.log("Menu action:", action, args);
 
-      // migrate-configuration will be handled in the switch below
-
       switch (action) {
         case "new-connection":
           // Handle new connection
           console.log("Opening new connection dialog");
+          break;
+        case "migrate-configuration":
+          // Open FirstRunWizard in migrate mode
+          setFirstRunMode("migrate");
+          setShowFirstRunWizard(true);
           break;
         case "manage-ai-engines":
           // Open Settings dialog with AI Engines tab

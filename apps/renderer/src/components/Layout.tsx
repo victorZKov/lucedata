@@ -33,6 +33,7 @@ import { SavedChatsPanel } from "./SavedChatsPanel";
 import TipsDialog from "./TipsDialog";
 import { ChatHistoryTab } from "./ChatHistoryTab";
 import VersionDialog from "./VersionDialog";
+import { NewChatDialog } from "./NewChatDialog";
 
 interface LayoutState {
   explorerWidth: number;
@@ -46,6 +47,7 @@ interface DialogState {
   chatHistoryTab: boolean;
   versionDialog: boolean;
   tipsDialog: boolean;
+  newChatDialog: boolean;
 }
 
 interface ConnectionInfo {
@@ -87,6 +89,7 @@ export default function Layout() {
     chatHistoryTab: false,
     versionDialog: false,
     tipsDialog: false,
+    newChatDialog: false,
   });
 
   const [showSavedChats, setShowSavedChats] = useState(false);
@@ -97,6 +100,7 @@ export default function Layout() {
   ] = useState<boolean | null>(null);
 
   const [connections, setConnections] = useState<ConnectionInfo[]>([]);
+  const [newChatSuggestedTitle, setNewChatSuggestedTitle] = useState("");
 
   // Track current tab state for toolbar buttons
   const [currentTabState, setCurrentTabState] = useState({
@@ -428,19 +432,17 @@ export default function Layout() {
   // Chat dialog handlers
   const handleNewChat = () => {
     const suggestedName = `Conversation ${new Date().toLocaleString()}`;
-    const input = window.prompt("Name your new conversation", suggestedName);
+    setNewChatSuggestedTitle(suggestedName);
+    setDialogs(prev => ({ ...prev, newChatDialog: true }));
+  };
 
-    if (input === null) {
-      return;
-    }
-
-    const trimmed = input.trim();
-    const title = trimmed || suggestedName;
-
+  const handleNewChatConfirm = (title: string) => {
     // Reset chat state - this will be handled in ChatPanel
     document.dispatchEvent(new CustomEvent("new-chat", { detail: { title } }));
     // Clear workspace context for fresh chat
     document.dispatchEvent(new CustomEvent("clear-workspace-context"));
+    // Close dialog
+    setDialogs(prev => ({ ...prev, newChatDialog: false }));
   };
 
   const handleSaveChat = async (title: string): Promise<void> => {
@@ -1143,6 +1145,12 @@ export default function Layout() {
       </div>
 
       {/* Chat Dialogs */}
+      <NewChatDialog
+        isOpen={dialogs.newChatDialog}
+        onClose={() => setDialogs(prev => ({ ...prev, newChatDialog: false }))}
+        onConfirm={handleNewChatConfirm}
+        suggestedTitle={newChatSuggestedTitle}
+      />
       <SaveChatDialog
         isOpen={dialogs.saveChatDialog}
         onClose={() => setDialogs(prev => ({ ...prev, saveChatDialog: false }))}

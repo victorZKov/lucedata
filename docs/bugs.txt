@@ -1,0 +1,50 @@
+Bugs and Small Fixes
+Review all options in application menu.
+Remove File > New Query, File > New Connection
+Review execution of File > Refresh Connections, it seems not doing anything or at least, the tree is not visible affected
+Review execution of File > Disconnect All, it seems not doing anythingor at least, the tree is not visible affected
+Review execution of File > Settings, it's not opening the settings dialog
+Review execution of File > Migrate configuration, it's not opening the migrate configuration dialog
+Search in top center
+Add a search box in the top center of the header, at the same level as the buttons to show/hide the connections and the chat, but centered in the screen. This search box will search the content on the tree elements, filtering the tree and the saved chat list (the title), filtering the chat list as well.
+History. Beside the search box, show a left and right arrow buttons. These buttons will go back and forth across all the elements that the user clicked in the session.
+Review buttons in Connections section:
+Plus button is adding a new configuration but it is not added to the tree unless you refresh the application
+Refresh connections is not refreshing the content of the tree with the new connections
+Database Node:
+Plus button is doing nothing, remove
+Schema buttons, new query and refresh are doing nothing
+Review Chat section:
+Plus button freezes the entire application
+When asking for a query, many times the chat is showing as executable the query it does to get the structure, not the query to retrieve the data. Example:
+Dime los datos que hay en Exercises
+Connected to: FitChallenge (sqlserver) using Azure k
+Resumen de lo ocurrido:
+Ya se inspeccionó la tabla dbo.FitChallenge_Exercises y se obtuvieron al menos 5 columnas clave: Id, Name, Description, Category, Difficulty, junto con 6 columnas adicionales (no especificadas en el resultado mostrado). Esto indica que la tabla contiene información de ejercicios con características como nombre, descripción, categoría y dificultad, entre otras propiedades.
+Consulta final (para obtener los datos actuales de la tabla): SELECT TOP 100 * FROM dbo.FitChallenge_Exercises;
+Explicación de la consulta y resultados esperados:
+La consulta devuelve las 100 filas más recientes (por defecto, sin un ORDER BY explícito, la selección puede variar entre ejecuciones; si necesitas un orden específico, por ejemplo por Id o por fecha de creación, podemos añadir ORDER BY).
+La salida incluirá todas las columnas de la tabla, incluyendo Id, Name, Description, Category, Difficulty y las 6 columnas adicionales no mostradas previamente. Esto te permitirá ver el contenido completo de cada ejercicio.
+Con estas columnas, podrás entender:
+Identificación única de cada ejercicio (Id)
+Detalles descriptivos (Name, Description)
+Clasificación temática (Category)
+Nivel de complejidad (Difficulty)
+Otras características relevantes que definan el ejercicio (las columnas no mostradas en el extracto anterior)
+Notas sobre la estructura de datos:
+La presencia de campos como Category y Difficulty sugiere una taxonomía simple para filtrar o agrupar ejercicios.
+Es probable que las columnas adicionales incluyan metadatos como Duration, Equipment, MuscleGroup, Steps, etc. Si quieres, puedo ejecutar una inspección adicional para listar exactamente los nombres y tipos de esas 6 columnas faltantes y ajustar la consulta para mostrar columnas específicas.
+🔍 I executed 1 query to analyze your data and provide this response.
+SQL Query:
+▶📋📄
+SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE 
+FROM INFORMATION_SCHEMA.COLUMNS 
+WHERE TABLE_NAME = 'FitChallenge_Exercises' AND TABLE_SCHEMA = 'dbo';
+Would you like me to run this query for you?
+▶ Yes, run itNo, thanks
+
+Saved Chats:
+Edit name of chat does not allow blank spaces
+Query Editor:
+If the user marks a section of the content, execute ONLY that marked text, not the entire content.
+

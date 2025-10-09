@@ -1360,7 +1360,31 @@ export default function WorkArea() {
   const runQuery = async () => {
     if (!activeTab || !activeTab.connectionId || !window.electronAPI) return;
 
-    const queries = parseSQLQueries(activeTab.sql);
+    // Get query text to execute: selection if present, otherwise full text
+    let sqlToExecute = activeTab.sql;
+
+    if (monacoEditorRef.current) {
+      const selection = monacoEditorRef.current.getSelection();
+
+      // If there's a non-empty selection, use it
+      if (selection && !selection.isEmpty()) {
+        const model = monacoEditorRef.current.getModel();
+        if (model) {
+          const selectedText = model.getValueInRange(selection);
+          if (selectedText && selectedText.trim()) {
+            sqlToExecute = selectedText;
+            console.log(
+              "[Query Editor] Executing selected text:",
+              selectedText
+            );
+          }
+        }
+      } else {
+        console.log("[Query Editor] Executing full query");
+      }
+    }
+
+    const queries = parseSQLQueries(sqlToExecute);
     if (queries.length === 0) return;
 
     try {

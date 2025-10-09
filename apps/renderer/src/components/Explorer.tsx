@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import {
   Plug,
   LogOut,
@@ -159,7 +159,9 @@ export default function Explorer() {
   const [connectionStates, setConnectionStates] = useState<
     Map<string, ConnectionState>
   >(new Map());
-  const [expandedErrorMap, setExpandedErrorMap] = useState<Map<string, boolean>>(new Map());
+  const [expandedErrorMap, setExpandedErrorMap] = useState<
+    Map<string, boolean>
+  >(new Map());
   const [isLoading, setIsLoading] = useState(true);
   const [apiReady, setApiReady] = useState(false);
   const [isElectronEnv, setIsElectronEnv] = useState(false);
@@ -293,6 +295,58 @@ export default function Explorer() {
     };
   }, [isElectronEnv]);
 
+  // Create a stable refresh function using useCallback
+  const refreshConnections = useCallback(async (source: string) => {
+    try {
+      setIsLoading(true);
+      console.log(
+        `🔧 [Explorer] Refreshing connections (source: ${source})...`
+      );
+
+      if (!window.electronAPI || !window.electronAPI.connections) {
+        throw new Error("ElectronAPI not available");
+      }
+
+      const loadedConnections = await window.electronAPI.connections.list();
+      console.log(
+        `🔧 [Explorer] Loaded ${loadedConnections.length} connections from backend`
+      );
+
+      setConnections(loadedConnections);
+
+      // Update connection states using the functional update form
+      setConnectionStates(prevStates => {
+        const newConnectionStates = new Map<string, ConnectionState>();
+        loadedConnections.forEach((connection: Connection) => {
+          const existingState = prevStates.get(connection.id);
+          if (existingState) {
+            // Preserve existing state but update connection details
+            newConnectionStates.set(connection.id, {
+              ...existingState,
+              connection, // Update with new connection details
+            });
+          } else {
+            // Initialize new connection
+            newConnectionStates.set(connection.id, {
+              connection,
+              isConnected: false,
+              isConnecting: false,
+              expandedNodes: new Set(),
+            });
+          }
+        });
+        console.log(
+          `✅ [Explorer] Connection states updated: ${newConnectionStates.size} connections`
+        );
+        return newConnectionStates;
+      });
+    } catch (error) {
+      console.error(`❌ [Explorer] Failed to refresh connections:`, error);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []); // No dependencies - uses functional updates
+
   // Listen for header Add button command
   useEffect(() => {
     const handler = () => handleAddConnection();
@@ -300,56 +354,67 @@ export default function Explorer() {
     return () => document.removeEventListener("open-add-connection", handler);
   }, []);
 
+  // Listen for refresh connections button in header
+  useEffect(() => {
+    const handler = (event: Event) => {
+      console.log("🔧 [Explorer] Refresh event received:", event);
+      console.log("🔧 [Explorer] Event detail:", (event as CustomEvent).detail);
+      refreshConnections("header-button");
+    };
+    console.log("🔧 [Explorer] Setting up refresh-connections event listener");
+    document.addEventListener("refresh-connections", handler);
+    return () => {
+      console.log("🔧 [Explorer] Removing refresh-connections event listener");
+      document.removeEventListener("refresh-connections", handler);
+    };
+  }, [refreshConnections]);
+
   // Load connections when API becomes ready
   useEffect(() => {
     if (apiReady) {
-      loadConnections();
+      refreshConnections("api-ready");
     }
-  }, [apiReady]);
+  }, [apiReady, refreshConnections]);
 
-  // Listen for menu events
-  useEffect(() => {
-    const handleMenuAction = (action: string) => {
-      console.log("Menu action received:", action);
-      switch (action) {
-        case "new-connection":
-          handleAddConnection();
-          break;
-        case "refresh-connections":
-          loadConnections();
-          break;
-        case "disconnect-all":
-          handleDisconnectAll();
-          break;
-        default:
-          console.log("Unknown menu action:", action);
-      }
-    };
-
-    // Add event listener for menu events
-    if (window.electronAPI && window.electronAPI.onMenuAction) {
-      window.electronAPI.onMenuAction(handleMenuAction);
-    }
-
-    return () => {
-      // Cleanup if needed
-      if (window.electronAPI && window.electronAPI.removeAllListeners) {
-        window.electronAPI.removeAllListeners("menu-action");
-      }
-    };
-  }, []);
-
+  // Define menu action handlers before the useEffect that uses them
   const handleDisconnectAll = async () => {
     try {
+      console.log("🔧 [Explorer] handleDisconnectAll called");
+      console.log(
+        "🔧 [Explorer] Total connection states:",
+        connectionStates.size
+      );
+
+      // Get all active connections
+      const activeConnections = Array.from(connectionStates.entries()).filter(
+        ([_, state]) => state.isConnected
+      );
+
+      console.log(
+        "🔧 [Explorer] Active connections:",
+        activeConnections.length
+      );
+      activeConnections.forEach(([id, state]) => {
+        console.log(`🔧 [Explorer] - ${state.connection.name} (${id})`);
+      });
+
+      if (activeConnections.length === 0) {
+        console.log("🔧 [Explorer] No active connections to disconnect");
+        return;
+      }
+
       // Disconnect all active connections
-      const disconnectPromises = Array.from(connectionStates.entries())
-        .filter(([_, state]) => state.isConnected)
-        .map(([connectionId, _]) => handleDisconnect(connectionId));
+      const disconnectPromises = activeConnections.map(([connectionId, _]) =>
+        handleDisconnect(connectionId)
+      );
 
       await Promise.all(disconnectPromises);
-      console.log("All connections disconnected");
+      console.log("✅ [Explorer] All connections disconnected");
     } catch (error) {
-      console.error("Failed to disconnect all connections:", error);
+      console.error(
+        "❌ [Explorer] Failed to disconnect all connections:",
+        error
+      );
     }
   };
 
@@ -367,19 +432,29 @@ export default function Explorer() {
       );
       setConnections(loadedConnections);
 
-      // Initialize connection states
+      // Initialize connection states, preserving existing state for known connections
       const newConnectionStates = new Map<string, ConnectionState>();
       loadedConnections.forEach((connection: Connection) => {
-        newConnectionStates.set(connection.id, {
-          connection,
-          isConnected: false,
-          isConnecting: false,
-          expandedNodes: new Set(),
-        });
+        const existingState = connectionStates.get(connection.id);
+        if (existingState) {
+          // Preserve existing state but update connection details
+          newConnectionStates.set(connection.id, {
+            ...existingState,
+            connection, // Update with new connection details
+          });
+        } else {
+          // Initialize new connection
+          newConnectionStates.set(connection.id, {
+            connection,
+            isConnected: false,
+            isConnecting: false,
+            expandedNodes: new Set(),
+          });
+        }
       });
       setConnectionStates(newConnectionStates);
       console.log(
-        "🔧 [Explorer] Connection states initialized for",
+        "🔧 [Explorer] Connection states refreshed for",
         newConnectionStates.size,
         "connections"
       );
@@ -389,6 +464,43 @@ export default function Explorer() {
       setIsLoading(false);
     }
   };
+
+  // Listen for menu events
+  useEffect(() => {
+    const handleMenuAction = async (action: string) => {
+      console.log("🔧 [Explorer] Menu action received:", action);
+      switch (action) {
+        case "new-connection":
+          handleAddConnection();
+          break;
+        case "refresh-connections":
+          console.log("🔧 [Explorer] Menu refresh triggered");
+          await refreshConnections("menu");
+          break;
+        case "disconnect-all":
+          console.log("🔧 [Explorer] Calling handleDisconnectAll...");
+          handleDisconnectAll();
+          break;
+        default:
+          console.log("🔧 [Explorer] Unknown menu action:", action);
+      }
+    };
+
+    // Add event listener for menu events
+    if (window.electronAPI && window.electronAPI.onMenuAction) {
+      console.log("🔧 [Explorer] Setting up menu action listener");
+      window.electronAPI.onMenuAction(handleMenuAction);
+    } else {
+      console.log("🔧 [Explorer] electronAPI.onMenuAction not available");
+    }
+
+    return () => {
+      // Cleanup if needed
+      if (window.electronAPI && window.electronAPI.removeAllListeners) {
+        window.electronAPI.removeAllListeners("menu-action");
+      }
+    };
+  }, [refreshConnections]); // Only depend on refreshConnections (stable)
 
   // Helper function to group built-in schemas for SQL Server
   const processSchemaDataForSqlServer = (
@@ -1033,7 +1145,11 @@ export default function Explorer() {
         "successfully"
       );
       setEditConnection(null); // Clear edit state
-      await loadConnections(); // Reload the connections list
+
+      // Reload connections list immediately with fresh data using our stable refresh function
+      console.log("🔄 Triggering refresh after save...");
+      await refreshConnections("save-connection");
+
       // Dispatch event to update other components
       document.dispatchEvent(new CustomEvent("database-connections-updated"));
     } catch (error) {
@@ -1077,7 +1193,8 @@ export default function Explorer() {
   }) => {
     if (!ctx.connId || !ctx.schema || !ctx.table) return "-- Missing context";
 
-    const quoteIdent = (n: string) => (ctx.type === "sqlserver" ? `[${n}]` : `"${n}"`);
+    const quoteIdent = (n: string) =>
+      ctx.type === "sqlserver" ? `[${n}]` : `"${n}"`;
 
     try {
       // Fetch column metadata using provider API which should normalize across DBs
@@ -1116,25 +1233,32 @@ export default function Explorer() {
         // ignore
       }
 
-      const pk = keys.find(k => k.type === "PRIMARY" || k.type === "PRIMARY KEY");
-      const pkCols: string[] = pk ? (pk.columns || []) : [];
+      const pk = keys.find(
+        k => k.type === "PRIMARY" || k.type === "PRIMARY KEY"
+      );
+      const pkCols: string[] = pk ? pk.columns || [] : [];
 
       const lines = columns.map(col => {
         const name = quoteIdent(col.name);
-        const dt = String(col.dataType || col.dataTypeName || col.DATA_TYPE || "").toLowerCase();
+        const dt = String(
+          col.dataType || col.dataTypeName || col.DATA_TYPE || ""
+        ).toLowerCase();
         let typeSpec = dt;
 
         // Dialect-specific type mapping
         if (ctx.type === "postgresql") {
           if (["nvarchar", "varchar", "char", "nchar"].includes(dt)) {
             const len = col.maxLength || col.character_maximum_length;
-            const lenStr = len === -1 || len === "max" ? "" : len ? `(${len})` : "";
+            const lenStr =
+              len === -1 || len === "max" ? "" : len ? `(${len})` : "";
             typeSpec = `VARCHAR${lenStr}`;
           } else if (dt === "datetime2" || dt === "datetime") {
             typeSpec = "TIMESTAMP";
           } else if (dt === "int") {
             // detect serial-like defaults
-            const def = String(col.columnDefault || col.column_default || "").toLowerCase();
+            const def = String(
+              col.columnDefault || col.column_default || ""
+            ).toLowerCase();
             if (def.includes("nextval") || def.includes("identity")) {
               // Use identity syntax
               typeSpec = "INTEGER GENERATED BY DEFAULT AS IDENTITY";
@@ -1154,26 +1278,35 @@ export default function Explorer() {
             typeSpec = "TEXT";
           } else if (["int", "integer", "bigint", "smallint"].includes(dt)) {
             typeSpec = "INTEGER";
-          } else if (["decimal", "numeric", "float", "real", "double"].includes(dt)) {
+          } else if (
+            ["decimal", "numeric", "float", "real", "double"].includes(dt)
+          ) {
             typeSpec = "REAL";
           } else if (["blob", "binary", "varbinary"].includes(dt)) {
             typeSpec = "BLOB";
           }
         } else if (ctx.type === "sqlserver") {
           // Use original provider type names, preserve lengths/precision
-          if (["varchar","nvarchar","char","nchar"].includes(dt)) {
+          if (["varchar", "nvarchar", "char", "nchar"].includes(dt)) {
             const len = col.maxLength ?? col.character_maximum_length;
-            const lenStr = len === -1 || len === "max" ? "(MAX)" : len ? `(${len})` : "";
+            const lenStr =
+              len === -1 || len === "max" ? "(MAX)" : len ? `(${len})` : "";
             typeSpec = `${dt}${lenStr}`;
-          } else if (["decimal","numeric"].includes(dt)) {
+          } else if (["decimal", "numeric"].includes(dt)) {
             const p = col.precision ?? col.numeric_precision ?? 18;
             const s = col.scale ?? col.numeric_scale ?? 0;
             typeSpec = `${dt}(${p},${s})`;
           }
         }
 
-        const nullable = String(col.isNullable || col.is_nullable || col.IS_NULLABLE || "").toUpperCase() === "YES" ? "NULL" : "NOT NULL";
-        const defRaw = col.columnDefault || col.column_default || col.COLUMN_DEFAULT || "";
+        const nullable =
+          String(
+            col.isNullable || col.is_nullable || col.IS_NULLABLE || ""
+          ).toUpperCase() === "YES"
+            ? "NULL"
+            : "NOT NULL";
+        const defRaw =
+          col.columnDefault || col.column_default || col.COLUMN_DEFAULT || "";
         const def = defRaw ? ` DEFAULT ${defRaw}` : "";
 
         return `  ${name} ${typeSpec} ${nullable}${def}`.trimEnd();
@@ -1184,7 +1317,9 @@ export default function Explorer() {
 
       // Append primary key constraint if available
       if (pkCols.length > 0) {
-        const pkList = pkCols.map(c => (ctx.type === "sqlserver" ? `[${c}]` : `"${c}"`)).join(", ");
+        const pkList = pkCols
+          .map(c => (ctx.type === "sqlserver" ? `[${c}]` : `"${c}"`))
+          .join(", ");
         script += `,\n  CONSTRAINT ${ctx.type === "sqlserver" ? `[PK_${ctx.table}]` : `"PK_${ctx.table}"`} PRIMARY KEY (${pkList})`;
       }
 
@@ -1204,20 +1339,30 @@ export default function Explorer() {
     type?: string; // connection type
   }): Promise<string> {
     try {
-      if (!ctx.connId || !ctx.schema || !ctx.routine) return "-- Missing routine context";
+      if (!ctx.connId || !ctx.schema || !ctx.routine)
+        return "-- Missing routine context";
 
       // SQL Server: use OBJECT_DEFINITION
       if (ctx.type === "sqlserver") {
         const qualified = `${ctx.schema}.${ctx.routine}`;
         const q = `SELECT OBJECT_DEFINITION(OBJECT_ID('${ctx.schema}.${ctx.routine}')) AS definition;`;
-        const res = await window.electronAPI?.database?.executeQuery(ctx.connId, q);
+        const res = await window.electronAPI?.database?.executeQuery(
+          ctx.connId,
+          q
+        );
         let def = res?.rows?.[0]?.definition as string | undefined;
 
         if (def && def.trim()) {
           if (ctx.routineType === "procedure") {
-            def = def.replace(/^([\s]*)CREATE(\s+)PROCEDURE/im, "$1ALTER$2PROCEDURE");
+            def = def.replace(
+              /^([\s]*)CREATE(\s+)PROCEDURE/im,
+              "$1ALTER$2PROCEDURE"
+            );
           } else if (ctx.routineType === "function") {
-            def = def.replace(/^([\s]*)CREATE(\s+)FUNCTION/im, "$1ALTER$2FUNCTION");
+            def = def.replace(
+              /^([\s]*)CREATE(\s+)FUNCTION/im,
+              "$1ALTER$2FUNCTION"
+            );
           } else if (ctx.routineType === "trigger") {
             def = `-- To modify this trigger, drop and recreate it\n${def.replace(/^([\s]*)CREATE(\s+)TRIGGER/im, `$1DROP TRIGGER ${qualified};\nGO\n\n$1CREATE$2TRIGGER`)}`;
           } else if (ctx.routineType === "view") {
@@ -1232,15 +1377,26 @@ export default function Explorer() {
       if (ctx.type === "postgresql") {
         if (ctx.routineType === "function" || ctx.routineType === "procedure") {
           const q = `SELECT pg_get_functiondef(p.oid) AS definition FROM pg_proc p JOIN pg_namespace n ON p.pronamespace = n.oid WHERE n.nspname = '${ctx.schema}' AND p.proname = '${ctx.routine}';`;
-          const res = await window.electronAPI?.database?.executeQuery(ctx.connId, q);
+          const res = await window.electronAPI?.database?.executeQuery(
+            ctx.connId,
+            q
+          );
           const def = res?.rows?.[0]?.definition as string | undefined;
-          if (def) return def.replace(/^([\s]*)CREATE(\s+)FUNCTION/im, "$1ALTER$2FUNCTION");
+          if (def)
+            return def.replace(
+              /^([\s]*)CREATE(\s+)FUNCTION/im,
+              "$1ALTER$2FUNCTION"
+            );
         }
         if (ctx.routineType === "view") {
           const q = `SELECT pg_get_viewdef('${ctx.schema}.${ctx.routine}', true) AS definition;`;
-          const res = await window.electronAPI?.database?.executeQuery(ctx.connId, q);
+          const res = await window.electronAPI?.database?.executeQuery(
+            ctx.connId,
+            q
+          );
           const def = res?.rows?.[0]?.definition as string | undefined;
-          if (def) return def.replace(/^([\s]*)CREATE(\s+)VIEW/im, "$1ALTER$2VIEW");
+          if (def)
+            return def.replace(/^([\s]*)CREATE(\s+)VIEW/im, "$1ALTER$2VIEW");
         }
       }
 
@@ -2554,7 +2710,11 @@ export default function Explorer() {
                   <span
                     className="truncate cursor-pointer"
                     title={error}
-                    onClick={() => setExpandedErrorMap(prev => new Map(prev).set(connection.id, !expandedError))}
+                    onClick={() =>
+                      setExpandedErrorMap(prev =>
+                        new Map(prev).set(connection.id, !expandedError)
+                      )
+                    }
                     aria-label="Show full error"
                   >
                     • {error}
@@ -2564,7 +2724,7 @@ export default function Explorer() {
                     onClick={e => {
                       e.stopPropagation();
                       try {
-                        navigator.clipboard.writeText(error || '');
+                        navigator.clipboard.writeText(error || "");
                       } catch (_e) {
                         // ignore
                       }
@@ -2582,7 +2742,13 @@ export default function Explorer() {
                   <div className="whitespace-pre-wrap break-words">{error}</div>
                   <button
                     className="ml-2 text-sm underline"
-                    onClick={() => setExpandedErrorMap(prev => { const m = new Map(prev); m.set(connection.id, false); return m; })}
+                    onClick={() =>
+                      setExpandedErrorMap(prev => {
+                        const m = new Map(prev);
+                        m.set(connection.id, false);
+                        return m;
+                      })
+                    }
                   >
                     Close
                   </button>
@@ -2843,7 +3009,7 @@ ALTER COLUMN ${ident(columnData.name as string)} NVARCHAR(255) NULL;`;
       default:
         return "-- Invalid action";
     }
-  };
+  }
 
   function generateKeyDDL(
     connectionType: string,
@@ -2898,7 +3064,7 @@ ADD CONSTRAINT ${ident(keyData.name as string)} PRIMARY KEY ([ColumnName]);`;
       default:
         return "-- Invalid action";
     }
-  };
+  }
 
   function generateConstraintDDL(
     connectionType: string,
@@ -2953,7 +3119,7 @@ ADD CONSTRAINT ${ident(constraintData.name as string)} CHECK ([ColumnName] IS NO
       default:
         return "-- Invalid action";
     }
-  };
+  }
 
   function generateTriggerDDL(
     connectionType: string,
@@ -3033,7 +3199,7 @@ END;`;
       default:
         return "-- Invalid action";
     }
-  };
+  }
 
   function generateIndexDDL(
     connectionType: string,
@@ -3081,7 +3247,7 @@ CREATE INDEX ${indexData.name as string} ON ${qualified} ("ColumnName");`;
       default:
         return "-- Invalid action";
     }
-  };
+  }
 
   function generateTableDDL(
     connectionType: string,
@@ -3144,7 +3310,7 @@ DROP TABLE ${qualifiedDrop};`;
       default:
         return `-- Unsupported action: ${action}`;
     }
-  };
+  }
 
   // Generate a new table template using metadata when possible, otherwise fall back to static templates
   async function generateNewTableTemplate(
@@ -3153,7 +3319,7 @@ DROP TABLE ${qualifiedDrop};`;
     schemaName: string
   ): Promise<string> {
     // If we have a connection id and the metadata API is available, try to generate a real CREATE TABLE
-  if (connId && window.electronAPI?.database) {
+    if (connId && window.electronAPI?.database) {
       // We need a table name for metadata generation; since this is a new table, return a sensible template
       // by attempting to create columns metadata for a hypothetical table - but the provider requires an existing table.
       // So instead, attempt to generate a minimal template using dialect-aware defaults.
@@ -3183,14 +3349,18 @@ CREATE TABLE ${schemaName}_new_table (
 -- Insert sample data (optional)
 -- INSERT INTO ${schemaName}_new_table (name) VALUES ('Sample');`;
         }
-  } catch (_e) {
+      } catch (_e) {
         // Fall through to fallback
       }
     }
 
     // Fallback to existing static templates
-    return generateTableDDL(connectionType || "sqlserver", "create", schemaName);
-  };
+    return generateTableDDL(
+      connectionType || "sqlserver",
+      "create",
+      schemaName
+    );
+  }
 
   function generateStoredProcedureDDL(
     connectionType: string,
@@ -3240,7 +3410,7 @@ END;
 
 -- Example execution:
 -- EXEC ${qualified} @Parameter1 = 'Sample Value', @Parameter2 = 123;`;
-  };
+  }
 
   function generateFunctionDDL(
     connectionType: string,
@@ -3290,7 +3460,7 @@ END;
 
 -- Example usage:
 -- SELECT ${qualified}('Sample Text', 123) AS FunctionResult;`;
-  };
+  }
 
   function generateViewDDL(
     connectionType: string,
@@ -3366,7 +3536,7 @@ CREATE TYPE ${qualified} AS TABLE
     
     PRIMARY KEY (Id)
 );`;
-  };
+  }
 
   function generateSequenceDDL(
     connectionType: string,
@@ -3403,7 +3573,7 @@ CREATE SEQUENCE ${qualified}
     MAXVALUE 9223372036854775807
     NO CYCLE
     CACHE 10;`;
-  };
+  }
 
   function openDDLTab(
     sql: string,

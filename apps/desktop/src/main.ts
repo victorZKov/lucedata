@@ -20,7 +20,6 @@ import {
 import Store from "electron-store";
 // eslint-disable-next-line import/order
 import electronUpdater from "electron-updater";
-
 const { autoUpdater } = electronUpdater;
 
 import { DatabaseManager, DatabaseType } from "@sqlhelper/database-core";
@@ -611,29 +610,6 @@ function createMenu(): void {
       {
         label: "File",
         submenu: [
-          {
-            label: "New Query",
-            accelerator: "CmdOrCtrl+T",
-            click: () => {
-              console.log("New Query clicked from menu");
-              if (mainWindow) {
-                mainWindow.webContents.send("menu-action", "new-query");
-              }
-            },
-          },
-          { type: "separator" },
-          {
-            label: "New Connection",
-            accelerator: "CmdOrCtrl+N",
-            click: () => {
-              console.log("New Connection clicked from menu");
-              if (mainWindow) {
-                // Send IPC event to renderer to open connection dialog
-                mainWindow.webContents.send("menu-action", "new-connection");
-              }
-            },
-          },
-          { type: "separator" },
           {
             label: "Open…",
             accelerator: "CmdOrCtrl+O",

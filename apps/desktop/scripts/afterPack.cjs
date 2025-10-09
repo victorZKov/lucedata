@@ -51,10 +51,10 @@ module.exports = async function(context) {
     throw error;
   }
   
-  // Fix for Windows: Copy electron-store and dependencies from pnpm to actual node_modules
-  // This is needed because pnpm uses symlinks which don't work in Windows installers
-  if (electronPlatformName === 'win32') {
-    console.log('\n🔧 Fixing Windows pnpm symlinks...');
+  // Fix for pnpm symlinks: Copy electron-store and dependencies from pnpm to actual node_modules
+  // This is needed because pnpm uses symlinks which don't work well in packaged apps
+  if (electronPlatformName === 'win32' || electronPlatformName === 'darwin') {
+    console.log(`\n🔧 Fixing ${electronPlatformName} pnpm symlinks...`);
     
     const nodeModulesInApp = path.join(resourcesPath, 'node_modules');
     const pnpmStore = path.join(workspaceRoot, 'node_modules', '.pnpm');
@@ -103,7 +103,7 @@ module.exports = async function(context) {
         }
       }
       
-      console.log('✅ All critical packages fixed for Windows');
+      console.log(`✅ All critical packages fixed for ${electronPlatformName}`);
     } catch (error) {
       console.error('❌ Error fixing packages:', error);
       // Don't throw - let build continue

@@ -1608,15 +1608,19 @@ export default function Explorer() {
     if (node.type === "database") {
       // Handle "New Query" for database nodes
       const detail = {
-        mode: "query" as const,
-        connId: connectionId,
-        type: conn?.type,
-        connName: conn?.name,
-        db: conn?.database,
+        connectionId: connectionId,
+        connectionType: conn?.type,
+        connectionName: conn?.name,
+        database: conn?.database,
+        schema: "",
       };
 
+      console.log(
+        "🔧 [Explorer] Opening new query tab for database with detail:",
+        detail
+      );
       // Dispatch the same event as the context menu "New Query" option
-      window.dispatchEvent(new CustomEvent("open-empty-sql-tab", { detail }));
+      document.dispatchEvent(new CustomEvent("open-empty-sql-tab", { detail }));
     } else if (node.type === "schema") {
       // Handle schema nodes - default to "New Table" (since + button should be for primary action)
       const sql = await generateNewTableTemplate(
@@ -2015,19 +2019,15 @@ export default function Explorer() {
     const conn = connections.find(c => c.id === connectionId);
 
     const detail: any = {
-      mode: "query" as const,
-      connId: connectionId,
-      type: conn?.type,
-      connName: conn?.name,
-      db: conn?.database,
+      connectionId: connectionId,
+      connectionType: conn?.type,
+      connectionName: conn?.name,
+      database: conn?.database,
+      schema: node.type === "schema" ? node.name : "",
     };
 
-    if (node.type === "schema") {
-      // For schema nodes, include schema information
-      detail.schema = node.name;
-    }
-
-    window.dispatchEvent(new CustomEvent("open-empty-sql-tab", { detail }));
+    console.log("🔧 [Explorer] Opening new query tab with detail:", detail);
+    document.dispatchEvent(new CustomEvent("open-empty-sql-tab", { detail }));
   };
 
   const renderTreeNode = (
@@ -2461,6 +2461,12 @@ export default function Explorer() {
                   : "opacity-0 group-hover:opacity-100"
               }`}
               onClick={e => {
+                console.log(
+                  "🔧 [Explorer] Plus button clicked on",
+                  node.type,
+                  "node:",
+                  node.name
+                );
                 e.stopPropagation();
                 handleNewAction(node, connectionId, nodeKey);
               }}
@@ -2491,6 +2497,10 @@ export default function Explorer() {
                   : "opacity-0 group-hover:opacity-100"
               }`}
               onClick={e => {
+                console.log(
+                  "🔧 [Explorer] New Query button clicked for schema:",
+                  node.name
+                );
                 e.stopPropagation();
                 handleNewQueryAction(node, connectionId);
               }}

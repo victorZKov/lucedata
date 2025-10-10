@@ -89,7 +89,6 @@ export function FeaturesSection() {
             >
               <CardHeader>
                 <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                  {/* @ts-expect-error - React 18/19 type compatibility */}
                   <feature.icon className="h-6 w-6 text-primary" />
                 </div>
                 <CardTitle className="text-xl">{feature.title}</CardTitle>

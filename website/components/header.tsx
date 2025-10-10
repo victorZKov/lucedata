@@ -1,8 +1,9 @@
-"use client"
+"use client";
 
-import { Database } from "lucide-react"
-import { ThemeToggle } from "@/components/theme-toggle"
-import { Button } from "@/components/ui/button"
+import { Database } from "lucide-react";
+
+import { ThemeToggle } from "@/components/theme-toggle";
+import { Button } from "@/components/ui/button";
 
 export function Header() {
   return (
@@ -16,30 +17,45 @@ export function Header() {
         </div>
 
         <nav className="hidden md:flex items-center gap-6">
-          <a href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <a
+            href="/#features"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
             Features
           </a>
-          <a href="#demo" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <a
+            href="/#demo"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
             Demo
           </a>
-          <a href="#downloads" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <a
+            href="/#downloads"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
             Downloads
           </a>
-          <a href="#roadmap" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <a
+            href="/#roadmap"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
             Roadmap
           </a>
-          <a href="/docs" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <a
+            href="/docs"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+          >
             Docs
           </a>
         </nav>
 
         <div className="flex items-center gap-2">
           <ThemeToggle />
-          <Button className="hidden sm:inline-flex">
-            Get Started
-          </Button>
+          <a href="/#downloads" className="hidden sm:inline-flex">
+            <Button>Get Started</Button>
+          </a>
         </div>
       </div>
     </header>
-  )
+  );
 }

@@ -45,7 +45,6 @@ export function DemoSection() {
           <TabsContent value="editor" className="mt-8">
             <Card className="overflow-hidden border-2">
               <div className="relative aspect-video bg-slate-900">
-                {/* @ts-expect-error - React 18/19 type compatibility */}
                 <Image
                   src="/assets/monaco-editor.png"
                   alt="Monaco-based SQL Editor with syntax highlighting, autocomplete, and formatting"
@@ -69,7 +68,6 @@ export function DemoSection() {
           <TabsContent value="assistant" className="mt-8">
             <Card className="overflow-hidden border-2">
               <div className="relative aspect-video bg-slate-900">
-                {/* @ts-expect-error - React 18/19 type compatibility */}
                 <Image
                   src="/assets/aichat-assistant.png"
                   alt="AI Chat Assistant for SQL queries with natural language understanding"
@@ -92,7 +90,6 @@ export function DemoSection() {
           <TabsContent value="explorer" className="mt-8">
             <Card className="overflow-hidden border-2">
               <div className="relative aspect-video bg-slate-900">
-                {/* @ts-expect-error - React 18/19 type compatibility */}
                 <Image
                   src="/assets/schema-explorer.png"
                   alt="Visual Schema Explorer with tree view of databases, tables, and columns"
@@ -115,7 +112,6 @@ export function DemoSection() {
           <TabsContent value="results" className="mt-8">
             <Card className="overflow-hidden border-2">
               <div className="relative aspect-video bg-slate-900">
-                {/* @ts-expect-error - React 18/19 type compatibility */}
                 <Image
                   src="/assets/results-grid.png"
                   alt="Results Grid with resizable columns, filtering, and sorting"

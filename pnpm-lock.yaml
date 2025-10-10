@@ -7,6 +7,12 @@ settings:
 importers:
   .:
     dependencies:
+      drizzle-kit:
+        specifier: ^0.31.4
+        version: 0.31.4
+      drizzle-orm:
+        specifier: ^0.44.5
+        version: 0.44.5(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(pg@8.16.3)
       pg:
         specifier: ^8.16.3
         version: 8.16.3
@@ -74,6 +80,12 @@ importers:
       "@sqlhelper/storage":
         specifier: workspace:*
         version: link:../../packages/storage
+      drizzle-kit:
+        specifier: ^0.31.4
+        version: 0.31.4
+      drizzle-orm:
+        specifier: ^0.44.5
+        version: 0.44.5(@types/better-sqlite3@7.6.13)(better-sqlite3@12.4.1)(pg@8.16.3)
       electron-store:
         specifier: ^10.1.0
         version: 10.1.0

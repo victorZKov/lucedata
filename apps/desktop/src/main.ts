@@ -2854,6 +2854,11 @@ ipcMain.handle(
     }
   ) => {
     try {
+      const firstRunDone = !!(store as any).get("bootstrap.done");
+      if (!firstRunDone) {
+        console.log("🔇 tips-create ignored during first-run setup");
+        return null;
+      }
       console.log("🔍 Creating tip:", tipData.title);
       const tipWithDefaults = {
         id: `tip_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -2879,6 +2884,12 @@ ipcMain.handle(
   "tips-get-all",
   async (_, category?: string, activeOnly: boolean = true) => {
     try {
+      // Suppress tips while first-run setup is not completed to avoid stealing focus
+      const firstRunDone = !!(store as any).get("bootstrap.done");
+      if (!firstRunDone) {
+        console.log("🔇 Tips suppressed during first-run setup");
+        return [];
+      }
       console.log(
         "🔍 Getting all tips, category:",
         category,
@@ -2898,6 +2909,12 @@ ipcMain.handle(
   "tips-get-random",
   async (_, count: number = 1, category?: string) => {
     try {
+      // Suppress tips while first-run setup is not completed to avoid stealing focus
+      const firstRunDone = !!(store as any).get("bootstrap.done");
+      if (!firstRunDone) {
+        console.log("🔇 Tips suppressed during first-run setup (random)");
+        return [];
+      }
       console.log(
         "🔍 Getting random tips, count:",
         count,
@@ -2927,6 +2944,11 @@ ipcMain.handle(
     }
   ) => {
     try {
+      const firstRunDone = !!(store as any).get("bootstrap.done");
+      if (!firstRunDone) {
+        console.log("🔇 tips-update ignored during first-run setup");
+        return null;
+      }
       console.log("🔍 Updating tip:", id);
       const tip = await database.updateTip(id, updates);
       return tip;
@@ -2939,6 +2961,11 @@ ipcMain.handle(
 
 ipcMain.handle("tips-delete", async (_, id: string) => {
   try {
+    const firstRunDone = !!(store as any).get("bootstrap.done");
+    if (!firstRunDone) {
+      console.log("🔇 tips-delete ignored during first-run setup");
+      return { success: false };
+    }
     console.log("🔍 Deleting tip:", id);
     await database.deleteTip(id);
     return { success: true };
@@ -2950,6 +2977,13 @@ ipcMain.handle("tips-delete", async (_, id: string) => {
 
 ipcMain.handle("tips-increment-show-count", async (_, id: string) => {
   try {
+    const firstRunDone = !!(store as any).get("bootstrap.done");
+    if (!firstRunDone) {
+      console.log(
+        "🔇 tips-increment-show-count ignored during first-run setup"
+      );
+      return { success: true };
+    }
     console.log("🔍 Incrementing show count for tip:", id);
     await database.incrementTipShowCount(id);
     return { success: true };

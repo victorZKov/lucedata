@@ -99,6 +99,43 @@ try {
   await runPnpmDeploy();
   await Promise.all(workspacePackages.map(hydrateWorkspacePackage));
   await copyRendererDist();
+  // Ensure critical runtime dependencies exist in packaged node_modules
+  const criticalDeps = [
+    { name: "drizzle-orm", version: "^0.44.5" },
+    { name: "drizzle-kit", version: "^0.31.4" }
+  ];
+
+  const missing = criticalDeps.filter(d => !fs.existsSync(path.join(packagedNodeModulesDir, d.name)));
+  if (missing.length > 0) {
+    console.log("Hydrating missing critical runtime deps via pnpm deploy:", missing.map(m => m.name).join(", "));
+    // Create a temporary package with only the missing deps
+    const tmpDir = path.join(desktopRoot, ".packaged-extra-deps");
+    await rm(tmpDir, { recursive: true, force: true });
+    await mkdir(tmpDir, { recursive: true });
+    const tmpPkgPath = path.join(tmpDir, "package.json");
+    const tmpPkg = {
+      name: "packaged-extra-deps",
+      private: true,
+      version: "1.0.0",
+      dependencies: Object.fromEntries(missing.map(m => [m.name, m.version]))
+    };
+    await fs.promises.writeFile(tmpPkgPath, JSON.stringify(tmpPkg, null, 2));
+    // Run pnpm deploy for that temp package into the same packagedRoot
+    await new Promise((resolve, reject) => {
+      const subprocess = spawn(
+        "pnpm",
+        ["--dir", tmpDir, "--prod", "deploy", packagedRoot],
+        { cwd: repoRoot, stdio: "inherit" }
+      );
+      subprocess.on("error", reject);
+      subprocess.on("close", code => {
+        if (code === 0) resolve();
+        else reject(new Error(`pnpm deploy (extra deps) exited with code ${code}`));
+      });
+    });
+    // Cleanup temp directory
+    await rm(tmpDir, { recursive: true, force: true });
+  }
   console.log("Packaged node_modules prepared for packaging.");
 } catch (error) {
   console.error("Failed to prepare packaged node_modules:", error);

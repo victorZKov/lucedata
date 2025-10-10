@@ -1,0 +1,9 @@
+{
+  "name": "packaged-extra-deps",
+  "private": true,
+  "version": "1.0.0",
+  "dependencies": {
+    "drizzle-orm": "^0.44.5",
+    "drizzle-kit": "^0.31.4"
+  }
+}

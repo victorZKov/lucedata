@@ -48,6 +48,8 @@
     "pnpm": ">=8.0.0"
   },
   "dependencies": {
+    "drizzle-kit": "^0.31.4",
+    "drizzle-orm": "^0.44.5",
     "pg": "^8.16.3"
   }
 }

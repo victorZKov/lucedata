@@ -10,7 +10,7 @@
     "assets/**/*",
     "package.json",
     {
-      "from": "node_modules.packaged",
+      "from": "node_modules.packaged/node_modules",
       "to": "node_modules",
       "filter": [
         "**/*",

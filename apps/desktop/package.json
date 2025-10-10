@@ -21,6 +21,8 @@
     "@sqlhelper/ai-integration": "workspace:*",
     "@sqlhelper/database-core": "workspace:*",
     "@sqlhelper/storage": "workspace:*",
+    "drizzle-orm": "^0.44.5",
+    "drizzle-kit": "^0.31.4",
     "electron-store": "^10.1.0",
     "electron-updater": "^6.6.2",
     "keytar": "^7.9.0",

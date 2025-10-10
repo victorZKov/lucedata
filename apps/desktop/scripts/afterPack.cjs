@@ -24,7 +24,7 @@ module.exports = async function(context) {
   // Get workspace root (go up from apps/desktop/scripts to workspace root)
   const workspaceRoot = path.resolve(__dirname, '../../..');
   const assetsSource = path.join(workspaceRoot, 'apps', 'renderer', 'dist', 'assets');
-  const assetsTarget = path.join(resourcesPath, 'dist', 'apps', 'renderer', 'dist', 'assets');
+  const assetsTarget = path.join(resourcesPath, 'dist', 'renderer', 'assets');
   
   console.log(`Source: ${assetsSource}`);
   console.log(`Target: ${assetsTarget}`);
@@ -51,62 +51,46 @@ module.exports = async function(context) {
     throw error;
   }
   
-  // Fix for pnpm symlinks: Copy electron-store and dependencies from pnpm to actual node_modules
-  // This is needed because pnpm uses symlinks which don't work well in packaged apps
-  if (electronPlatformName === 'win32' || electronPlatformName === 'darwin') {
-    console.log(`\n🔧 Fixing ${electronPlatformName} pnpm symlinks...`);
-    
-    const nodeModulesInApp = path.join(resourcesPath, 'node_modules');
-    const pnpmStore = path.join(workspaceRoot, 'node_modules', '.pnpm');
-    
-    // List of packages to copy with their versions
-    // These need to be copied because pnpm uses symlinks which don't work in Windows installers
-    const packagesToFix = [
-      // electron-store and its direct dependencies
-      { name: 'electron-store', version: '10.1.0' },
-      { name: 'conf', version: '14.0.0' },
-      { name: 'type-fest', version: '4.41.0' },
+  // Copy workspace packages (@sqlhelper/*) from source
+  // The node_modules.packaged has npm dependencies, but not our local packages
+  console.log('\n� Copying workspace packages...');
+  
+  const nodeModulesInApp = path.join(resourcesPath, 'node_modules');
+  const packagesDir = path.join(workspaceRoot, 'packages');
+  
+  const workspacePackages = [
+    'ai-core',
+    'ai-integration',
+    'common',
+    'database-core',
+    'db-core',
+    'guardrails',
+    'local-store',
+    'security-guardrails',
+    'storage',
+    'ui-kit'
+  ];
+  
+  try {
+    for (const pkgName of workspacePackages) {
+      const pkgSource = path.join(packagesDir, pkgName);
+      const pkgTarget = path.join(nodeModulesInApp, '@sqlhelper', pkgName);
       
-      // conf dependencies
-      { name: 'ajv', version: '8.17.1', pnpmPath: 'ajv@8.17.1' },
-      { name: 'ajv-formats', version: '3.0.1', pnpmPath: 'ajv-formats@3.0.1_ajv@8.17.1' },
-      { name: 'atomically', version: '2.0.3' },
-      { name: 'debounce-fn', version: '6.0.0' },
-      { name: 'dot-prop', version: '9.0.0' },
-      { name: 'env-paths', version: '3.0.0' },
-      { name: 'json-schema-typed', version: '8.0.1' },
-      { name: 'semver', version: '7.7.2' },
-      { name: 'uint8array-extras', version: '1.5.0' }
-    ];
-    
-    try {
-      for (const pkg of packagesToFix) {
-        const pnpmPath = pkg.pnpmPath || `${pkg.name}@${pkg.version}`;
-        const pkgSource = path.join(pnpmStore, pnpmPath, 'node_modules', pkg.name);
-        const pkgTarget = path.join(nodeModulesInApp, pkg.name);
+      if (fs.existsSync(pkgSource)) {
+        fs.ensureDirSync(path.dirname(pkgTarget));
         
-        if (fs.existsSync(pkgSource)) {
-          // Remove symlink if exists
-          if (fs.existsSync(pkgTarget)) {
-            fs.removeSync(pkgTarget);
-          }
-          
-          // Copy actual files
-          await fs.copy(pkgSource, pkgTarget, { 
-            overwrite: true,
-            dereference: true // Follow symlinks and copy actual files
-          });
-          
-          console.log(`✅ ${pkg.name} copied`);
-        } else {
-          console.log(`⚠️  ${pkg.name}@${pkg.version} not found, skipping...`);
-        }
+        // Copy the entire package
+        await fs.copy(pkgSource, pkgTarget, {
+          overwrite: true,
+          dereference: true
+        });
+        
+        console.log(`  ✅ @sqlhelper/${pkgName}`);
       }
-      
-      console.log(`✅ All critical packages fixed for ${electronPlatformName}`);
-    } catch (error) {
-      console.error('❌ Error fixing packages:', error);
-      // Don't throw - let build continue
     }
+    console.log('✅ All workspace packages copied');
+  } catch (error) {
+    console.error('❌ Error copying workspace packages:', error);
+    throw error;
   }
 };

@@ -73,16 +73,22 @@ if (!hasDistFiles) {
   console.log('✅ dist/** included in files');
 }
 
-// Check if node_modules is included
-const hasNodeModules = builderConfig.files.some(f => 
-  typeof f === 'string' && f.includes('node_modules')
-);
+// Check if node_modules is included (accepts node_modules.packaged mapping)
+const hasNodeModules = builderConfig.files.some(f => {
+  if (typeof f === 'string') {
+    return f.includes('node_modules');
+  }
+  if (typeof f === 'object' && f.from && f.to) {
+    return f.from.includes('node_modules') && f.to === 'node_modules';
+  }
+  return false;
+});
 if (!hasNodeModules) {
-  console.error('❌ node_modules/** not included in files configuration');
+  console.error('❌ node_modules not included in files configuration');
   console.error('   This will cause "module not found" errors in packaged app!');
   hasErrors = true;
 } else {
-  console.log('✅ node_modules/** included in files');
+  console.log('✅ node_modules included in files (via node_modules.packaged)');
 }
 
 // Check TypeScript build output exists

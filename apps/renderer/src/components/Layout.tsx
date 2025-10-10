@@ -35,6 +35,10 @@ import { ChatHistoryTab } from "./ChatHistoryTab";
 import VersionDialog from "./VersionDialog";
 import { NewChatDialog } from "./NewChatDialog";
 
+interface LayoutProps {
+  isFirstRunActive?: boolean;
+}
+
 interface LayoutState {
   explorerWidth: number;
   chatWidth: number;
@@ -57,7 +61,7 @@ interface ConnectionInfo {
   database?: string | null;
 }
 
-export default function Layout() {
+export default function Layout({ isFirstRunActive = false }: LayoutProps) {
   const { theme, toggleTheme } = useTheme();
   const [platform, setPlatform] = useState<string>("");
   const [layout, setLayout] = useState<LayoutState>(() => {
@@ -407,6 +411,11 @@ export default function Layout() {
 
   // Tips startup logic
   useEffect(() => {
+    // Don't show tips if first-run wizard is active
+    if (isFirstRunActive) {
+      return;
+    }
+
     const checkAndShowTips = async () => {
       try {
         // Check if user wants to see tips at startup
@@ -427,7 +436,7 @@ export default function Layout() {
     };
 
     checkAndShowTips();
-  }, []);
+  }, [isFirstRunActive]);
 
   // Chat dialog handlers
   const handleNewChat = () => {

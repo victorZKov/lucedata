@@ -196,6 +196,10 @@ try {
   // Load the pluggable database adapter (sqlite by default)
   database = await loadDbAdapter("sqlite", { filename: dbPath });
   log("✅ Database adapter loaded");
+
+  // Connect the adapter (which also initializes the database)
+  await database.connect();
+  log("✅ Database adapter connected and initialized");
 } catch (error) {
   logError(
     "Failed to load database adapter, falling back to LocalDatabase",
@@ -204,7 +208,8 @@ try {
   // Fallback: instantiate the LocalDatabase directly for compatibility
   const { LocalDatabase: LD } = await import("@sqlhelper/storage");
   database = new LD(dbPath);
-  log("✅ LocalDatabase fallback created");
+  await database.initialize();
+  log("✅ LocalDatabase fallback created and initialized");
 }
 
 // Define interfaces for AI engines components
@@ -334,14 +339,13 @@ const aiManager = new AIManager();
 const _enhancedAIManager = new EnhancedAIManager();
 const autonomousAIManager = new AutonomousAIManager();
 
-// Initialize database tables
-log("Initializing database tables...");
-database
-  .initialize()
-  .then(async () => {
-    log("✅ Database initialized successfully");
+// Database is already initialized during adapter connection above
+log("✅ Database ready - testing persistence...");
 
-    // Test database persistence
+// Test database persistence (wrapped in async IIFE)
+(async function initializeAndTestDatabase() {
+  try {
+    log("Testing database persistence...");
     try {
       const existingConnections = await database.listConnections();
       console.log(
@@ -383,10 +387,11 @@ database
     } catch (_error) {
       console.error("Failed to initialize AI engines components:", _error);
     }
-  })
-  .catch((error: any) => {
-    console.error("Failed to initialize database:", error);
-  });
+  } catch (error: any) {
+    console.error("Failed during database testing:", error);
+    logError("Database testing failed", error);
+  }
+})();
 
 let mainWindow: BrowserWindow | null = null;
 

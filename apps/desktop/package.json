@@ -14,7 +14,8 @@
     "start:dev": "wait-on dist/apps/desktop/src/main.js && electron dist/apps/desktop/src/main.js --dev",
     "clean": "rimraf dist",
     "type-check": "tsc --noEmit",
-    "dist": "electron-builder --mac --dir"
+    "dist": "electron-builder --mac --dir",
+    "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
     "@sqlhelper/ai-integration": "workspace:*",

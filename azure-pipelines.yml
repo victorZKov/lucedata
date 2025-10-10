@@ -79,8 +79,8 @@ steps:
     displayName: "Cache Electron build artifacts"
 
   - script: |
-      pnpm --filter @sqlhelper/desktop exec -- electron-builder --win nsis --x64 --arm64 --publish never
-    displayName: "Build Windows installers (x64 + arm64)"
+      pnpm --filter @sqlhelper/desktop exec -- electron-builder --win nsis portable --x64 --arm64 --publish never
+    displayName: "Build Windows installers (NSIS + Portable, x64 + arm64)"
     env:
       ELECTRON_CACHE: $(ELECTRON_CACHE)
       ELECTRON_BUILDER_CACHE: $(ELECTRON_BUILDER_CACHE)
@@ -93,7 +93,7 @@ steps:
     displayName: "Publish Windows release artifacts"
 
   - task: AzureFileCopy@6
-    displayName: "Upload release artifacts to Azure Blob Storage"
+    displayName: "Upload release artifacts to Azure Blob Storage (root for updates)"
     condition: succeeded()
     inputs:
       SourcePath: "$(System.DefaultWorkingDirectory)/release"
@@ -102,4 +102,16 @@ steps:
       storage: "$(StorageAccountName)"
       ResourceGroup: "$(StorageResourceGroup)"
       ContainerName: "$(StorageContainerName)"
-      BlobPrefix: "$(StorageBlobPrefix)/$(Build.BuildNumber)"
+      BlobPrefix: "" # upload to container root so generic updater can find latest.yml at base URL
+
+  - task: AzureFileCopy@6
+    displayName: "Upload release artifacts to Azure Blob Storage (versioned archive)"
+    condition: succeeded()
+    inputs:
+      SourcePath: "$(System.DefaultWorkingDirectory)/release"
+      azureSubscription: "$(AzureServiceConnection)"
+      Destination: "AzureBlob"
+      storage: "$(StorageAccountName)"
+      ResourceGroup: "$(StorageResourceGroup)"
+      ContainerName: "$(StorageContainerName)"
+      BlobPrefix: "windows/$(Build.BuildNumber)"

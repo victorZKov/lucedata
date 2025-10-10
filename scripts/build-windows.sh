@@ -33,6 +33,11 @@ echo ""
 echo "⚡ Building desktop (TypeScript)..."
 pnpm --filter @sqlhelper/desktop build
 
+# Prepare node_modules for packaging using pnpm deploy (symlink-free, prod deps)
+echo ""
+echo "📦 Preparing node_modules for packaging (pnpm deploy)..."
+node apps/desktop/scripts/prepare-workspace-modules.mjs
+
 # Build Windows installer
 echo ""
 echo "🪟 Building Windows installer..."

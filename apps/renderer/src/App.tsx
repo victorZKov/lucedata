@@ -206,7 +206,7 @@ function App() {
             }}
           >
             <div style={{ flex: 1, overflow: "auto" }}>
-              <Layout />
+              <Layout isFirstRunActive={showFirstRunWizard} />
             </div>
             <StatusBar />
           </div>

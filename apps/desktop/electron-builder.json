@@ -9,11 +9,20 @@
     "dist/**/*",
     "assets/**/*",
     "package.json",
-    "node_modules/**/*",
-    "!node_modules.packaged",
+    {
+      "from": "node_modules.packaged",
+      "to": "node_modules",
+      "filter": [
+        "**/*",
+        "!.pnpm/electron@*/**",
+        "!.pnpm/@electron/**",
+        "!electron/**",
+        "!@electron/**"
+      ]
+    },
     {
       "from": "../renderer/dist",
-      "to": "dist/apps/renderer/dist"
+      "to": "dist/renderer"
     }
   ],
   "asar": false,
@@ -45,17 +54,17 @@
     "gatekeeperAssess": false,
     "entitlements": "assets/entitlements.mac.plist",
     "entitlementsInherit": "assets/entitlements.mac.plist",
-    "notarize": false
+    "notarize": true
   },
   "win": {
     "target": [
       {
         "target": "nsis",
-        "arch": ["x64"]
+        "arch": ["x64", "arm64"]
       },
       {
         "target": "portable",
-        "arch": ["x64"]
+        "arch": ["x64", "arm64"]
       }
     ],
     "icon": "assets/icon.ico"

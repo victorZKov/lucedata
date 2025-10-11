@@ -159,6 +159,116 @@ if (process.env.NODE_ENV === "development") {
   }
 }
 
+// ----------------------------------------------------------------------------
+// Splash screen (shown only during first run auto-config)
+// ----------------------------------------------------------------------------
+let splashWindow: BrowserWindow | null = null;
+
+function createSplashWindow(): void {
+  try {
+    splashWindow = new BrowserWindow({
+      width: 420,
+      height: 260,
+      resizable: false,
+      movable: true,
+      frame: false,
+      alwaysOnTop: true,
+      show: false,
+      transparent: true,
+      title: "LuceData — Configurando…",
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: true,
+      },
+    });
+
+    const htmlContent = `
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>LuceData — Configurando…</title>
+        <style>
+          html, body { margin:0; padding:0; width:100%; height:100%; background: rgba(20,20,25,0.92); color:#fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+          .wrap { display:flex; align-items:center; justify-content:center; height:100%; flex-direction: column; gap: 12px; }
+          .title { font-size: 16px; font-weight: 600; opacity: 0.95; }
+          .msg { font-size: 13px; opacity: 0.8; text-align:center; max-width: 320px; }
+          .spinner { width: 28px; height: 28px; border: 3px solid rgba(255,255,255,0.2); border-top-color: #4fd1c5; border-radius: 50%; animation: spin 1s linear infinite; }
+          @keyframes spin { to { transform: rotate(360deg); } }
+        </style>
+      </head>
+      <body>
+        <div class="wrap">
+          <div class="spinner"></div>
+          <div class="title">Configurando la aplicación…</div>
+          <div class="msg">Estamos preparando la base de datos local y la configuración inicial. Esto puede tardar unos segundos la primera vez.</div>
+        </div>
+      </body>
+      </html>
+    `;
+    const url = `data:text/html;charset=UTF-8,${encodeURIComponent(htmlContent)}`;
+    splashWindow.loadURL(url).catch(() => {
+      /* ignore */
+    });
+    splashWindow.once("ready-to-show", () => splashWindow?.show());
+  } catch (e) {
+    console.warn("Failed to create splash window", e);
+  }
+}
+
+async function closeSplashWindow(): Promise<void> {
+  try {
+    if (splashWindow && !splashWindow.isDestroyed()) {
+      splashWindow.close();
+    }
+  } catch {
+    /* ignore */
+  } finally {
+    splashWindow = null;
+  }
+}
+
+// ----------------------------------------------------------------------------
+// First-run bootstrap: auto-configure SQLite and mark bootstrap as done
+// ----------------------------------------------------------------------------
+async function runBootstrapIfNeeded(): Promise<void> {
+  try {
+    const done = !!(store as any).get("bootstrap.done");
+    if (done) {
+      log("Bootstrap already completed. Skipping first-run setup.");
+      return;
+    }
+
+    log("First run detected. Starting auto-configuration (SQLite)…");
+    createSplashWindow();
+
+    // Ensure backend is set to sqlite
+    (store as any).set("bootstrap.backend", "sqlite");
+    (store as any).set("bootstrap.connString", null);
+
+    // Best-effort: if adapter exposes migrate(), run it once to ensure schema
+    try {
+      if (database && typeof (database as any).migrate === "function") {
+        log("Running initial database migrations…");
+        await (database as any).migrate();
+        log("✅ Initial migrations completed");
+      }
+    } catch (e) {
+      log("⚠️ Migration step failed or not necessary", {
+        message: (e as any)?.message,
+      });
+    }
+
+    // Mark bootstrap done
+    (store as any).set("bootstrap.done", true);
+    log("✅ First-run auto-configuration completed");
+  } catch (e) {
+    logError("First-run auto-configuration failed", e);
+  } finally {
+    await closeSplashWindow();
+  }
+}
+
 // Define store schema interface
 interface StoreSchema {
   windowBounds: { width: number; height: number };
@@ -911,7 +1021,7 @@ function createMenu(): void {
 }
 
 // App event handlers
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   log("=".repeat(80));
   log("App Ready - Starting window creation");
   log("=".repeat(80));
@@ -932,6 +1042,9 @@ app.whenReady().then(() => {
   }
 
   try {
+    // Auto-configure on first run (shows splash while running)
+    await runBootstrapIfNeeded();
+
     createWindow();
     log("✅ Window creation completed");
   } catch (error) {

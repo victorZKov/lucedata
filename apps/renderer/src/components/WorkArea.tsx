@@ -9,6 +9,7 @@ import {
   AlignLeft,
   Loader2,
   ArrowRight,
+  MessageSquare,
 } from "lucide-react";
 
 import { useTheme } from "../contexts/ThemeContext";
@@ -1355,6 +1356,48 @@ export default function WorkArea() {
 
     setTabs(prev => [...prev, newTab]);
     setActiveTabId(id);
+  };
+
+  const sendErrorToChat = () => {
+    if (!activeTab) return;
+
+    const rawResult = getCurrentResult(activeTab);
+    const currentResult = rawResult ? filterTableResults(rawResult) : null;
+
+    if (!currentResult?.error) return;
+
+    // Get query context
+    const queryText = activeTab.sql || "N/A";
+    const connectionName = activeTab.connectionName || "Unknown connection";
+    const database = activeTab.database || "N/A";
+
+    // Format the error message for the AI
+    const errorMessage = `I executed this SQL query on **${connectionName}** (database: ${database}) and got an error. Can you help me understand and fix it?
+
+**Query:**
+\`\`\`sql
+${queryText}
+\`\`\`
+
+**Error:**
+\`\`\`
+${currentResult.error}
+\`\`\`
+
+Please analyze this error and suggest how to fix the query.`;
+
+    // Send to chat using the existing event system
+    document.dispatchEvent(
+      new CustomEvent("external-chat-message", {
+        detail: {
+          type: "assistant",
+          content: errorMessage,
+          title: "⚠️ Query Error - AI Analysis",
+        },
+      })
+    );
+
+    console.log("📤 Error sent to AI Chat Assistant");
   };
 
   const runQuery = async () => {
@@ -4182,6 +4225,25 @@ ${executionData.query}
                       </button>
                     </div>
                     <div className="flex items-center gap-2">
+                      {/* Show "Send Error to AI" button when on Messages tab with an error */}
+                      {(activeTab.activeResultTab ?? "results") ===
+                        "messages" &&
+                        (() => {
+                          const rawResult = getCurrentResult(activeTab);
+                          const currentResult = rawResult
+                            ? filterTableResults(rawResult)
+                            : null;
+                          return currentResult?.error;
+                        })() && (
+                          <button
+                            onClick={sendErrorToChat}
+                            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors font-medium shadow-sm"
+                            title="Send this error to AI Chat Assistant for help"
+                          >
+                            <MessageSquare className="w-4 h-4" />
+                            Send Error to AI
+                          </button>
+                        )}
                       {sortFields.length > 0 && (
                         <button
                           className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 font-medium transition-colors duration-150 shadow-sm text-xs cursor-pointer"
@@ -4216,8 +4278,20 @@ ${executionData.query}
 
                       if (currentResult?.error) {
                         return (
-                          <div className="p-3 text-sm text-red-600">
-                            {currentResult.error}
+                          <div className="p-3 flex flex-col gap-2">
+                            <div className="text-sm text-red-600">
+                              {currentResult.error}
+                            </div>
+                            <div className="flex justify-end">
+                              <button
+                                onClick={sendErrorToChat}
+                                className="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md bg-blue-600 hover:bg-blue-700 text-white transition-colors"
+                                title="Send this error to AI Chat Assistant for help"
+                              >
+                                <MessageSquare className="w-4 h-4" />
+                                Send to AI Chat
+                              </button>
+                            </div>
                           </div>
                         );
                       }

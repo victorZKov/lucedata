@@ -1,7 +1,9 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": [
+      "ES2022"
+    ],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
@@ -20,11 +22,23 @@
     "isolatedModules": true,
     "incremental": true,
     "paths": {
-      "@sqlhelper/*": ["./packages/*/src"],
-      "@app/*": ["./apps/*/src"]
-    }
+      "@sqlhelper/*": [
+        "./packages/*/src"
+      ],
+      "@app/*": [
+        "./apps/*/src"
+      ]
+    },
+    "jsx": "preserve",
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
   },
-  "include": [],
+  "include": [
+    ".next/types/**/*.ts"
+  ],
   "exclude": [
     "node_modules",
     "dist",
@@ -32,11 +46,23 @@
     "coverage"
   ],
   "references": [
-    { "path": "./apps/desktop" },
-    { "path": "./apps/renderer" },
-    { "path": "./packages/database-core" },
-    { "path": "./packages/storage" },
-    { "path": "./packages/ai-integration" },
-    { "path": "./packages/security-guardrails" }
+    {
+      "path": "./apps/desktop"
+    },
+    {
+      "path": "./apps/renderer"
+    },
+    {
+      "path": "./packages/database-core"
+    },
+    {
+      "path": "./packages/storage"
+    },
+    {
+      "path": "./packages/ai-integration"
+    },
+    {
+      "path": "./packages/security-guardrails"
+    }
   ]
 }

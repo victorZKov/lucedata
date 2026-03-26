@@ -2,7 +2,7 @@
 
 **Doc ID:** 0001  
 **Date:** 2025-09-30  
-**Owner:** Victor Zaragoza / Kovimatic Limited  
+**Owner:** LuceData Team  
 **Status:** Draft (ready for implementation)
 
 ---
@@ -44,7 +44,7 @@ The existing Electron desktop application (internal code **SQLHelper**, brand **
 1. **Packaging**
    1. Use **electron-builder** with `win` target `nsis`, `arch: ["x64","arm64"]`.
    2. App ID: `ie.lucedata.app`; Product Name: `lucedata.ai — SQLHelper`.
-   3. Publisher: `Kovimatic limited www.kovimatic.ie` (note: consider shortening to legal name only for signing UI).
+   3. Publisher: `Your Company Name` (note: consider shortening to legal name only for signing UI).
    4. Embed Windows icon `.ico` into EXE and shortcut.
 2. **Installer (NSIS)**
    1. Per-user install by default; allow per-machine optional.
@@ -106,7 +106,7 @@ The existing Electron desktop application (internal code **SQLHelper**, brand **
 
 - ✅ Pipeline completes under 10 minutes producing two installers (x64/arm64).
 - ✅ App installs and launches successfully on a clean Win11 VM.
-- ✅ (If ACS configured) Windows shows “Verified publisher: Kovimatic …” with no SmartScreen warnings related to unsigned binaries.
+- ✅ (If ACS configured) Windows shows “Verified publisher: Your Company …” with no SmartScreen warnings related to unsigned binaries.
 - ✅ Opt-in telemetry events visible in App Insights and LAW when enabled.
 
 ---
@@ -131,7 +131,7 @@ Use the following **precise instructions** to generate a Windows deployment for 
 - **Installer:** NSIS `.exe`
 - **App ID:** `ie.lucedata.app`
 - **Product Name:** `lucedata.ai — SQLHelper`
-- **Publisher:** `Kovimatic limited www.kovimatic.ie`
+- **Publisher:** `Your Company Name`
 - **Distribution:** Direct download (hosted in Azure Storage Static Website by default)
 - **Auto-Updates:** None in v1
 - **Telemetry:** Opt-in; send to App Insights + Log Analytics
@@ -167,7 +167,7 @@ Use the following **precise instructions** to generate a Windows deployment for 
            }
          ],
          "icon": "build/icon.ico",
-         "publisherName": ["Kovimatic limited www.kovimatic.ie"]
+         "publisherName": ["Your Company Name"]
        },
        "nsis": {
          "oneClick": true,
@@ -250,7 +250,7 @@ steps:
 
 1. **Design brief** (for AI/image tool):
    - **Style:** Minimal, flat.
-   - **Primary colors:** Kovimatic / lucedata brand blues; neutral dark for contrast.
+   - **Primary colors:** LuceData brand blues; neutral dark for contrast.
    - **Motif:** Stylized “L” over a database cylinder (subtle), or interlocking “L•D”.
    - **Edge treatment:** Soft rounded square to read well at 16×16 up to 256×256.
    - **Background:** Transparent PNG at 1024×1024.

@@ -89,7 +89,7 @@ I've created comprehensive website content for LuceData, including legal documen
 All files are in the `bolt-website/` directory:
 
 ```
-/Users/victorzaragoza/Documents/Dev/k/agentfactory/LuceData/bolt-website/
+bolt-website/
 ├── product-website-pack.txt      ← UPDATED (main prompt for bolt.new)
 ├── product-website-prompt.txt    ← UPDATED (alternative prompt)
 ├── privacy-policy.md             ← NEW (privacy policy)

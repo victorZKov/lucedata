@@ -1,36 +1,57 @@
 #!/bin/bash
 # Setup script for macOS code signing and notarization
 # Save this as setup-codesigning.sh and run: source setup-codesigning.sh
+#
+# Before running, set the following environment variables (or create a .env.local file):
+#   APPLE_ID            – Your Apple Developer account email
+#   APPLE_TEAM_ID       – Your Apple Developer Team ID
+#   CSC_NAME            – Certificate identity (e.g. "Developer ID Application: Your Name (TEAM_ID)")
+#   APPLE_APP_SPECIFIC_PASSWORD – App-specific password for notarization
 
-echo "🔐 Configurando credenciales para Code Signing y Notarización de macOS"
+echo "🔐 Setting up macOS Code Signing and Notarization credentials"
 echo ""
 
 # Apple ID
-export APPLE_ID="victorxata@gmail.com"
-echo "✅ APPLE_ID configurado: $APPLE_ID"
+if [ -z "$APPLE_ID" ]; then
+  echo "⚠️  APPLE_ID is not set. Please export it before running this script."
+  echo "   export APPLE_ID=\"your-apple-id@example.com\""
+else
+  echo "✅ APPLE_ID is set: $APPLE_ID"
+fi
 
 # Team ID
-export APPLE_TEAM_ID="M67Z86T2VX"
-echo "✅ APPLE_TEAM_ID configurado: $APPLE_TEAM_ID"
+if [ -z "$APPLE_TEAM_ID" ]; then
+  echo "⚠️  APPLE_TEAM_ID is not set. Please export it before running this script."
+  echo "   export APPLE_TEAM_ID=\"YOUR_TEAM_ID\""
+else
+  echo "✅ APPLE_TEAM_ID is set: $APPLE_TEAM_ID"
+fi
 
-# App-Specific Password (necesitas crearla en https://appleid.apple.com)
-echo ""
-echo "⚠️  Necesitas configurar APPLE_APP_SPECIFIC_PASSWORD"
-echo "   1. Ve a: https://appleid.apple.com/account/manage"
-echo "   2. En 'Sign-In and Security', busca 'App-Specific Passwords'"
-echo "   3. Crea una nueva con el nombre: 'LuceData Notarization'"
-echo "   4. Copia la contraseña generada (formato: xxxx-xxxx-xxxx-xxxx)"
-echo ""
-echo "Luego ejecuta:"
-echo "export APPLE_APP_SPECIFIC_PASSWORD='tu-contraseña-aqui'"
-echo ""
+# App-Specific Password
+if [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
+  echo ""
+  echo "⚠️  APPLE_APP_SPECIFIC_PASSWORD is not set."
+  echo "   1. Go to: https://appleid.apple.com/account/manage"
+  echo "   2. Under 'Sign-In and Security', find 'App-Specific Passwords'"
+  echo "   3. Create a new one named 'LuceData Notarization'"
+  echo "   4. Copy the generated password (format: xxxx-xxxx-xxxx-xxxx)"
+  echo ""
+  echo "   Then run:"
+  echo "   export APPLE_APP_SPECIFIC_PASSWORD='your-password-here'"
+else
+  echo "✅ APPLE_APP_SPECIFIC_PASSWORD is set"
+fi
 
-# Certificate identity (ya lo tenemos instalado)
-export CSC_NAME="Developer ID Application: KOVIMATIC LIMITED (M67Z86T2VX)"
-echo "✅ CSC_NAME configurado: $CSC_NAME"
+# Certificate identity
+if [ -z "$CSC_NAME" ]; then
+  echo "⚠️  CSC_NAME is not set. Please export it before running this script."
+  echo "   export CSC_NAME=\"Developer ID Application: Your Name (TEAM_ID)\""
+else
+  echo "✅ CSC_NAME is set: $CSC_NAME"
+fi
 
 echo ""
-echo "🎯 Para verificar que todo está configurado correctamente, ejecuta:"
+echo "🎯 To verify your code signing setup, run:"
 echo "   security find-identity -v -p codesigning"
 echo ""
-echo "📝 Para guardar estas variables permanentemente, agrégalas a tu ~/.zshrc"
+echo "📝 To persist these variables, add them to your ~/.zshrc or ~/.bashrc"

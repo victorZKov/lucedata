@@ -59,7 +59,7 @@ The Downloads form sends an email notification and then reveals the correct inst
 ```
 RESEND_API_KEY=<your_resend_api_key>
 EMAIL_FROM=downloads@lucedata.app
-DOWNLOAD_REQUESTS_EMAIL=it@kovimatic.com
+DOWNLOAD_REQUESTS_EMAIL=your-team@example.com
 
 NEXT_PUBLIC_DOWNLOAD_URL_MAC_ARM64=<public_url_to_arm64_dmg_or_zip>
 NEXT_PUBLIC_DOWNLOAD_URL_MAC_X64=<public_url_to_intel_dmg_or_zip>
@@ -71,7 +71,7 @@ NEXT_PUBLIC_DOWNLOAD_URL_WINDOWS=<public_url_to_windows_installer_exe_or_zip>
 Notes:
 
 - If `RESEND_API_KEY` is not set, the API will skip sending the email but will still return the download link (useful for local testing).
-- The email is sent to `it@kovimatic.com` by default; override with `DOWNLOAD_REQUESTS_EMAIL` if needed.
+- The email is sent to the address set in `DOWNLOAD_REQUESTS_EMAIL`; if not set, the notification email is skipped.
 
 ## Deploying to Vercel
 
@@ -82,7 +82,7 @@ Notes:
 - Set the following Environment Variables in Vercel:
   - `RESEND_API_KEY`
   - `EMAIL_FROM`
-  - `DOWNLOAD_REQUESTS_EMAIL` (optional; defaults to `it@kovimatic.com`)
+  - `DOWNLOAD_REQUESTS_EMAIL` (required for notification emails)
   - `NEXT_PUBLIC_DOWNLOAD_URL_MAC_ARM64`
   - `NEXT_PUBLIC_DOWNLOAD_URL_MAC_X64`
   - `NEXT_PUBLIC_DOWNLOAD_URL_WINDOWS`

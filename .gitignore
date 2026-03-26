@@ -123,4 +123,8 @@ temp/
 .husky/_
 
 .turbo/
+
+# Azurite emulator files
+__azurite_db_blob__.json
+__azurite_db_blob_extent__.json
 apps/desktop/node_modules.packaged/

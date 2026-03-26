@@ -4,7 +4,7 @@
 
 ### ✅ Código Firmado y Notarizado (macOS)
 
-- **Certificado**: Developer ID Application: KOVIMATIC LIMITED (M67Z86T2VX)
+- **Certificado**: Developer ID Application: Your Company Name (YOUR_TEAM_ID)
 - **Notarización**: Completada con Apple
 - **Resultado**: Sin advertencias de seguridad en macOS
 
@@ -37,7 +37,7 @@
 
 ## Archivos en Azure Storage
 
-**URL base**: https://nedevcolst01.z16.web.core.windows.net
+**URL base**: https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net
 
 ### macOS
 

@@ -5,7 +5,7 @@
 LuceData is configured to check for updates from Azure Storage at:
 
 ```
-https://nedevcolst01.z16.web.core.windows.net
+https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net
 ```
 
 ## Required Files on Azure Storage
@@ -83,7 +83,7 @@ releaseDate: "2025-10-04T00:00:00.000Z"
 
 ```bash
 # Make sure you're in the project root
-cd /Users/victorzaragoza/Documents/Dev/k/agentfactory/SQLHelper
+cd /path/to/lucedata
 
 # Build all packages
 pnpm build
@@ -115,7 +115,7 @@ release/
 
 #### Option A: Azure Portal
 
-1. Go to Azure Portal → Your Storage Account (nedevcolst01)
+1. Go to Azure Portal → Your Storage Account (<YOUR_STORAGE_ACCOUNT>)
 2. Navigate to **Static website** or your container
 3. Upload ALL files from `release/` directory
 4. Make sure the files are publicly accessible
@@ -127,7 +127,7 @@ release/
 az login
 
 # Set variables
-STORAGE_ACCOUNT="nedevcolst01"
+STORAGE_ACCOUNT="<YOUR_STORAGE_ACCOUNT>"
 CONTAINER_NAME="\$web"  # For static websites
 RELEASE_DIR="../../release"
 
@@ -155,7 +155,7 @@ az storage blob list \
 # Upload files
 azcopy copy \
   "../../release/*" \
-  "https://nedevcolst01.z16.web.core.windows.net/" \
+  "https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/" \
   --recursive
 ```
 
@@ -165,10 +165,10 @@ Test that the files are accessible:
 
 ```bash
 # Check if latest-mac.yml is accessible
-curl https://nedevcolst01.z16.web.core.windows.net/latest-mac.yml
+curl https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/latest-mac.yml
 
 # Check if installer is accessible
-curl -I "https://nedevcolst01.z16.web.core.windows.net/SQL Helper-0.1.845-arm64.dmg.zip"
+curl -I "https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/SQL Helper-0.1.845-arm64.dmg.zip"
 ```
 
 Both should return 200 OK status.
@@ -178,7 +178,7 @@ Both should return 200 OK status.
 Your Azure Storage should look like this:
 
 ```
-https://nedevcolst01.z16.web.core.windows.net/
+https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/
 ├── latest-mac.yml
 ├── latest.yml
 ├── latest-linux.yml
@@ -224,7 +224,7 @@ If users get CORS errors, you need to configure CORS on your Azure Storage:
 
 ```bash
 az storage cors add \
-  --account-name nedevcolst01 \
+  --account-name <YOUR_STORAGE_ACCOUNT> \
   --services b \
   --methods GET HEAD \
   --origins "*" \
@@ -255,7 +255,7 @@ Make sure your container allows public read access:
 
 ```bash
 # Start the app
-cd /Users/victorzaragoza/Documents/Dev/k/agentfactory/SQLHelper
+cd /path/to/lucedata
 ./dev.sh
 ```
 
@@ -270,7 +270,7 @@ The app will check for updates on launch. Check the console for:
 
 ```bash
 # Check if electron-updater can fetch the manifest
-curl https://nedevcolst01.z16.web.core.windows.net/latest-mac.yml
+curl https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/latest-mac.yml
 ```
 
 Should return something like:
@@ -304,7 +304,7 @@ Create a deployment script to automate the process:
 
 set -e
 
-STORAGE_ACCOUNT="nedevcolst01"
+STORAGE_ACCOUNT="<YOUR_STORAGE_ACCOUNT>"
 CONTAINER="\$web"
 RELEASE_DIR="../../release"
 
@@ -323,11 +323,11 @@ az storage blob upload-batch \
   --auth-mode login
 
 echo "✅ Deployment complete!"
-echo "🌐 Updates available at: https://nedevcolst01.z16.web.core.windows.net/"
+echo "🌐 Updates available at: https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/"
 
 # Test the deployment
 echo "🧪 Testing deployment..."
-curl -s https://nedevcolst01.z16.web.core.windows.net/latest-mac.yml | head -1
+curl -s https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/latest-mac.yml | head -1
 ```
 
 Make it executable:
@@ -351,10 +351,10 @@ chmod +x deploy-update.sh
 
 ```bash
 # Check if manifest is accessible
-curl https://nedevcolst01.z16.web.core.windows.net/latest-mac.yml
+curl https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/latest-mac.yml
 
 # Check version in manifest
-curl https://nedevcolst01.z16.web.core.windows.net/latest-mac.yml | grep version
+curl https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/latest-mac.yml | grep version
 
 # Check app logs for specific error
 ```
@@ -371,7 +371,7 @@ curl https://nedevcolst01.z16.web.core.windows.net/latest-mac.yml | grep version
 
 ```bash
 # Test direct download
-curl -I "https://nedevcolst01.z16.web.core.windows.net/LuceData-0.1.845-arm64.dmg.zip"
+curl -I "https://<YOUR_STORAGE_ACCOUNT>.z16.web.core.windows.net/LuceData-0.1.845-arm64.dmg.zip"
 # Should return 200 OK
 ```
 

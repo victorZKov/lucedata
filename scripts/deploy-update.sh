@@ -5,8 +5,8 @@
 
 set -e
 
-# Configuration
-STORAGE_ACCOUNT="nedevcolst01"
+# Configuration – set these via environment variables or a .env.local file
+STORAGE_ACCOUNT="${AZURE_STORAGE_ACCOUNT:?Set AZURE_STORAGE_ACCOUNT before running this script}"
 CONTAINER="\$web"
 RELEASE_DIR="release"
 
@@ -227,7 +227,7 @@ echo ""
 log_info "Verifying deployment..."
 echo ""
 
-BASE_URL="https://nedevcolst01.z16.web.core.windows.net"
+BASE_URL="${AZURE_STORAGE_BASE_URL:?Set AZURE_STORAGE_BASE_URL before running this script}"
 
 # Check latest-mac.yml
 if curl -f -s "$BASE_URL/latest-mac.yml" > /dev/null; then

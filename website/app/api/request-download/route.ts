@@ -60,30 +60,35 @@ export async function POST(req: Request) {
     }
 
     const resendApiKey = process.env.RESEND_API_KEY;
-    const toEmail = process.env.DOWNLOAD_REQUESTS_EMAIL || "it@kovimatic.ie";
+    const toEmail = process.env.DOWNLOAD_REQUESTS_EMAIL || "";
     if (!resendApiKey) {
       console.warn("RESEND_API_KEY not set — skipping email send");
+    }
+    if (!toEmail) {
+      console.warn("DOWNLOAD_REQUESTS_EMAIL not set — skipping notification email");
     }
 
     if (resendApiKey) {
       const resend = new Resend(resendApiKey);
-      const subject = `New beta download request: ${normalizedPlatform}`;
-      const text = `A user requested a download link.\n\nName: ${name || "(not provided)"}\nEmail: ${email}\nPlatform: ${normalizedPlatform}\n\nDirect link: ${downloadUrl}`;
-      try {
-        await resend.emails.send({
-          from:
-            (process.env.EMAIL_FROM_NAME
-              ? `${process.env.EMAIL_FROM_NAME} <${process.env.EMAIL_FROM}>`
-              : process.env.EMAIL_FROM) ||
-            "LuceData Beta <downloads@lucedata.com>",
-          to: toEmail,
-          replyTo: email,
-          subject,
-          text,
-        });
-      } catch (e) {
-        console.error("Failed to send email via Resend", e);
-        // Continue even if email fails; we still return the link
+      if (toEmail) {
+        const subject = `New beta download request: ${normalizedPlatform}`;
+        const text = `A user requested a download link.\n\nName: ${name || "(not provided)"}\nEmail: ${email}\nPlatform: ${normalizedPlatform}\n\nDirect link: ${downloadUrl}`;
+        try {
+          await resend.emails.send({
+            from:
+              (process.env.EMAIL_FROM_NAME
+                ? `${process.env.EMAIL_FROM_NAME} <${process.env.EMAIL_FROM}>`
+                : process.env.EMAIL_FROM) ||
+              "LuceData Beta <downloads@lucedata.com>",
+            to: toEmail,
+            replyTo: email,
+            subject,
+            text,
+          });
+        } catch (e) {
+          console.error("Failed to send email via Resend", e);
+          // Continue even if email fails; we still return the link
+        }
       }
 
       // Also send a confirmation email to the requester with the direct link

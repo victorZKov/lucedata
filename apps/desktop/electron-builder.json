@@ -105,6 +105,6 @@
   },
   "publish": {
     "provider": "generic",
-    "url": "https://nedevcolst01.z16.web.core.windows.net"
+    "url": "${PUBLISH_URL}"
   }
 }

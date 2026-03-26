@@ -60,7 +60,7 @@ export async function POST(req: Request) {
     }
 
     const resendApiKey = process.env.RESEND_API_KEY;
-    const toEmail = process.env.DOWNLOAD_REQUESTS_EMAIL || "";
+    const toEmail = process.env.DOWNLOAD_REQUESTS_EMAIL;
     if (!resendApiKey) {
       console.warn("RESEND_API_KEY not set — skipping email send");
     }

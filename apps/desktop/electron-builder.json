@@ -105,6 +105,6 @@
   },
   "publish": {
     "provider": "generic",
-    "url": "${PUBLISH_URL}"
+    "url": "${ELECTRON_PUBLISH_URL}"
   }
 }

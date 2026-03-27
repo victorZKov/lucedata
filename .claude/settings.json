@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find /Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata -type f -name *.env* -o -name *.key -o -name *.pem -o -name *credentials* -o -name *secret* -o -name *.conf)",
+      "Bash(grep -r \"NEXTAUTH\\\\|PRISMA\\\\|DATABASE_URL\\\\|OPENAI_API\\\\|ANTHROPIC_API\" /Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata --include=*.ts --include=*.tsx --include=*.js --include=*.jsx --include=*.json)",
+      "Bash(grep -r \"storage\\\\.azure\\\\|\\\\.blob\\\\.core\\\\|subscription\\\\|tenant\\\\|client\" /Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata --include=*.ts --include=*.js --include=*.tsx)",
+      "Bash(find /Users/victorzaragoza/Documents/Dev -type d -name *scraper*)",
+      "Bash(find /Users/victorzaragoza/Documents/Dev -maxdepth 4 -name *.tsx -path *scraper*)",
+      "Bash(grep -rn \"import.*from.*lucide-react\" /Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata/website/components/*.tsx)",
+      "Bash(grep -r author /Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata/apps/*/package.json)",
+      "Read(//Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata/**)",
+      "Bash(wc -l packages/ai-integration/src/*.ts apps/renderer/src/components/WorkArea.tsx)",
+      "Bash(grep -E \"noEmit\" /Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata/apps/*/tsconfig.json /Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata/packages/*/tsconfig.json)",
+      "Bash(pnpm audit:*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); [print\\(k,v\\) for k,v in {**d.get\\(''''dependencies'''',{}\\),**d.get\\(''''devDependencies'''',{}\\)}.items\\(\\) if any\\(p in k for p in [''''react-router'''',''''vite'''',''''rollup'''']\\)]\")",
+      "Bash(pnpm ls:*)",
+      "Bash(npm view:*)",
+      "Bash(python3 -c \"import json,sys; v=json.load\\(sys.stdin\\); print\\(v[-5:]\\)\")",
+      "Bash(./scripts/dev.sh)",
+      "Bash(rm -rf node_modules/.pnpm/electron@38.2.1 node_modules/.pnpm/electron@* node_modules/electron)",
+      "Bash(ELECTRON_SKIP_BINARY_DOWNLOAD= pnpm install --force)",
+      "Bash(node_modules/.pnpm/electron@38.2.1/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron --version)",
+      "mcp__claude_ai_Vercel__list_projects",
+      "mcp__claude_ai_Vercel__list_teams",
+      "mcp__claude_ai_Vercel__get_deployment_build_logs",
+      "mcp__claude_ai_Vercel__get_deployment",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\(''''rootDirectory'''',''''\\(not set\\)''''\\), d.get\\(''''error'''',{}\\).get\\(''''message'''',''''''''\\)\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\(''''token'''',''''''''\\)[:10]+''''...''''\\)\")",
+      "Bash(python3 -c \"import json,sys; vs=[v for v in json.load\\(sys.stdin\\) if v.startswith\\(''''15.''''\\)]; print\\(vs[-5:]\\)\")"
+    ],
+    "additionalDirectories": [
+      "/Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata/.git",
+      "/Users/victorzaragoza/Documents/Dev/k/agentfactory/lucedata/packages/storage/src"
+    ]
+  }
+}

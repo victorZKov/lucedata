@@ -1,0 +1,87 @@
+{
+  "name": "lucedata",
+  "version": "0.1.4",
+  "description": "Cross-platform AI-assisted SQL database desktop application",
+  "private": true,
+  "author": "LuceData <support@lucedata.com>",
+  "license": "MIT",
+  "homepage": "https://lucedata.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/victorZKov/lucedata.git"
+  },
+  "bugs": {
+    "url": "https://github.com/victorZKov/lucedata/issues"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tools/*",
+    "website"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,md}\"",
+    "clean": "turbo run clean",
+    "type-check": "turbo run type-check",
+    "prepare": "husky install",
+    "validate": "node scripts/validate-build.mjs",
+    "build:win": "./scripts/build-windows.sh",
+    "build:mac": "./scripts/build-mac.sh",
+    "build:all": "pnpm run build:win && pnpm run build:mac"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@tailwindcss/postcss": "^4.1.13",
+    "@tailwindcss/vite": "^4.1.13",
+    "@types/node": "^24.5.2",
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
+    "eslint": "^9.36.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-prettier": "^5.5.4",
+    "globals": "^16.4.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^16.2.0",
+    "prettier": "^3.6.2",
+    "turbo": "^2.5.6",
+    "typescript": "^5.3.3"
+  },
+  "packageManager": "pnpm@8.12.1",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "dependencies": {
+    "drizzle-kit": "^0.31.4",
+    "drizzle-orm": "^0.44.5",
+    "pg": "^8.16.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "tar": ">=7.5.11",
+      "minimatch": ">=10.2.3",
+      "glob": ">=11.1.0",
+      "rollup": ">=4.59.0",
+      "sharp": ">=0.32.6",
+      "axios": ">=1.13.5",
+      "flatted": ">=3.4.2",
+      "jws": ">=3.2.3",
+      "js-yaml": ">=4.1.1",
+      "yaml": ">=2.8.3",
+      "lodash": ">=4.17.23",
+      "esbuild": ">=0.25.0",
+      "picomatch": ">=4.0.4",
+      "brace-expansion": ">=2.0.3",
+      "@isaacs/brace-expansion": ">=5.0.1",
+      "mdast-util-to-hast": ">=13.2.1",
+      "react-router": ">=7.12.0",
+      "vite": ">=7.1.11"
+    }
+  }
+}

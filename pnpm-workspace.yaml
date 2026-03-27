@@ -1,0 +1,10 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+  - "tools/*"
+  # Website is separate - run with: cd website && pnpm dev
+  # - 'website'
+
+enable-pre-post-scripts: true
+auto-install-peers: true
+prefer-workspace-packages: true

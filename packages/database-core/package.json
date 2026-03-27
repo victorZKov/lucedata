@@ -1,0 +1,36 @@
+{
+  "name": "@sqlhelper/database-core",
+  "version": "0.1.0",
+  "description": "Core database interfaces and provider implementations",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/mssql": "^9.1.8",
+    "@types/mysql2": "github:types/mysql2",
+    "@types/pg": "^8.15.5",
+    "better-sqlite3": "^12.4.1",
+    "mssql": "^11.0.1",
+    "mysql2": "^3.15.0",
+    "pg": "^8.16.3"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.0",
+    "typescript": "^5.3.3"
+  },
+  "author": "LuceData <support@lucedata.com>",
+  "license": "MIT"
+}

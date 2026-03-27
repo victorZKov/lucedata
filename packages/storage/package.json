@@ -1,0 +1,35 @@
+{
+  "name": "@sqlhelper/storage",
+  "version": "0.1.0",
+  "description": "Local storage system with SQLite, Drizzle ORM, and secure credential storage",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "drizzle-orm": "^0.44.5",
+    "drizzle-kit": "^0.31.4",
+    "keytar": "^7.9.0",
+    "@types/keytar": "^4.4.2",
+    "electron-store": "^10.1.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "tsup": "^8.5.0"
+  },
+  "author": "LuceData <support@lucedata.com>",
+  "license": "MIT"
+}
